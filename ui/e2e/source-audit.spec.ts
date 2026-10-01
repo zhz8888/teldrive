@@ -41,3 +41,14 @@ test("all active API consumers import generated OpenAPI types", () => {
     expect(importsGeneratedTypes, relative(sourceRoot, path)).toBe(true);
   }
 });
+
+test("the login form keeps its per-step autocomplete semantics", () => {
+  const source = readFileSync(join(sourceRoot, "routes/login.tsx"), "utf8");
+  // A bare text field followed by a password field reads as a credential pair to
+  // browsers, which then replay the typed text into the field that replaced it:
+  // the Telegram code used to reappear in the two-step password input. These
+  // hints are what keep the two apart.
+  expect(source).toContain('autoComplete="tel"');
+  expect(source).toContain('autoComplete="one-time-code"');
+  expect(source).toContain('autoComplete="current-password"');
+});

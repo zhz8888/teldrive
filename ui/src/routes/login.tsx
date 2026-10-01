@@ -48,6 +48,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [qrUrl, setQrUrl] = useState("");
   const [qrExpiry, setQrExpiry] = useState("");
+  const [clock, setClock] = useState(() => Date.now());
 
   const startPhone = $api.useMutation("post", "/v1/auth/telegram/start");
   const verifyCode = $api.useMutation("post", "/v1/auth/cookie/telegram/verify-code");
@@ -151,12 +152,37 @@ function LoginPage() {
     };
   }, [method]);
 
+  // Each step owns exactly one input, and browsers like to replay the text of a
+  // field that just disappeared into the password field that appeared in its
+  // place. Dropping the previous step's value keeps the two apart.
+  useEffect(() => {
+    if (step === "password") setCode("");
+    if (step !== "password") setPassword("");
+  }, [step]);
+
+  // Tick once a second so the QR screen can show a countdown instead of a
+  // wall-clock expiry that means nothing while the code rotates every 30s.
+  useEffect(() => {
+    if (!qrExpiry) return;
+    setClock(Date.now());
+    const tick = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [qrExpiry]);
+
+  const qrSecondsLeft = qrExpiry
+    ? Math.max(0, Math.ceil((new Date(qrExpiry).getTime() - clock) / 1000))
+    : null;
+
   return (
     <main className="grid min-h-dvh bg-background text-foreground lg:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
       <section className="hidden border-r border-border bg-sidebar/70 p-12 lg:flex lg:flex-col lg:justify-between">
-        <div className="flex size-11 items-center justify-center rounded-xl bg-accent font-semibold text-accent-foreground">
-          TD
-        </div>
+        <img
+          src="/images/apple-touch-icon.png"
+          alt="Teldrive"
+          width={44}
+          height={44}
+          className="size-11 rounded-xl"
+        />
         <div className="my-auto max-w-xl">
           <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-accent">
             Teldrive
@@ -197,11 +223,15 @@ function LoginPage() {
                 </Tabs.List>
               </Tabs.ListContainer>
               <Tabs.Panel id="phone" className="space-y-4 pt-4">
+                {/* Without autocomplete hints browsers classify the code field as
+                    a username and replay it into the password field that appears
+                    next; one-time-code/current-password keep the two apart. */}
                 {step === "phone" && (
                   <TextField className="grid gap-1">
                     <Label>Telegram phone number</Label>
                     <Input
                       autoFocus
+                      autoComplete="tel"
                       placeholder="+12025550123"
                       value={phone}
                       onChange={(event) => setPhone(event.target.value)}
@@ -214,6 +244,7 @@ function LoginPage() {
                     <Label>Telegram code</Label>
                     <Input
                       autoFocus
+                      autoComplete="one-time-code"
                       inputMode="numeric"
                       value={code}
                       onChange={(event) => setCode(event.target.value)}
@@ -225,6 +256,7 @@ function LoginPage() {
                     <Label>Two-step verification password</Label>
                     <Input
                       autoFocus
+                      autoComplete="current-password"
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
@@ -271,7 +303,11 @@ function LoginPage() {
                     Settings → Devices → Link Desktop Device
                   </p>
                   <p className="mt-2 text-xs text-muted">
-                    Expires {qrExpiry ? new Date(qrExpiry).toLocaleTimeString() : "soon"}
+                    {qrSecondsLeft === null
+                      ? "Preparing a sign-in code…"
+                      : qrSecondsLeft > 0
+                        ? `Expires in ${qrSecondsLeft}s`
+                        : "Code expired — a fresh one appears automatically"}
                   </p>
                 </div>
               </Tabs.Panel>
