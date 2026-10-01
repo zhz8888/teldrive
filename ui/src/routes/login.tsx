@@ -99,6 +99,7 @@ function LoginPage() {
     if (method !== "qr") return;
     let active = true;
     let timer = 0;
+    let polling = false;
     void startQr
       .mutateAsync({ params: { header: { "Idempotency-Key": newIdempotencyKey() } } })
       .then((result) => {
@@ -108,6 +109,11 @@ function LoginPage() {
         setQrUrl(flow.qrUrl ?? "");
         setQrExpiry(flow.qrExpiresAt ?? flow.expiresAt);
         timer = window.setInterval(async () => {
+          // A Telegram round trip regularly outlives the interval, so skip the
+          // tick instead of stacking overlapping polls: every poll exports a new
+          // login token, and the extra exports only delay the scan.
+          if (polling) return;
+          polling = true;
           try {
             const next = await pollQr.mutateAsync({
               params: { header: { "Idempotency-Key": newIdempotencyKey() } },
@@ -131,6 +137,8 @@ function LoginPage() {
           } catch (error) {
             window.clearInterval(timer);
             toast.error("QR sign-in stopped", { description: userMessage(error) });
+          } finally {
+            polling = false;
           }
         }, 2500);
       })
