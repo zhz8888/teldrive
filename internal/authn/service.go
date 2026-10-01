@@ -192,6 +192,20 @@ func (s *Service) PollQR(ctx context.Context, flowID uuid.UUID) (*VerifyResult, 
 		if flow.Method != sqlcgen.TelegramLoginMethodQr {
 			return nil, ErrInvalidInput
 		}
+		// A flow that already reached the two-step password prompt must not be
+		// polled again. Every auth.exportLoginToken call mints a fresh login
+		// token, and only the token the phone actually scanned carries the
+		// pending-password state, so one more export reports
+		// PasswordRequired=false and overwrites both the flag and the session
+		// state that checkPassword has to resume. Polls are serialized per flow
+		// by the advisory lock, so the flag read here cannot be rolled back by a
+		// concurrent poll afterwards either.
+		if flow.PasswordRequired {
+			id, _ := dbtypes.GoogleUUID(flow.ID)
+			return &VerifyResult{QRFlow: &QRFlowResult{
+				ID: id, ExpiresAt: flow.ExpiresAt.Time, PasswordRequired: true,
+			}}, nil
+		}
 		state, err := s.cipher.Open("login-state", flow.TelegramStateCiphertext)
 		if err != nil {
 			return nil, err

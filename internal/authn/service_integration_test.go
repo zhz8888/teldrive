@@ -290,6 +290,94 @@ FROM telegram_login_flows WHERE id=$1`, flow.ID).Scan(&method, &phone, &state); 
 	}
 }
 
+// Regression test for the two-step QR flow. Once the phone confirmed the QR and
+// Telegram asked for the account's two-step password, polls must stop exporting
+// login tokens: every export mints a brand new token, so the "no password
+// required" answer of a later poll used to reset password_required and overwrite
+// the session, which made the password the user was typing at that moment fail
+// with an invalid-request response.
+func TestQRPollKeepsPasswordRequiredState(t *testing.T) {
+	db := testpostgres.New(t)
+	cipher, err := secureblob.NewWithKey(bytes.Repeat([]byte{3}, 32), bytes.NewReader(bytes.Repeat([]byte{4}, 24*20)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := &fakeQRLogin{username: "alloweduser", passwordOnFirstPoll: true, verifyPasswordUnlocks: true}
+	service, err := NewService(db.Pool, cipher, gateway, Config{
+		SigningKey: "0123456789abcdef0123456789abcdef", Issuer: "test",
+		AccessTokenTTL: time.Hour, RefreshTokenTTL: 24 * time.Hour, LoginFlowTTL: 10 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.random = bytes.NewReader(bytes.Repeat([]byte{5}, 256))
+	ctx := context.Background()
+
+	flow, err := service.StartQR(ctx)
+	if err != nil {
+		t.Fatalf("StartQR() error = %v", err)
+	}
+	scanned, err := service.PollQR(ctx, flow.ID)
+	if err != nil {
+		t.Fatalf("PollQR(scanned) error = %v", err)
+	}
+	if scanned.QRFlow == nil || !scanned.QRFlow.PasswordRequired || scanned.Tokens != nil {
+		t.Fatalf("PollQR(scanned) = %#v", scanned)
+	}
+	if polls := gateway.pollCount(); polls != 1 {
+		t.Fatalf("gateway polls = %d, want 1", polls)
+	}
+	var required bool
+	var stateAfterScan []byte
+	if err := db.Pool.QueryRow(ctx, `
+SELECT password_required, telegram_state_ciphertext
+FROM telegram_login_flows WHERE id=$1`, flow.ID).Scan(&required, &stateAfterScan); err != nil {
+		t.Fatal(err)
+	}
+	if !required {
+		t.Fatal("password_required was not persisted after the QR was confirmed")
+	}
+
+	// These are the polls that were already in flight when the password prompt
+	// appeared. They must neither export another token nor rewrite the session.
+	for attempt := range 3 {
+		again, err := service.PollQR(ctx, flow.ID)
+		if err != nil {
+			t.Fatalf("PollQR(again %d) error = %v", attempt, err)
+		}
+		if again.QRFlow == nil || !again.QRFlow.PasswordRequired || again.Tokens != nil {
+			t.Fatalf("PollQR(again %d) = %#v", attempt, again)
+		}
+		if again.QRFlow.QRURL != "" {
+			t.Fatalf("PollQR(again %d) returned QR URL %q after the password prompt", attempt, again.QRFlow.QRURL)
+		}
+	}
+	if polls := gateway.pollCount(); polls != 1 {
+		t.Fatalf("gateway polls after further polls = %d, want 1", polls)
+	}
+	var requiredAfterPolls bool
+	var stateAfterPolls []byte
+	if err := db.Pool.QueryRow(ctx, `
+SELECT password_required, telegram_state_ciphertext
+FROM telegram_login_flows WHERE id=$1`, flow.ID).Scan(&requiredAfterPolls, &stateAfterPolls); err != nil {
+		t.Fatal(err)
+	}
+	if !requiredAfterPolls {
+		t.Fatal("password_required was reset by a poll that ran after the password prompt")
+	}
+	if !bytes.Equal(stateAfterPolls, stateAfterScan) {
+		t.Fatal("stored login state was rewritten after the password prompt")
+	}
+
+	completed, err := service.VerifyPassword(ctx, flow.ID, "correct horse battery staple")
+	if err != nil {
+		t.Fatalf("VerifyPassword() error = %v", err)
+	}
+	if completed.Tokens == nil || completed.Tokens.AccessToken == "" || completed.Tokens.RefreshToken == "" {
+		t.Fatalf("VerifyPassword() = %#v", completed)
+	}
+}
+
 type fakeTelegramLogin struct {
 	mu            sync.Mutex
 	startCalls    int
@@ -340,6 +428,17 @@ type fakeQRLogin struct {
 	polls               int
 	username            string
 	completeOnFirstPoll bool
+	// passwordOnFirstPoll makes the first poll report that Telegram accepted the
+	// scanned token but the account still needs its two-step password.
+	passwordOnFirstPoll bool
+	// verifyPasswordUnlocks lets VerifyPassword complete the login.
+	verifyPasswordUnlocks bool
+}
+
+func (f *fakeQRLogin) pollCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.polls
 }
 
 func (f *fakeQRLogin) Start(context.Context, string) (LoginStep, error) {
@@ -351,7 +450,17 @@ func (f *fakeQRLogin) VerifyCode(context.Context, string, []byte, string) (Login
 }
 
 func (f *fakeQRLogin) VerifyPassword(context.Context, []byte, string) (LoginStep, error) {
-	return LoginStep{}, ErrLoginStateInvalid
+	if !f.verifyPasswordUnlocks {
+		return LoginStep{}, ErrLoginStateInvalid
+	}
+	userID := int64(1001)
+	if f.username == "blockeduser" {
+		userID = 2002
+	}
+	return LoginStep{
+		User:    &TelegramUser{ID: userID, DisplayName: "QR User", Username: f.username},
+		Session: []byte("qr-authorized-session"),
+	}, nil
 }
 
 func (f *fakeQRLogin) StartQR(context.Context) (LoginStep, error) {
@@ -365,6 +474,23 @@ func (f *fakeQRLogin) PollQR(context.Context, []byte) (LoginStep, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.polls++
+	if f.passwordOnFirstPoll {
+		if f.polls == 1 {
+			// Mirrors the real gateway: the confirmed token is waiting for the
+			// two-step password, so the previously issued QR URL is kept.
+			return LoginStep{
+				State: []byte("qr-state-password"), PasswordRequired: true,
+				QRURL: "tg://login?token=first", QRExpiresAt: time.Now().UTC().Add(time.Minute),
+			}, nil
+		}
+		// Mirrors the real gateway too: exporting again mints a brand new token,
+		// so a later poll reports an untouched flow even though the scanned token
+		// still waits for the two-step password.
+		return LoginStep{
+			State: []byte("qr-state-minted"), QRURL: "tg://login?token=minted",
+			QRExpiresAt: time.Now().UTC().Add(time.Minute),
+		}, nil
+	}
 	if !f.completeOnFirstPoll && f.polls == 1 {
 		return LoginStep{
 			State: []byte("qr-state-second"), QRURL: "tg://login?token=second",
