@@ -1,16 +1,17 @@
-import { Button, Chip, Input, Spinner, TextField, Label } from "@heroui/react";
+import { Button, Chip, Input, Label, Spinner, TextField } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import CheckIcon from "~icons/gravity-ui/check";
-import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
-import TrashIcon from "~icons/gravity-ui/trash-bin";
 import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { ConfirmDialog } from "@/components/dialogs/confirm-dialog";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
 import { newIdempotencyKey } from "@/features/shared/idempotency";
+import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
+import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
+import CheckIcon from "~icons/gravity-ui/check";
+import TrashIcon from "~icons/gravity-ui/trash-bin";
 
 export const Route = createFileRoute("/_settings/settings/channels")({
   component: ChannelsSettings,
@@ -22,6 +23,7 @@ export const Route = createFileRoute("/_settings/settings/channels")({
 });
 
 function ChannelsSettings() {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [deleteChannel, setDeleteChannel] = useState<{ id: number; name: string } | null>(null);
   const query = $api.useSuspenseQuery(
@@ -37,10 +39,10 @@ function ChannelsSettings() {
     onSuccess: () => {
       setDeleteChannel(null);
       void refresh();
-      toast.success("Storage channel deleted");
+      toast.success(t("settings.channels.toast.deleted"));
     },
     onError: (error) => {
-      toast.error("Storage channel could not be deleted", { description: userMessage(error) });
+      toast.error(t("settings.channels.toast.deleteFailed"), { description: userMessage(error) });
     },
   });
   const refresh = () =>
@@ -51,8 +53,8 @@ function ChannelsSettings() {
   return (
     <div className="space-y-6">
       <SettingsPageHeader
-        title="Storage channels"
-        description="Telegram channels used to store encrypted file parts."
+        title={t("settings.channels.title")}
+        description={t("settings.channels.description")}
         actions={
           <Button
             variant="secondary"
@@ -62,33 +64,35 @@ function ChannelsSettings() {
                   params: { header: { "Idempotency-Key": newIdempotencyKey() } },
                 });
                 await refresh();
-                toast.success("Channels synchronized");
+                toast.success(t("settings.channels.toast.synced"));
               } catch (error) {
-                toast.error("Channel sync failed", { description: userMessage(error) });
+                toast.error(t("settings.channels.toast.syncFailed"), {
+                  description: userMessage(error),
+                });
               }
             }}
             isDisabled={sync.isPending}
           >
             <RefreshIcon className="size-4" />
-            Discover and sync
+            {t("settings.channels.sync")}
           </Button>
         }
       />
       <SettingsSection
-        title="Create channel"
-        description="Teldrive will create and configure a Telegram storage channel."
+        title={t("settings.channels.create.section")}
+        description={t("settings.channels.create.description")}
       >
         <SettingsRow
-          label="Channel name"
-          description="Use a recognizable name for this storage target."
+          label={t("settings.channels.name.label")}
+          description={t("settings.channels.name.description")}
         >
           <div className="flex gap-2">
             <TextField className="min-w-0 flex-1">
-              <Label className="sr-only">Channel name</Label>
+              <Label className="sr-only">{t("settings.channels.name.label")}</Label>
               <Input
                 value={name}
                 onChange={(event) => setName(event.currentTarget.value)}
-                placeholder="Teldrive Storage"
+                placeholder={t("settings.channels.name.placeholder")}
               />
             </TextField>
             <Button
@@ -101,34 +105,36 @@ function ChannelsSettings() {
                   });
                   setName("");
                   await refresh();
-                  toast.success("Storage channel created");
+                  toast.success(t("settings.channels.toast.created"));
                 } catch (error) {
-                  toast.error("Channel could not be created", { description: userMessage(error) });
+                  toast.error(t("settings.channels.toast.createFailed"), {
+                    description: userMessage(error),
+                  });
                 }
               }}
               isDisabled={!name.trim() || create.isPending}
             >
-              Create
+              {t("common.action.create")}
             </Button>
           </div>
         </SettingsRow>
       </SettingsSection>
       <SettingsSection
-        title="Configured channels"
-        description="Choose the active channel or remove unused empty channels."
+        title={t("settings.channels.configured.section")}
+        description={t("settings.channels.configured.description")}
       >
         {query.data.items.length ? (
           query.data.items.map((channel) => (
             <SettingsRow
               key={channel.id}
               label={channel.name}
-              description={`Channel ${channel.id}`}
+              description={t("settings.channels.row.description", { id: channel.id })}
             >
               <div className="flex items-center justify-end gap-2">
                 {channel.selected ? (
                   <Chip color="success" variant="tertiary">
                     <CheckIcon className="size-3" />
-                    Selected
+                    {t("settings.channels.selected")}
                   </Chip>
                 ) : (
                   <Button
@@ -139,14 +145,14 @@ function ChannelsSettings() {
                       await refresh();
                     }}
                   >
-                    Use channel
+                    {t("settings.channels.use")}
                   </Button>
                 )}
                 <Button
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  aria-label={`Delete ${channel.name}`}
+                  aria-label={t("settings.channels.delete.aria", { name: channel.name })}
                   isDisabled={remove.isPending && deleteChannel?.id === channel.id}
                   onPress={() => setDeleteChannel({ id: channel.id, name: channel.name })}
                 >
@@ -156,7 +162,7 @@ function ChannelsSettings() {
             </SettingsRow>
           ))
         ) : (
-          <div className="px-5 py-8 text-sm text-muted">No storage channels are configured.</div>
+          <div className="px-5 py-8 text-sm text-muted">{t("settings.channels.empty")}</div>
         )}
       </SettingsSection>
       <ConfirmDialog
@@ -164,9 +170,9 @@ function ChannelsSettings() {
         onOpenChange={(open) => {
           if (!open && !remove.isPending) setDeleteChannel(null);
         }}
-        title="Delete storage channel?"
-        message={`“${deleteChannel?.name ?? ""}” can only be deleted when no files reference it.`}
-        confirmLabel="Delete channel"
+        title={t("settings.channels.delete.title")}
+        message={t("settings.channels.delete.message", { name: deleteChannel?.name ?? "" })}
+        confirmLabel={t("settings.channels.delete.confirm")}
         isPending={remove.isPending}
         onConfirm={() => {
           if (deleteChannel) {

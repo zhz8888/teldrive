@@ -1,4 +1,3 @@
-import { createFileRoute } from "@tanstack/react-router";
 import {
   Button,
   Card,
@@ -11,19 +10,21 @@ import {
   toast,
 } from "@heroui/react";
 import { useStore } from "@tanstack/react-form";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import AddIcon from "~icons/gravity-ui/plus";
+import { $api as api } from "@/api/client";
+import { queryClient } from "@/api/query-client";
+import type { components } from "@/api/schema";
+import { type MessageKey, type MessageParams, t as translate, useI18n } from "@/lib/i18n";
+import PauseIcon from "~icons/gravity-ui/pause";
 import EditIcon from "~icons/gravity-ui/pencil";
 import PlayIcon from "~icons/gravity-ui/play";
-import PauseIcon from "~icons/gravity-ui/pause";
+import AddIcon from "~icons/gravity-ui/plus";
 import TrashBinIcon from "~icons/gravity-ui/trash-bin";
 import ResetIcon from "~icons/material-symbols/restart-alt-rounded";
 import { AppDialog } from "../components/dialogs/app-dialog";
 import { ConfirmDialog } from "../components/dialogs/confirm-dialog";
 import { SettingsPageHeader } from "../components/settings-layout";
-import type { components } from "@/api/schema";
-import { $api as api } from "@/api/client";
-import { queryClient } from "@/api/query-client";
 import { useAppForm } from "../forms/app-form";
 
 type PeriodicJob = components["schemas"]["PeriodicJob"];
@@ -58,11 +59,11 @@ const EMPTY_JOB: JobFormValues = {
 };
 
 const CRON_PRESETS = [
-  { label: "Hourly", value: "0 * * * *" },
-  { label: "Every 2 hours", value: "0 */2 * * *" },
-  { label: "Every 6 hours", value: "0 */6 * * *" },
-  { label: "Daily", value: "0 0 * * *" },
-  { label: "Weekly", value: "0 0 * * 0" },
+  { labelKey: "settings.periodicJobs.preset.hourly", value: "0 * * * *" },
+  { labelKey: "settings.periodicJobs.preset.every2Hours", value: "0 */2 * * *" },
+  { labelKey: "settings.periodicJobs.preset.every6Hours", value: "0 */6 * * *" },
+  { labelKey: "settings.periodicJobs.preset.daily", value: "0 0 * * *" },
+  { labelKey: "settings.periodicJobs.preset.weekly", value: "0 0 * * 0" },
 ] as const;
 
 export const Route = createFileRoute("/_settings/settings/periodic-jobs")({
@@ -76,6 +77,7 @@ export const Route = createFileRoute("/_settings/settings/periodic-jobs")({
 });
 
 function PeriodicJobsPage() {
+  const { t } = useI18n();
   const { data: jobsResponse } = api.useSuspenseQuery("get", "/v1/periodic-jobs");
   const { data: catalogResponse } = api.useSuspenseQuery("get", "/v1/periodic-jobs/catalog");
   const jobs = jobsResponse.jobs ?? [];
@@ -93,51 +95,51 @@ function PeriodicJobsPage() {
 
   const createJob = api.useMutation("post", "/v1/periodic-jobs", {
     onSuccess: () => {
-      toast.success("Periodic job created");
+      toast.success(t("settings.periodicJobs.toast.created"));
       setEditorOpen(false);
       void invalidate();
     },
-    onError: () => toast.danger("Failed to create periodic job"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.createFailed")),
   });
   const updateJob = api.useMutation("put", "/v1/periodic-jobs/{periodicJobId}", {
     onSuccess: () => {
-      toast.success("Periodic job updated");
+      toast.success(t("settings.periodicJobs.toast.updated"));
       setEditorOpen(false);
       void invalidate();
     },
-    onError: () => toast.danger("Failed to update periodic job"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.updateFailed")),
   });
   const deleteMutation = api.useMutation("delete", "/v1/periodic-jobs/{periodicJobId}", {
     onSuccess: () => {
-      toast.success("Periodic job deleted");
+      toast.success(t("settings.periodicJobs.toast.deleted"));
       setDeleteJob(null);
       void invalidate();
     },
-    onError: () => toast.danger("Failed to delete periodic job"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.deleteFailed")),
   });
   const pauseMutation = api.useMutation("post", "/v1/periodic-jobs/{periodicJobId}/pause", {
     onSuccess: () => {
-      toast.success("Periodic job paused");
+      toast.success(t("settings.periodicJobs.toast.paused"));
       void invalidate();
     },
-    onError: () => toast.danger("Failed to pause periodic job"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.pauseFailed")),
   });
   const resumeMutation = api.useMutation("post", "/v1/periodic-jobs/{periodicJobId}/resume", {
     onSuccess: () => {
-      toast.success("Periodic job resumed");
+      toast.success(t("settings.periodicJobs.toast.resumed"));
       void invalidate();
     },
-    onError: () => toast.danger("Failed to resume periodic job"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.resumeFailed")),
   });
   const resetMutation = api.useMutation("post", "/v1/periodic-jobs/reset", {
     onSuccess: () => {
-      toast.success("Periodic jobs reset to defaults");
+      toast.success(t("settings.periodicJobs.toast.reset"));
       setResetOpen(false);
       void queryClient.resetQueries({
         queryKey: api.queryOptions("get", "/v1/periodic-jobs").queryKey,
       });
     },
-    onError: () => toast.danger("Failed to reset periodic jobs"),
+    onError: () => toast.danger(t("settings.periodicJobs.toast.resetFailed")),
   });
 
   const openCreate = () => {
@@ -183,15 +185,15 @@ function PeriodicJobsPage() {
   return (
     <div className="flex flex-col gap-5">
       <SettingsPageHeader
-        title="Periodic Jobs"
-        description="Manage durable schedules stored in PostgreSQL and shared by every worker instance."
+        title={t("settings.periodicJobs.title")}
+        description={t("settings.periodicJobs.description")}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="tertiary" onPress={() => setResetOpen(true)}>
-              <ResetIcon className="size-4" /> Reset to defaults
+              <ResetIcon className="size-4" /> {t("settings.periodicJobs.reset")}
             </Button>
             <Button variant="primary" onPress={openCreate}>
-              <AddIcon className="size-4" /> Add periodic job
+              <AddIcon className="size-4" /> {t("settings.periodicJobs.add")}
             </Button>
           </div>
         }
@@ -201,13 +203,13 @@ function PeriodicJobsPage() {
         <Card className="flex min-h-44 items-center justify-center border border-border bg-surface p-6 text-center shadow-none">
           <div className="max-w-md">
             <Typography type="h3" className="text-sm font-semibold">
-              No periodic jobs configured
+              {t("settings.periodicJobs.empty.title")}
             </Typography>
             <Typography.Paragraph className="mt-2 text-sm text-muted">
-              Add a schedule when ready. Worker startup will not recreate deleted jobs.
+              {t("settings.periodicJobs.empty.description")}
             </Typography.Paragraph>
             <Button className="mt-4" size="sm" variant="primary" onPress={openCreate}>
-              <AddIcon className="size-4" /> Create first job
+              <AddIcon className="size-4" /> {t("settings.periodicJobs.empty.action")}
             </Button>
           </div>
         </Card>
@@ -248,9 +250,9 @@ function PeriodicJobsPage() {
         onOpenChange={(open) => {
           if (!open) setDeleteJob(null);
         }}
-        title="Delete periodic job?"
-        message={`The schedule “${deleteJob?.id ?? ""}” will be removed permanently.`}
-        confirmLabel="Delete job"
+        title={t("settings.periodicJobs.delete.title")}
+        message={t("settings.periodicJobs.delete.message", { id: deleteJob?.id ?? "" })}
+        confirmLabel={t("settings.periodicJobs.delete.confirm")}
         isPending={deleteMutation.isPending}
         onConfirm={() => {
           if (deleteJob?.id)
@@ -261,9 +263,9 @@ function PeriodicJobsPage() {
       <ConfirmDialog
         open={resetOpen}
         onOpenChange={setResetOpen}
-        title="Reset periodic jobs?"
-        message="All periodic jobs, including custom schedules, will be deleted and the built-in jobs will be recreated with their defaults."
-        confirmLabel="Reset to defaults"
+        title={t("settings.periodicJobs.resetConfirm.title")}
+        message={t("settings.periodicJobs.resetConfirm.message")}
+        confirmLabel={t("settings.periodicJobs.reset")}
         isPending={resetMutation.isPending}
         onConfirm={() => resetMutation.mutate({})}
       />
@@ -284,6 +286,7 @@ function PeriodicJobCard({
   onDelete: () => void;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Card className="border border-border bg-surface p-4 shadow-none">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -293,7 +296,9 @@ function PeriodicJobCard({
               {job.id}
             </Typography>
             <Chip size="sm" variant="tertiary" color={job.paused ? "warning" : "success"}>
-              {job.paused ? "Paused" : "Active"}
+              {job.paused
+                ? t("settings.periodicJobs.status.paused")
+                : t("settings.periodicJobs.status.active")}
             </Chip>
             <Chip size="sm" variant="tertiary">
               {job.kind}
@@ -301,16 +306,26 @@ function PeriodicJobCard({
           </div>
           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <JobDetail
-              label="Schedule"
+              label={t("settings.periodicJobs.detail.schedule")}
               value={`${job.cronExpression ?? "—"} (${job.cronTimezone ?? "UTC"})`}
               mono
             />
             <JobDetail
-              label="Next run"
-              value={job.paused ? "Paused" : formatDateTime(job.nextRunAt)}
+              label={t("settings.periodicJobs.detail.nextRun")}
+              value={
+                job.paused
+                  ? t("settings.periodicJobs.status.paused")
+                  : formatDateTime(job.nextRunAt)
+              }
             />
-            <JobDetail label="Queue" value={job.queue ?? "default"} />
-            <JobDetail label="Attempts" value={String(job.maxAttempts ?? 25)} />
+            <JobDetail
+              label={t("settings.periodicJobs.detail.queue")}
+              value={job.queue ?? "default"}
+            />
+            <JobDetail
+              label={t("settings.periodicJobs.detail.attempts")}
+              value={String(job.maxAttempts ?? 25)}
+            />
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
@@ -318,7 +333,11 @@ function PeriodicJobCard({
             isIconOnly
             size="sm"
             variant="tertiary"
-            aria-label={job.paused ? `Resume ${job.id}` : `Pause ${job.id}`}
+            aria-label={
+              job.paused
+                ? t("settings.periodicJobs.aria.resume", { id: job.id })
+                : t("settings.periodicJobs.aria.pause", { id: job.id })
+            }
             isPending={isToggling}
             onPress={onToggle}
           >
@@ -328,7 +347,7 @@ function PeriodicJobCard({
             isIconOnly
             size="sm"
             variant="tertiary"
-            aria-label={`Edit ${job.id}`}
+            aria-label={t("settings.periodicJobs.aria.edit", { id: job.id })}
             onPress={onEdit}
           >
             <EditIcon className="size-4" />
@@ -337,7 +356,7 @@ function PeriodicJobCard({
             isIconOnly
             size="sm"
             variant="danger-soft"
-            aria-label={`Delete ${job.id}`}
+            aria-label={t("settings.periodicJobs.aria.delete", { id: job.id })}
             onPress={onDelete}
           >
             <TrashBinIcon className="size-4" />
@@ -384,6 +403,7 @@ function PeriodicJobEditor({
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: JobFormValues) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const editing = Boolean(editingJob);
   const initialValues = useMemo(
     () =>
@@ -399,13 +419,18 @@ function PeriodicJobEditor({
     validators: {
       onSubmit: ({ value }) => {
         const fields: Partial<Record<keyof JobFormValues, string>> = {};
-        if (!editing && !value.id.trim()) fields.id = "Job ID is required";
-        if (!value.kind.trim()) fields.kind = "Worker kind is required";
-        if (!value.cronExpression.trim()) fields.cronExpression = "Cron expression is required";
+        if (!editing && !value.id.trim())
+          fields.id = t("settings.periodicJobs.editor.jobId.required");
+        if (!value.kind.trim()) fields.kind = t("settings.periodicJobs.editor.workerKind.required");
+        if (!value.cronExpression.trim())
+          fields.cronExpression = t("settings.periodicJobs.editor.cronExpression.required");
         try {
           parseArguments(value.argsText);
         } catch (error) {
-          fields.argsText = error instanceof Error ? error.message : "Invalid JSON";
+          fields.argsText =
+            error instanceof Error
+              ? error.message
+              : translate("settings.periodicJobs.editor.arguments.invalidJson");
         }
         return Object.keys(fields).length ? { fields } : undefined;
       },
@@ -419,7 +444,7 @@ function PeriodicJobEditor({
   const values = useStore(form.store, (state) => state.values);
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const cronExpression = values.cronExpression;
-  const scheduleDescription = useMemo(() => describeCron(cronExpression), [cronExpression]);
+  const scheduleDescription = useMemo(() => describeCron(cronExpression, t), [cronExpression, t]);
 
   const chooseTemplate = (kind: string) => {
     const template = templates.find((item) => item.kind === kind);
@@ -441,8 +466,10 @@ function PeriodicJobEditor({
         className="sm:w-[min(92vw,50rem)]"
         open={open}
         onOpenChange={onOpenChange}
-        title={editing ? "Edit periodic job" : "Add periodic job"}
-        description="Configure a durable River job definition and cron schedule."
+        title={
+          editing ? t("settings.periodicJobs.editor.editTitle") : t("settings.periodicJobs.add")
+        }
+        description={t("settings.periodicJobs.editor.description")}
         bodyClassName="overflow-x-hidden px-2"
         isDismissable={!isSubmitting}
         footer={
@@ -453,10 +480,12 @@ function PeriodicJobEditor({
               isDisabled={form.state.isSubmitting}
               onPress={() => onOpenChange(false)}
             >
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <form.SubmitButton form="periodic-job-form" variant="primary">
-              {editing ? "Save changes" : "Create job"}
+              {editing
+                ? t("settings.periodicJobs.editor.save")
+                : t("settings.periodicJobs.editor.create")}
             </form.SubmitButton>
           </>
         }
@@ -474,7 +503,7 @@ function PeriodicJobEditor({
               selectedKey={values.kind}
               onSelectionChange={(key) => chooseTemplate(String(key))}
             >
-              <Label>Job template</Label>
+              <Label>{t("settings.periodicJobs.editor.template")}</Label>
               <Select.Trigger>
                 <Select.Value />
                 <Select.Indicator />
@@ -499,10 +528,10 @@ function PeriodicJobEditor({
             <form.AppField name="id">
               {(field) => (
                 <field.TextField
-                  label="Job ID"
+                  label={t("settings.periodicJobs.editor.jobId")}
                   isRequired
                   isDisabled={editing}
-                  description="Stable unique identifier for this schedule."
+                  description={t("settings.periodicJobs.editor.jobId.description")}
                 />
               )}
             </form.AppField>
@@ -511,9 +540,9 @@ function PeriodicJobEditor({
           <form.AppField name="kind">
             {(field) => (
               <field.TextField
-                label="Worker kind"
+                label={t("settings.periodicJobs.editor.workerKind")}
                 isRequired
-                description="Must match a registered River worker kind."
+                description={t("settings.periodicJobs.editor.workerKind.description")}
               />
             )}
           </form.AppField>
@@ -521,7 +550,7 @@ function PeriodicJobEditor({
           <Card className="gap-4 bg-surface-secondary p-4">
             <div>
               <Typography type="h3" className="text-sm font-semibold">
-                Schedule
+                {t("settings.periodicJobs.editor.schedule.section")}
               </Typography>
               <Typography.Paragraph className="text-xs text-muted">
                 {scheduleDescription}
@@ -536,7 +565,7 @@ function PeriodicJobEditor({
                   variant={cronExpression === preset.value ? "primary" : "tertiary"}
                   onPress={() => form.setFieldValue("cronExpression", preset.value)}
                 >
-                  {preset.label}
+                  {t(preset.labelKey)}
                 </Button>
               ))}
             </div>
@@ -544,18 +573,18 @@ function PeriodicJobEditor({
               <form.AppField name="cronExpression">
                 {(field) => (
                   <field.TextField
-                    label="Cron expression"
+                    label={t("settings.periodicJobs.editor.cronExpression")}
                     isRequired
                     className="font-mono"
-                    description="Five-field cron: minute, hour, day, month, weekday."
+                    description={t("settings.periodicJobs.editor.cronExpression.description")}
                   />
                 )}
               </form.AppField>
               <form.AppField name="cronTimezone">
                 {(field) => (
                   <field.TextField
-                    label="Timezone"
-                    description="IANA name such as UTC or Asia/Kolkata."
+                    label={t("settings.periodicJobs.editor.timezone")}
+                    description={t("settings.periodicJobs.editor.timezone.description")}
                   />
                 )}
               </form.AppField>
@@ -564,7 +593,7 @@ function PeriodicJobEditor({
 
           <div className="grid gap-4 sm:grid-cols-3">
             <form.AppField name="queue">
-              {(field) => <field.TextField label="Queue" />}
+              {(field) => <field.TextField label={t("settings.periodicJobs.editor.queue")} />}
             </form.AppField>
             <form.AppField name="priority">
               {(field) => (
@@ -574,7 +603,7 @@ function PeriodicJobEditor({
                   maxValue={4}
                   onChange={(value) => field.handleChange(value ?? 1)}
                 >
-                  <Label>Priority</Label>
+                  <Label>{t("settings.periodicJobs.editor.priority")}</Label>
                   <NumberField.Group>
                     <NumberField.DecrementButton />
                     <NumberField.Input />
@@ -590,7 +619,7 @@ function PeriodicJobEditor({
                   minValue={1}
                   onChange={(value) => field.handleChange(value ?? 1)}
                 >
-                  <Label>Max attempts</Label>
+                  <Label>{t("settings.periodicJobs.editor.maxAttempts")}</Label>
                   <NumberField.Group>
                     <NumberField.DecrementButton />
                     <NumberField.Input />
@@ -604,19 +633,19 @@ function PeriodicJobEditor({
           <form.AppField name="tagsText">
             {(field) => (
               <field.TextField
-                label="Tags"
-                placeholder="metadata, sync"
-                description="Optional comma-separated River tags."
+                label={t("settings.periodicJobs.editor.tags")}
+                placeholder={t("settings.periodicJobs.editor.tags.placeholder")}
+                description={t("settings.periodicJobs.editor.tags.description")}
               />
             )}
           </form.AppField>
           <form.AppField name="argsText">
             {(field) => (
               <field.TextAreaField
-                label="Job arguments"
+                label={t("settings.periodicJobs.editor.arguments")}
                 className="min-h-52 resize-y font-mono text-sm"
                 spellCheck={false}
-                description="JSON object passed to the selected River worker."
+                description={t("settings.periodicJobs.editor.arguments.description")}
               />
             )}
           </form.AppField>
@@ -624,8 +653,8 @@ function PeriodicJobEditor({
             <form.AppField name="paused">
               {(field) => (
                 <field.SwitchField
-                  label="Create paused"
-                  description="Save without enqueueing until resumed."
+                  label={t("settings.periodicJobs.editor.createPaused")}
+                  description={t("settings.periodicJobs.editor.createPaused.description")}
                 />
               )}
             </form.AppField>
@@ -665,15 +694,18 @@ function formFromJob(job: PeriodicJob): JobFormValues {
 function parseArguments(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value || "{}");
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object")
-    throw new Error("Arguments must be a JSON object");
+    throw new Error(translate("settings.periodicJobs.editor.arguments.invalid"));
   return parsed as Record<string, unknown>;
 }
 
-function describeCron(expression: string): string {
+function describeCron(
+  expression: string,
+  t: (key: MessageKey, params?: MessageParams) => string,
+): string {
   const preset = CRON_PRESETS.find((item) => item.value === expression.trim());
-  if (preset) return `${preset.label} in the selected timezone.`;
-  if (!expression.trim()) return "Enter a cron expression.";
-  return `Custom schedule: ${expression.trim()}`;
+  if (preset) return t("settings.periodicJobs.schedule.preset", { preset: t(preset.labelKey) });
+  if (!expression.trim()) return t("settings.periodicJobs.schedule.empty");
+  return t("settings.periodicJobs.schedule.custom", { expression: expression.trim() });
 }
 
 function formatDateTime(value?: string): string {

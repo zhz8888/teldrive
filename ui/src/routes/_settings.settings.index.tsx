@@ -5,6 +5,7 @@ import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { useCurrentUser } from "@/auth/use-current-user";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
+import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import LogoutIcon from "~icons/gravity-ui/arrow-right-from-square";
 
@@ -25,6 +26,7 @@ function formatBytes(bytes: number) {
 }
 
 function AccountSettings() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const user = useCurrentUser();
   const stats = $api.useSuspenseQuery(
@@ -41,32 +43,37 @@ function AccountSettings() {
       getQueryClient().clear();
       await navigate({ to: "/login", search: { redirect: "/files" }, replace: true });
     } catch (error) {
-      toast.error("Unable to log out", { description: userMessage(error) });
+      toast.error(t("settings.account.logOutFailed"), { description: userMessage(error) });
     }
   };
 
-  const displayName = user.data.displayName || user.data.username || `User ${user.data.userId}`;
+  const displayName =
+    user.data.displayName ||
+    user.data.username ||
+    t("settings.account.displayNameFallback", { userId: user.data.userId });
 
   return (
     <div className="space-y-6">
       <SettingsPageHeader
-        title="Account"
-        description="Your authenticated Teldrive profile, storage usage, and current session."
+        title={t("settings.account.title")}
+        description={t("settings.account.description")}
         actions={
           <Button variant="danger" onPress={logOut} isDisabled={logout.isPending}>
             <LogoutIcon className="size-4" />
-            Log out
+            {t("settings.account.logOut")}
           </Button>
         }
       />
       <SettingsSection
-        title="Profile"
-        description="This identity comes from your authenticated Telegram account."
+        title={t("settings.account.profile.section")}
+        description={t("settings.account.profile.description")}
       >
         <SettingsRow
           label={displayName}
           description={
-            user.data.username ? `@${user.data.username}` : `Telegram user ${user.data.userId}`
+            user.data.username
+              ? `@${user.data.username}`
+              : t("settings.account.telegramUser", { userId: user.data.userId })
           }
         >
           <div className="flex justify-end">
@@ -80,13 +87,19 @@ function AccountSettings() {
                     : "default"
               }
             >
-              {user.data.role === "owner" ? "Owner" : user.data.role === "admin" ? "Admin" : "User"}
+              {t(
+                user.data.role === "owner"
+                  ? "settings.account.role.owner"
+                  : user.data.role === "admin"
+                    ? "settings.account.role.admin"
+                    : "settings.account.role.user",
+              )}
             </Chip>
           </div>
         </SettingsRow>
         <SettingsRow
-          label="Account created"
-          description="When this Teldrive profile was first created."
+          label={t("settings.account.created.label")}
+          description={t("settings.account.created.description")}
         >
           <p className="text-right text-sm text-muted">
             {new Date(user.data.createdAt).toLocaleString()}
@@ -94,16 +107,16 @@ function AccountSettings() {
         </SettingsRow>
       </SettingsSection>
       <SettingsSection
-        title="Drive statistics"
-        description="Current storage totals for this account."
+        title={t("settings.account.stats.section")}
+        description={t("settings.account.stats.description")}
       >
-        <SettingsRow label="Files">
+        <SettingsRow label={t("settings.account.stats.files")}>
           <p className="text-right font-mono text-sm">{stats.data.totalFiles.toLocaleString()}</p>
         </SettingsRow>
-        <SettingsRow label="Stored data">
+        <SettingsRow label={t("settings.account.stats.storedData")}>
           <p className="text-right font-mono text-sm">{formatBytes(stats.data.totalBytes)}</p>
         </SettingsRow>
-        <SettingsRow label="Open uploads">
+        <SettingsRow label={t("settings.account.stats.openUploads")}>
           <p className="text-right font-mono text-sm">{stats.data.openUploads.toLocaleString()}</p>
         </SettingsRow>
       </SettingsSection>

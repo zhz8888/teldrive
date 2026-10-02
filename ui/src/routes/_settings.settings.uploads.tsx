@@ -3,29 +3,31 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
 import { MAX_PART_SIZE_MIB, normalizePartSizeMiB, useUploadStore } from "@/features/uploads/store";
+import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_settings/settings/uploads")({ component: UploadSettings });
 
 function UploadSettings() {
+  const { t } = useI18n();
   const settings = useUploadStore((state) => state.settings);
   const setSettings = useUploadStore((state) => state.setSettings);
 
   return (
     <div className="space-y-6">
       <SettingsPageHeader
-        title="Uploads"
-        description="Browser upload concurrency, encryption, conflict handling, and multipart sizing."
+        title={t("settings.uploads.title")}
+        description={t("settings.uploads.description")}
       />
       <SettingsSection
-        title="Upload behavior"
-        description="These preferences are stored in this browser and apply to new uploads."
+        title={t("settings.uploads.behavior.section")}
+        description={t("settings.uploads.behavior.description")}
       >
         <SettingsRow
-          label="Encryption"
-          description="Encrypt file parts with Teldrive's server-managed key before storage."
+          label={t("settings.uploads.encryption.label")}
+          description={t("settings.uploads.encryption.description")}
         >
           <Switch
-            aria-label="Encrypt uploaded files"
+            aria-label={t("settings.uploads.encryption.toggle")}
             isSelected={settings.encryption}
             onChange={(isSelected) => setSettings({ encryption: isSelected })}
           >
@@ -33,16 +35,16 @@ function UploadSettings() {
               <Switch.Control>
                 <Switch.Thumb />
               </Switch.Control>
-              <Label>Encrypt uploaded files</Label>
+              <Label>{t("settings.uploads.encryption.toggle")}</Label>
             </Switch.Content>
           </Switch>
         </SettingsRow>
         <SettingsRow
-          label="Name conflicts"
-          description="Choose what happens when the destination already contains the same name."
+          label={t("settings.uploads.conflicts.label")}
+          description={t("settings.uploads.conflicts.description")}
         >
           <Select
-            aria-label="Name conflicts"
+            aria-label={t("settings.uploads.conflicts.label")}
             selectedKey={settings.conflictPolicy}
             onSelectionChange={(key) =>
               setSettings({ conflictPolicy: String(key) as typeof settings.conflictPolicy })
@@ -54,25 +56,25 @@ function UploadSettings() {
             </Select.Trigger>
             <Select.Popover>
               <ListBox>
-                <ListBox.Item id="rename" textValue="Rename new file">
-                  Rename new file
+                <ListBox.Item id="rename" textValue={t("settings.uploads.conflicts.rename")}>
+                  {t("settings.uploads.conflicts.rename")}
                 </ListBox.Item>
-                <ListBox.Item id="replace" textValue="Replace existing">
-                  Replace existing
+                <ListBox.Item id="replace" textValue={t("settings.uploads.conflicts.replace")}>
+                  {t("settings.uploads.conflicts.replace")}
                 </ListBox.Item>
-                <ListBox.Item id="error" textValue="Stop with error">
-                  Stop with error
+                <ListBox.Item id="error" textValue={t("settings.uploads.conflicts.error")}>
+                  {t("settings.uploads.conflicts.error")}
                 </ListBox.Item>
               </ListBox>
             </Select.Popover>
           </Select>
         </SettingsRow>
         <SettingsRow
-          label="Concurrent uploads"
-          description="Number of browser uploads processed at the same time."
+          label={t("settings.uploads.concurrency.label")}
+          description={t("settings.uploads.concurrency.description")}
         >
           <NumberField
-            aria-label="Concurrent uploads"
+            aria-label={t("settings.uploads.concurrency.label")}
             value={settings.concurrency}
             minValue={1}
             maxValue={12}
@@ -80,7 +82,7 @@ function UploadSettings() {
               setSettings({ concurrency: Math.max(1, Math.min(12, value ?? 1)) })
             }
           >
-            <Label className="sr-only">Concurrent uploads</Label>
+            <Label className="sr-only">{t("settings.uploads.concurrency.label")}</Label>
             <NumberField.Group>
               <NumberField.DecrementButton />
               <NumberField.Input />
@@ -89,8 +91,8 @@ function UploadSettings() {
           </NumberField>
         </SettingsRow>
         <SettingsRow
-          label="Preferred part size"
-          description="Defaults to 512 MiB. Values are rounded to the nearest 16 MiB for encrypted uploads; the server may choose a different size."
+          label={t("settings.uploads.partSize.label")}
+          description={t("settings.uploads.partSize.description")}
         >
           <PartSizeField />
         </SettingsRow>
@@ -100,6 +102,7 @@ function UploadSettings() {
 }
 
 function PartSizeField() {
+  const { t } = useI18n();
   const preferredPartSize = useUploadStore((state) => state.settings.preferredPartSize);
   const setSettings = useUploadStore((state) => state.setSettings);
   const [value, setValue] = useState(preferredPartSize / 1024 / 1024);
@@ -114,7 +117,7 @@ function PartSizeField() {
 
   return (
     <NumberField
-      aria-label="Preferred part size in MiB"
+      aria-label={t("settings.uploads.partSize.input")}
       value={value}
       maxValue={MAX_PART_SIZE_MIB}
       onChange={(next) => {
@@ -123,7 +126,7 @@ function PartSizeField() {
       }}
       onBlur={commit}
     >
-      <Label className="sr-only">Preferred part size in MiB</Label>
+      <Label className="sr-only">{t("settings.uploads.partSize.input")}</Label>
       <NumberField.Group>
         <NumberField.DecrementButton />
         <NumberField.Input />
