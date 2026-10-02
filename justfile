@@ -34,8 +34,11 @@ generate-openapi:
     bun run --cwd typespec generate:openapi
 
 # Generate the complete Go server/client contract.
+#
+# The generator is the version go.mod pins, so regenerating an unchanged tree
+# reproduces the committed artifacts instead of following the newest release.
 generate-api: generate-openapi
-    go run github.com/ogen-go/ogen/cmd/ogen@latest \
+    go run github.com/ogen-go/ogen/cmd/ogen \
         --config ogen.yml \
         --target internal/api/gen \
         --package gen \
