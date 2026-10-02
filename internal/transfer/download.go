@@ -132,9 +132,6 @@ type Download struct {
 	// ContentType is the file's MIME type, or application/octet-stream when the
 	// catalog has none.
 	ContentType string
-	// ETag is the file's tree-hash value verbatim, without surrounding quotes, or
-	// an empty string when the file has no recorded hash.
-	ETag string
 }
 
 // DownloadReader is a random-access view of one resolved byte range: every
@@ -214,11 +211,10 @@ func (d *Downloader) openOrigin(ctx context.Context, request DownloadRequest) (*
 	}
 
 	contentType := fileContentType(file)
-	etag := fileETag(file)
 	if length == 0 {
 		return &Download{
 			Reader: nopDownloadReader{bytes.NewReader(nil)}, File: file, Offset: request.Offset,
-			Length: 0, TotalSize: file.Size.Int64, ContentType: contentType, ETag: etag,
+			Length: 0, TotalSize: file.Size.Int64, ContentType: contentType,
 		}, nil
 	}
 
@@ -246,7 +242,7 @@ func (d *Downloader) openOrigin(ctx context.Context, request DownloadRequest) (*
 			key:          encryptionKey,
 		}, File: file,
 		Offset: request.Offset, Length: length, TotalSize: file.Size.Int64,
-		ContentType: contentType, ETag: etag,
+		ContentType: contentType,
 	}, nil
 }
 
@@ -682,16 +678,6 @@ func fileContentType(file *sqlcgen.File) string {
 		return file.MimeType.String
 	}
 	return "application/octet-stream"
-}
-
-// fileETag returns the file's tree-hash value as the entity tag, or an empty
-// string when the file has no recorded hash and conditional requests cannot be
-// served from it.
-func fileETag(file *sqlcgen.File) string {
-	if file.HashValue.Valid {
-		return file.HashValue.String
-	}
-	return ""
 }
 
 // nopDownloadReader is the reader of a zero-length download: every read reports
