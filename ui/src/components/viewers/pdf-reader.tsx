@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import type { FileEntry } from "@/api/types";
 // `translate` resolves against the locale that is active when it is called. The
@@ -416,6 +417,13 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       anchor.download = editedPdfName(file.name);
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+    } catch (reason) {
+      // `saveDocument()` rejects when the edited annotations cannot be
+      // serialised, so the copy never downloads: say so instead of only
+      // stopping the spinner on the button.
+      toast.error(t("components.pdfReader.saveFailed"), {
+        description: reason instanceof Error ? reason.message : undefined,
+      });
     } finally {
       setSaving(false);
     }
@@ -1164,6 +1172,7 @@ function PdfThumbnail({
   const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pageRef = useRef<Awaited<ReturnType<PDFDocumentProxy["getPage"]>> | undefined>(undefined);
   const [visible, setVisible] = useState(false);
   const [ratio, setRatio] = useState(1.294);
   const [loaded, setLoaded] = useState(false);
@@ -1173,7 +1182,8 @@ function PdfThumbnail({
     if (!host) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
+        const entry = entries[entries.length - 1];
+        if (entry) setVisible(entry.isIntersecting);
       },
       { rootMargin: "300px" },
     );
@@ -1193,6 +1203,7 @@ function PdfThumbnail({
       .getPage(pageNumber)
       .then((page) => {
         if (!active) return;
+        pageRef.current = page;
         const natural = page.getViewport({ scale: 1 });
         setRatio(natural.height / natural.width);
         const cssWidth = 142;
@@ -1215,6 +1226,26 @@ function PdfThumbnail({
       renderTask?.cancel();
     };
   }, [document, loaded, pageNumber, visible]);
+
+  // One rendered thumbnail bitmap per page would stay allocated for as long as
+  // the sidebar lives, so a page is released as soon as its thumbnail leaves the
+  // viewport (and unmounts) and drawn again when it comes back: `page.cleanup()`
+  // drops the operator list and the canvas backing store goes with it.
+  useEffect(() => {
+    if (!visible) return;
+    return () => {
+      pageRef.current?.cleanup();
+      pageRef.current = undefined;
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+        canvas.style.width = "";
+        canvas.style.height = "";
+      }
+      setLoaded(false);
+    };
+  }, [visible]);
 
   return (
     <div ref={hostRef} className="flex justify-center py-1">
