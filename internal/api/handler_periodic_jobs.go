@@ -15,10 +15,15 @@ import (
 )
 
 // ListPeriodicJobs returns every configured periodic job with its schedule, queue
-// and pause state. Service failures are mapped by mapServiceError.
+// and pause state. The admin or owner role is required, because a schedule drives
+// maintenance for every account on the instance. Service failures are mapped by
+// mapServiceError.
 func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	items, err := h.Jobs.ListPeriodicJobs(ctx)
 	if err != nil {
@@ -33,10 +38,14 @@ func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes
 
 // GetPeriodicJobCatalog returns the built-in schedule templates with their kind,
 // label, default args, queue and recommended cron expression, which clients use to
-// create periodic jobs.
-func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCatalogRes, error) {
+// create periodic jobs. The admin or owner role is required, matching the endpoints
+// that consume the catalog.
+func (h *Handler) GetPeriodicJobCatalog(ctx context.Context) (gen.GetPeriodicJobCatalogRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	templates := h.Jobs.PeriodicJobCatalog()
 	response := gen.PeriodicJobCatalog{Templates: make([]gen.PeriodicJobTemplate, 0, len(templates))}
@@ -51,10 +60,14 @@ func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCata
 }
 
 // ResetPeriodicJobs restores the built-in catalog of schedules and returns the
-// resulting list, discarding any user modifications.
+// resulting list, discarding any user modifications. The admin or owner role is
+// required: the reset re-enables and rewrites schedules for the whole instance.
 func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	items, err := h.Jobs.ResetPeriodicJobs(ctx)
 	if err != nil {
@@ -67,11 +80,15 @@ func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsR
 	return &response, nil
 }
 
-// CreatePeriodicJob registers a cron schedule and returns it. A duplicate ID is
-// reported as 409 through mapPeriodicJobError.
+// CreatePeriodicJob registers a cron schedule and returns it. The admin or owner
+// role is required: a schedule runs maintenance for every account, so it is not a
+// per-user resource. A duplicate ID is reported as 409 through mapPeriodicJobError.
 func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCreate) (gen.CreatePeriodicJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.CreatePeriodicJob(ctx, jobs.PeriodicJobInput{
@@ -88,10 +105,14 @@ func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCre
 }
 
 // UpdatePeriodicJob replaces the schedule identified by the path ID and returns
-// the stored job; unknown IDs map to 404 through mapPeriodicJobError.
+// the stored job; unknown IDs map to 404 through mapPeriodicJobError. The admin or
+// owner role is required.
 func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpdate, params gen.UpdatePeriodicJobParams) (gen.UpdatePeriodicJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.UpdatePeriodicJob(ctx, params.PeriodicJobId, jobs.PeriodicJobInput{
@@ -108,10 +129,13 @@ func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpd
 }
 
 // DeletePeriodicJob removes a schedule, returning 404 through mapPeriodicJobError
-// when the ID does not exist.
+// when the ID does not exist. The admin or owner role is required.
 func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriodicJobParams) (gen.DeletePeriodicJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	if err := h.Jobs.DeletePeriodicJob(ctx, params.PeriodicJobId); err != nil {
 		return nil, mapPeriodicJobError(err)
@@ -120,10 +144,13 @@ func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriod
 }
 
 // PausePeriodicJob suspends a schedule, which stops future runs but keeps its
-// configuration, and returns the updated job.
+// configuration, and returns the updated job. The admin or owner role is required.
 func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodicJobParams) (gen.PausePeriodicJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	item, err := h.Jobs.PausePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
@@ -134,9 +161,13 @@ func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodic
 }
 
 // ResumePeriodicJob reactivates a paused schedule and returns the updated job.
+// The admin or owner role is required.
 func (h *Handler) ResumePeriodicJob(ctx context.Context, params gen.ResumePeriodicJobParams) (gen.ResumePeriodicJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
+	}
+	if err := requireAdmin(ctx); err != nil {
+		return nil, err
 	}
 	item, err := h.Jobs.ResumePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
