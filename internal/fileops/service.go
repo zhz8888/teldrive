@@ -99,7 +99,8 @@ type CopyInput struct {
 	// returned.
 	ParentID *uuid.UUID
 	// Name overrides the copied root's name; nil keeps the source name. Descendants
-	// always keep theirs.
+	// always keep theirs. A name that is empty or only whitespace is rejected with
+	// ErrInvalidInput before any work starts.
 	Name *string
 	// ConflictPolicy decides what happens when an active entry with the root's name
 	// already exists in the destination: fail, rename the copy, or replace the
@@ -212,9 +213,12 @@ func NewService(pool *pgxpool.Pool, catalogService *catalog.Service, channelServ
 // new root row, whose ID is freshly generated and whose status is active.
 //
 // The work is split so that a failure never leaves the catalog pointing at data that
-// does not exist. The source tree is loaded and validated first: the root must exist
-// and be active, every file node must be active, and each node gets a new UUID up
-// front so the copies form a self-contained tree. Destination channel capacity is
+// does not exist. A blank explicit name is rejected with ErrInvalidInput before any
+// work starts. The source tree is then loaded and validated: the root must exist and
+// be active, and every node of the subtree must be active, so a trashed folder is
+// rejected with catalog.ErrNotAFile just like a trashed file instead of being
+// resurrected as an active copy; each node also gets a new UUID up front so the copies
+// form a self-contained tree. Destination channel capacity is
 // reserved for all parts at once, and each part is then republished with
 // storage.CopyPart, checking that the copied size matches the recorded stored size
 // (telegramstore.ErrSizeMismatch otherwise). Every message the storage names is
@@ -243,6 +247,11 @@ func NewService(pool *pgxpool.Pool, catalogService *catalog.Service, channelServ
 // messages may remain if the compensating delete failed.
 func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error) {
 	if in.UserID <= 0 || in.FileID == uuid.Nil {
+		return nil, ErrInvalidInput
+	}
+	// A blank explicit name would fail the files_name_not_blank check constraint
+	// after the whole subtree was republished, so it is rejected before any work.
+	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
 		return nil, ErrInvalidInput
 	}
 	if in.ConflictPolicy == "" {
@@ -287,11 +296,14 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 
 	sourceFileIDs := make([]uuid.UUID, 0)
 	for _, node := range nodes {
-		if node.File.Kind != sqlcgen.FileKindFile {
-			continue
-		}
+		// Every loaded node must be active, folders included: the insert below
+		// hardcodes the active status, so copying a trashed descendant would revive
+		// it as an active entry.
 		if node.File.Status != sqlcgen.FileStatusActive {
 			return nil, catalog.ErrNotAFile
+		}
+		if node.File.Kind != sqlcgen.FileKindFile {
+			continue
 		}
 		oldID, _ := dbtypes.GoogleUUID(node.File.ID)
 		sourceFileIDs = append(sourceFileIDs, oldID)

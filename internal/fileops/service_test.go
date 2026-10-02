@@ -26,6 +26,10 @@ func TestServiceValidationAndUUIDConversion(t *testing.T) {
 	if _, err := s.Copy(context.Background(), CopyInput{}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Copy() error = %v", err)
 	}
+	blank := " \t "
+	if _, err := s.Copy(context.Background(), CopyInput{UserID: 1, FileID: uuid.New(), Name: &blank}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("Copy() with a blank name error = %v", err)
+	}
 	if err := s.Purge(context.Background(), 0, uuid.Nil); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Purge() error = %v", err)
 	}
