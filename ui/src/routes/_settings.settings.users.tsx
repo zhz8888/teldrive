@@ -1,6 +1,6 @@
 import { Button, Chip, Input, Label, Spinner, TextField } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
@@ -21,11 +21,19 @@ export const Route = createFileRoute("/_settings/settings/users")({
 function UsersSettings() {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
-  const query = $api.useSuspenseQuery(
+  // The listing is fetched without suspense so typing never swaps the page for
+  // the route pending component (which would drop the focus of the search
+  // field); the debounce keeps the request rate down while typing.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const query = $api.useQuery(
     "get",
     "/v1/admin/users",
-    { params: { query: { search: search.trim() || undefined } } },
-    { staleTime: 10_000 },
+    { params: { query: { search: debouncedSearch.trim() || undefined } } },
+    { staleTime: 10_000, placeholderData: (previous) => previous },
   );
   const updateUser = $api.useMutation("patch", "/v1/admin/users/{userId}");
   const revokeAccess = $api.useMutation("post", "/v1/admin/users/{userId}/revoke-access");
@@ -67,7 +75,11 @@ function UsersSettings() {
             <Input placeholder={t("settings.users.search.placeholder")} />
           </TextField>
         </div>
-        {query.data.length ? (
+        {query.isPending ? (
+          <div className="flex justify-center py-16">
+            <Spinner size="lg" />
+          </div>
+        ) : query.data?.length ? (
           query.data.map((user) => {
             const displayName =
               user.displayName?.trim() ||
