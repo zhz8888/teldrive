@@ -1,3 +1,5 @@
+import { t } from "@/lib/i18n";
+
 export type ApiErrorDetails = Record<string, unknown>;
 
 export class ApiError extends Error {
@@ -96,36 +98,39 @@ export function invalidResponse(
   return new ApiError({ status: 200, code: "invalid_response", message });
 }
 
+/**
+ * Turns a failure into wording for the interface. Server-authored messages and
+ * the diagnostics of `normalizeApiError` are returned unchanged; the branches
+ * below are the phrases the interface writes itself, so they are translated.
+ */
 export function userMessage(error: unknown): string {
   const normalized = normalizeApiError(error);
   switch (normalized.status) {
     case 0:
-      return "Teldrive could not reach the server. Check your connection and try again.";
+      return t("errors.networkUnreachable");
     case 400:
-      return normalized.message || "The request was not valid.";
+      return normalized.message || t("errors.badRequest");
     case 401:
-      return "Your sign-in has expired. Sign in again to continue.";
+      return t("errors.sessionExpired");
     case 403:
-      return "You do not have permission to perform this action.";
+      return t("errors.forbidden");
     case 404:
-      return "The requested item no longer exists.";
+      return t("errors.notFound");
     case 409:
-      return normalized.message || "That change conflicts with an existing item.";
+      return normalized.message || t("errors.conflict");
     case 410:
-      return "This upload or share has expired.";
+      return t("errors.gone");
     case 412:
-      return "This item changed on another device. Refresh before trying again.";
+      return t("errors.preconditionFailed");
     case 413:
-      return "The selected file is larger than the server allows.";
+      return t("errors.payloadTooLarge");
     case 416:
-      return "The requested file range is not available.";
+      return t("errors.rangeNotSatisfiable");
     case 422:
-      return normalized.message || "Some values need to be corrected.";
+      return normalized.message || t("errors.unprocessable");
     case 429:
-      return "Teldrive is receiving too many requests. Try again shortly.";
+      return t("errors.tooManyRequests");
     default:
-      return normalized.status >= 500
-        ? "Teldrive encountered a server error. Your data was not changed."
-        : normalized.message;
+      return normalized.status >= 500 ? t("errors.serverError") : normalized.message;
   }
 }

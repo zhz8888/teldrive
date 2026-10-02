@@ -10,6 +10,7 @@ import {
 } from "@heroui/react";
 import { createFormHook, createFormHookContexts } from "@tanstack/react-form";
 import type { ComponentProps } from "react";
+import { useI18n } from "@/lib/i18n";
 
 const { fieldContext, formContext, useFieldContext, useFormContext } = createFormHookContexts();
 
@@ -61,6 +62,7 @@ function AppTextField({
   isDisabled,
   ...inputProps
 }: AppTextFieldProps) {
+  const { t } = useI18n();
   const { field, errors, isInvalid } = useFieldPresentation();
   const value = typeof field.state.value === "string" ? field.state.value : "";
 
@@ -79,7 +81,7 @@ function AppTextField({
         onChange={(event) => field.handleChange(event.currentTarget.value)}
       />
       {description ? <Description>{description}</Description> : null}
-      {isInvalid ? <FieldError>{errors.join(". ")}</FieldError> : null}
+      {isInvalid ? <FieldError>{errors.join(t("features.form.errorSeparator"))}</FieldError> : null}
     </TextField>
   );
 }
@@ -94,6 +96,7 @@ function AppTextAreaField({
   isDisabled,
   ...textAreaProps
 }: AppTextAreaFieldProps) {
+  const { t } = useI18n();
   const { field, errors, isInvalid } = useFieldPresentation();
   const value = typeof field.state.value === "string" ? field.state.value : "";
 
@@ -112,7 +115,7 @@ function AppTextAreaField({
         onChange={(event) => field.handleChange(event.currentTarget.value)}
       />
       {description ? <Description>{description}</Description> : null}
-      {isInvalid ? <FieldError>{errors.join(". ")}</FieldError> : null}
+      {isInvalid ? <FieldError>{errors.join(t("features.form.errorSeparator"))}</FieldError> : null}
     </TextField>
   );
 }

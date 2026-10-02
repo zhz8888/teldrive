@@ -17,6 +17,7 @@ import FolderIcon from "~icons/gravity-ui/folder";
 import GridIcon from "~icons/gravity-ui/layout-cells";
 import ListIcon from "~icons/gravity-ui/list-ul";
 import type { FileEntry } from "@/api/types";
+import { useI18n } from "@/lib/i18n";
 
 export type FileBrowserView = "list" | "grid";
 
@@ -63,14 +64,21 @@ export function FileBrowser({
   hasNextPage = false,
   isLoadingMore = false,
   onLoadMore,
-  emptyHint = "This folder is empty.",
+  emptyHint,
 }: FileBrowserProps) {
+  const { t } = useI18n();
   return (
     <Card className="@container/file-browser relative flex min-h-0 min-w-0 flex-1 flex-col gap-0 overflow-hidden border border-border bg-surface/80 shadow-sm">
       <Card.Header className="shrink-0 border-b border-border px-3 py-3 sm:px-4">
         <div className="flex min-w-0 items-center gap-1.5">
           {onBack ? (
-            <Button isIconOnly size="sm" variant="ghost" aria-label="Back" onPress={onBack}>
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              aria-label={t("common.action.back")}
+              onPress={onBack}
+            >
               <BackIcon className="size-4" />
             </Button>
           ) : null}
@@ -78,7 +86,7 @@ export function FileBrowser({
             isIconOnly
             size="sm"
             variant="ghost"
-            aria-label="Up one folder"
+            aria-label={t("features.fileBrowser.upOneFolder")}
             isDisabled={path === "/"}
             onPress={() => {
               const parts = path.split("/").filter(Boolean);
@@ -101,7 +109,7 @@ export function FileBrowser({
               isIconOnly
               size="sm"
               variant={view === "list" ? "secondary" : "ghost"}
-              aria-label="List view"
+              aria-label={t("features.fileBrowser.listView")}
               onPress={() => onViewChange("list")}
             >
               <ListIcon className="size-4" />
@@ -110,7 +118,7 @@ export function FileBrowser({
               isIconOnly
               size="sm"
               variant={view === "grid" ? "secondary" : "ghost"}
-              aria-label="Grid view"
+              aria-label={t("features.fileBrowser.gridView")}
               onPress={() => onViewChange("grid")}
             >
               <GridIcon className="size-4" />
@@ -134,7 +142,7 @@ export function FileBrowser({
               hasNextPage={hasNextPage}
               isLoadingMore={isLoadingMore}
               onLoadMore={onLoadMore}
-              emptyHint={emptyHint}
+              emptyHint={emptyHint ?? t("features.fileBrowser.emptyHint")}
             />
           </div>
         )}
@@ -167,6 +175,7 @@ function FileCollection({
   onLoadMore?: () => void;
   emptyHint: string;
 }) {
+  const { t } = useI18n();
   const grid = view === "grid";
   const selectedKeys = selection?.selectedKeys ?? new Set<React.Key>();
   const hasSelection = selection ? selectedKeys === "all" || selectedKeys.size > 0 : false;
@@ -174,7 +183,7 @@ function FileCollection({
   return (
     <Virtualizer key={view} layout={grid ? GridLayout : ListLayout}>
       <GridList
-        aria-label="Files and folders"
+        aria-label={t("features.fileBrowser.filesAndFolders")}
         layout={grid ? "grid" : "stack"}
         selectionMode={selection ? "multiple" : "none"}
         selectionBehavior="replace"
@@ -194,7 +203,7 @@ function FileCollection({
             <div className="mb-3 flex size-11 items-center justify-center rounded-xl bg-default/30 text-muted">
               <FolderIcon className="size-5" />
             </div>
-            <p className="text-sm font-medium">This folder is empty</p>
+            <p className="text-sm font-medium">{t("features.fileBrowser.emptyTitle")}</p>
             <p className="mt-1 text-xs text-muted">{emptyHint}</p>
           </div>
         )}
@@ -266,10 +275,11 @@ function FileCollection({
 }
 
 function SelectionCheckbox({ file, isVisible }: { file: FileEntry; isVisible: boolean }) {
+  const { t } = useI18n();
   return (
     <Checkbox
       slot="selection"
-      aria-label={`Select ${file.name}`}
+      aria-label={t("features.fileBrowser.selectFile", { name: file.name })}
       className={({ isSelected }) =>
         [
           "shrink-0 transition-opacity",
@@ -295,6 +305,7 @@ function GridFile({
   selectable: boolean;
   showCheckbox: boolean;
 }) {
+  const { t } = useI18n();
   const Icon = file.kind === "folder" ? FolderIcon : FileIcon;
   return (
     <>
@@ -307,7 +318,9 @@ function GridFile({
       <div className="min-w-0">
         <p className="truncate text-sm font-medium group-hover:text-accent">{file.name}</p>
         <p className="mt-1 text-[11px] text-muted">
-          {file.kind === "folder" ? "Folder" : formatFileBytes(file.size ?? 0)}
+          {file.kind === "folder"
+            ? t("features.fileBrowser.folderKind")
+            : formatFileBytes(file.size ?? 0)}
         </p>
       </div>
     </>
@@ -323,6 +336,7 @@ function ListFile({
   selectable: boolean;
   showCheckbox: boolean;
 }) {
+  const { t } = useI18n();
   const Icon = file.kind === "folder" ? FolderIcon : FileIcon;
   return (
     <>
@@ -334,7 +348,9 @@ function ListFile({
         <span className="truncate text-sm font-medium group-hover:text-accent">{file.name}</span>
       </div>
       <span className="hidden text-xs text-muted sm:block">
-        {file.kind === "folder" ? "Folder" : formatFileBytes(file.size ?? 0)}
+        {file.kind === "folder"
+          ? t("features.fileBrowser.folderKind")
+          : formatFileBytes(file.size ?? 0)}
       </span>
       <span className="hidden text-xs text-muted lg:block">
         {new Date(file.modTime).toLocaleString()}
@@ -352,11 +368,12 @@ function FileBrowserBreadcrumb({
   rootLabel: string;
   onNavigatePath: (path: string) => void;
 }) {
+  const { t } = useI18n();
   const parts = path.split("/").filter(Boolean);
   const lastIndex = parts.length - 1;
   return (
     <nav
-      aria-label="Current folder"
+      aria-label={t("features.fileBrowser.currentFolder")}
       className="flex min-w-0 items-center gap-1 overflow-hidden text-sm"
     >
       <Button

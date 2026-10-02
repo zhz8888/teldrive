@@ -4,6 +4,7 @@ import { invalidResponse, normalizeApiError, userMessage } from "@/api/errors";
 import type { FileEntry, NameConflictPolicy, UploadPart, UploadSession } from "@/api/types";
 import { newClientId } from "@/features/shared/client-id";
 import { newIdempotencyKey } from "@/features/shared/idempotency";
+import { t } from "@/lib/i18n";
 
 export type UploadTaskStatus =
   | "queued"
@@ -114,7 +115,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     const batchName =
       isDirectory && rootNames.size === 1
         ? relativePaths[0].split("/")[0]
-        : `${input.length} ${input.length === 1 ? "file" : "files"}`;
+        : t("features.uploads.batchName", { count: input.length });
     const added = input.map<UploadTask>((file) => {
       const id = newClientId();
       const relativePath = file.webkitRelativePath || file.name;
@@ -144,7 +145,7 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     if (!files.has(taskId)) {
       get().patchTask(taskId, {
         status: "failed",
-        error: "The original file is no longer available. Start the upload again.",
+        error: t("features.uploads.originalFileUnavailable"),
       });
       return;
     }
@@ -389,7 +390,7 @@ async function runTask(taskId: string) {
     if (task) {
       store.patchTask(taskId, {
         status: "failed",
-        error: "The original file is no longer available. Start the upload again.",
+        error: t("features.uploads.originalFileUnavailable"),
       });
     }
     return;

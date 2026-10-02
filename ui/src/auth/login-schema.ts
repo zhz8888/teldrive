@@ -1,14 +1,20 @@
 import { z } from "zod";
+import { t } from "@/lib/i18n";
 
+// The messages are functions so a validation error is worded in the locale that is
+// active when the field is checked, not the one that was active at import time.
 export const phoneNumberSchema = z
   .string()
-  .regex(/^\+[1-9][0-9]{7,14}$/, "Use E.164 format, including the country code.");
+  .regex(/^\+[1-9][0-9]{7,14}$/, { error: () => t("features.auth.phoneFormat") });
 
-export const telegramCodeSchema = z.string().trim().min(1, "Enter the code sent by Telegram.");
+export const telegramCodeSchema = z
+  .string()
+  .trim()
+  .min(1, { error: () => t("features.auth.codeRequired") });
 
 export const telegramPasswordSchema = z
   .string()
-  .min(1, "Enter your Telegram two-step verification password.");
+  .min(1, { error: () => t("features.auth.passwordRequired") });
 
 export type TelegramLoginValues = {
   phoneNumber: string;
