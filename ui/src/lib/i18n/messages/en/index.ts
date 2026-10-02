@@ -5,6 +5,7 @@
  */
 import { common } from "./common";
 import { components } from "./components";
+import { errors } from "./errors";
 import { features } from "./features";
 import { routes } from "./routes";
 import { settings } from "./settings";
@@ -12,6 +13,7 @@ import { settings } from "./settings";
 export const en = {
   ...common,
   ...components,
+  ...errors,
   ...features,
   ...routes,
   ...settings,

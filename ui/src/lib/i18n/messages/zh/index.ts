@@ -9,6 +9,7 @@ import type { AreaMessages } from "../../types";
 import type { en } from "./../en";
 import { common } from "./common";
 import { components } from "./components";
+import { errors } from "./errors";
 import { features } from "./features";
 import { routes } from "./routes";
 import { settings } from "./settings";
@@ -16,6 +17,7 @@ import { settings } from "./settings";
 export const zh: AreaMessages<typeof en> = {
   ...common,
   ...components,
+  ...errors,
   ...features,
   ...routes,
   ...settings,
