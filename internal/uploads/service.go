@@ -34,6 +34,17 @@ const (
 	defaultLeaseTTL = time.Minute
 )
 
+// leaseSeconds converts a lease lifetime into the whole seconds the lease
+// queries add to the database clock, which is the clock that decides whether a
+// lease is still live. A non-positive duration yields zero seconds, so a
+// misconfigured lease expires immediately instead of never.
+func leaseSeconds(ttl time.Duration) int32 {
+	if ttl <= 0 {
+		return 0
+	}
+	return int32(ttl / time.Second)
+}
+
 var (
 	// ErrInvalidInput reports a request that violates the documented contract of
 	// the called method, such as missing ids, negative sizes, a half-specified
@@ -373,6 +384,8 @@ type ClaimPartResult struct {
 // the user, otherwise ErrInvalidState, ErrExpired or ErrInvalidChannel is
 // returned. Concurrent claims for the same part are settled by the database's
 // unique constraint, so exactly one caller wins and the others see ErrPartBusy.
+// The deadline is computed by the database itself, so a lease can never be
+// granted already expired by a clock difference between the two hosts.
 func (s *Service) ClaimPart(ctx context.Context, in ClaimPartInput) (*ClaimPartResult, error) {
 	if in.UserID <= 0 || in.PartNo <= 0 || in.ChannelID == 0 || in.PlainSize < 0 {
 		return nil, ErrInvalidInput
@@ -423,13 +436,13 @@ func (s *Service) ClaimPart(ctx context.Context, in ClaimPartInput) (*ClaimPartR
 
 	leaseToken := uuid.New()
 	part, err := s.queries.ClaimUploadPart(ctx, sqlcgen.ClaimUploadPartParams{
-		UploadID:       dbtypes.UUID(in.UploadID),
-		PartNo:         in.PartNo,
-		ChannelID:      in.ChannelID,
-		PlainSize:      in.PlainSize,
-		Checksum:       dbtypes.OptionalText(in.Checksum),
-		LeaseToken:     dbtypes.UUID(leaseToken),
-		LeaseExpiresAt: dbtypes.Time(s.now().UTC().Add(s.leaseTTL)),
+		UploadID:     dbtypes.UUID(in.UploadID),
+		PartNo:       in.PartNo,
+		ChannelID:    in.ChannelID,
+		PlainSize:    in.PlainSize,
+		Checksum:     dbtypes.OptionalText(in.Checksum),
+		LeaseToken:   dbtypes.UUID(leaseToken),
+		LeaseSeconds: leaseSeconds(s.leaseTTL),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPartBusy
@@ -476,7 +489,8 @@ type RenewPartInput struct {
 	LeaseToken uuid.UUID
 }
 
-// RenewPart pushes the lease deadline of an uploading part to now plus leaseTTL.
+// RenewPart pushes the lease deadline of an uploading part to the database
+// clock's now plus leaseTTL, which is the clock the claim predicate reads.
 // ErrLeaseLost means the token no longer matches, either because the lease lapsed
 // and the part was re-claimed or because the attempt already finished; the
 // uploader must stop writing that part.
@@ -485,10 +499,10 @@ func (s *Service) RenewPart(ctx context.Context, in RenewPartInput) error {
 		return ErrInvalidInput
 	}
 	updated, err := s.queries.RenewUploadPartLease(ctx, sqlcgen.RenewUploadPartLeaseParams{
-		LeaseExpiresAt: dbtypes.Time(s.now().UTC().Add(s.leaseTTL)),
-		UploadID:       dbtypes.UUID(in.UploadID),
-		PartNo:         in.PartNo,
-		LeaseToken:     dbtypes.UUID(in.LeaseToken),
+		LeaseSeconds: leaseSeconds(s.leaseTTL),
+		UploadID:     dbtypes.UUID(in.UploadID),
+		PartNo:       in.PartNo,
+		LeaseToken:   dbtypes.UUID(in.LeaseToken),
 	})
 	if err != nil {
 		return fmt.Errorf("renew upload part lease: %w", err)

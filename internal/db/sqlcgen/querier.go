@@ -16,6 +16,9 @@ type Querier interface {
 	AcquireAdvisoryTransactionLock(ctx context.Context, lockID int64) error
 	AcquireUserBootstrapLock(ctx context.Context) error
 	ActivateBot(ctx context.Context, arg ActivateBotParams) (*Bot, error)
+	// The lease is granted from the database clock, which is also the clock the
+	// conflict predicate below reads: a lease written from the application clock
+	// would already be expired whenever the two drift apart.
 	ClaimUploadPart(ctx context.Context, arg ClaimUploadPartParams) (*UploadPart, error)
 	ClearSelectedChannel(ctx context.Context, userID int64) error
 	ClearUploadSessionParentsByFileIDs(ctx context.Context, arg ClearUploadSessionParentsByFileIDsParams) error
@@ -144,6 +147,7 @@ type Querier interface {
 	QueueFileSubtreePurge(ctx context.Context, arg QueueFileSubtreePurgeParams) ([]*File, error)
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
 	RenameUploadSession(ctx context.Context, arg RenameUploadSessionParams) (int64, error)
+	// The renewed deadline comes from the database clock, matching the claim.
 	RenewUploadPartLease(ctx context.Context, arg RenewUploadPartLeaseParams) (int64, error)
 	ResolveActiveChild(ctx context.Context, arg ResolveActiveChildParams) (*File, error)
 	ResolveActiveChildFolder(ctx context.Context, arg ResolveActiveChildFolderParams) (pgtype.UUID, error)

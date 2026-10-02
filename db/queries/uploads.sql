@@ -86,6 +86,9 @@ WHERE upload_id = sqlc.arg(upload_id)
   AND part_no = sqlc.arg(part_no);
 
 -- name: ClaimUploadPart :one
+-- The lease is granted from the database clock, which is also the clock the
+-- conflict predicate below reads: a lease written from the application clock
+-- would already be expired whenever the two drift apart.
 INSERT INTO /* TEMPLATE: schema */upload_parts (
     upload_id,
     part_no,
@@ -103,7 +106,7 @@ INSERT INTO /* TEMPLATE: schema */upload_parts (
     sqlc.narg(checksum),
     'uploading',
     sqlc.arg(lease_token),
-    sqlc.arg(lease_expires_at)
+    now() + make_interval(secs => sqlc.arg(lease_seconds)::int)
 )
 ON CONFLICT (upload_id, part_no) DO UPDATE
 SET channel_id = EXCLUDED.channel_id,
@@ -140,8 +143,9 @@ WHERE upload_id = sqlc.arg(upload_id)
 RETURNING *;
 
 -- name: RenewUploadPartLease :execrows
+-- The renewed deadline comes from the database clock, matching the claim.
 UPDATE /* TEMPLATE: schema */upload_parts
-SET lease_expires_at = sqlc.arg(lease_expires_at),
+SET lease_expires_at = now() + make_interval(secs => sqlc.arg(lease_seconds)::int),
     updated_at = now()
 WHERE upload_id = sqlc.arg(upload_id)
   AND part_no = sqlc.arg(part_no)

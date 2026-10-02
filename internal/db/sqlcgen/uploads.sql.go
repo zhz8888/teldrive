@@ -71,7 +71,7 @@ INSERT INTO /* TEMPLATE: schema */upload_parts (
     $5,
     'uploading',
     $6,
-    $7
+    now() + make_interval(secs => $7::int)
 )
 ON CONFLICT (upload_id, part_no) DO UPDATE
 SET channel_id = EXCLUDED.channel_id,
@@ -91,15 +91,18 @@ RETURNING upload_id, part_no, channel_id, message_id, plain_size, stored_size, c
 `
 
 type ClaimUploadPartParams struct {
-	UploadID       pgtype.UUID        `json:"upload_id"`
-	PartNo         int32              `json:"part_no"`
-	ChannelID      int64              `json:"channel_id"`
-	PlainSize      int64              `json:"plain_size"`
-	Checksum       pgtype.Text        `json:"checksum"`
-	LeaseToken     pgtype.UUID        `json:"lease_token"`
-	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	UploadID     pgtype.UUID `json:"upload_id"`
+	PartNo       int32       `json:"part_no"`
+	ChannelID    int64       `json:"channel_id"`
+	PlainSize    int64       `json:"plain_size"`
+	Checksum     pgtype.Text `json:"checksum"`
+	LeaseToken   pgtype.UUID `json:"lease_token"`
+	LeaseSeconds int32       `json:"lease_seconds"`
 }
 
+// The lease is granted from the database clock, which is also the clock the
+// conflict predicate below reads: a lease written from the application clock
+// would already be expired whenever the two drift apart.
 func (q *Queries) ClaimUploadPart(ctx context.Context, arg ClaimUploadPartParams) (*UploadPart, error) {
 	row := q.db.QueryRow(ctx, claimUploadPart,
 		arg.UploadID,
@@ -108,7 +111,7 @@ func (q *Queries) ClaimUploadPart(ctx context.Context, arg ClaimUploadPartParams
 		arg.PlainSize,
 		arg.Checksum,
 		arg.LeaseToken,
-		arg.LeaseExpiresAt,
+		arg.LeaseSeconds,
 	)
 	var i UploadPart
 	err := row.Scan(
@@ -1416,7 +1419,7 @@ func (q *Queries) RenameUploadSession(ctx context.Context, arg RenameUploadSessi
 
 const renewUploadPartLease = `-- name: RenewUploadPartLease :execrows
 UPDATE /* TEMPLATE: schema */upload_parts
-SET lease_expires_at = $1,
+SET lease_expires_at = now() + make_interval(secs => $1::int),
     updated_at = now()
 WHERE upload_id = $2
   AND part_no = $3
@@ -1425,15 +1428,16 @@ WHERE upload_id = $2
 `
 
 type RenewUploadPartLeaseParams struct {
-	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
-	UploadID       pgtype.UUID        `json:"upload_id"`
-	PartNo         int32              `json:"part_no"`
-	LeaseToken     pgtype.UUID        `json:"lease_token"`
+	LeaseSeconds int32       `json:"lease_seconds"`
+	UploadID     pgtype.UUID `json:"upload_id"`
+	PartNo       int32       `json:"part_no"`
+	LeaseToken   pgtype.UUID `json:"lease_token"`
 }
 
+// The renewed deadline comes from the database clock, matching the claim.
 func (q *Queries) RenewUploadPartLease(ctx context.Context, arg RenewUploadPartLeaseParams) (int64, error) {
 	result, err := q.db.Exec(ctx, renewUploadPartLease,
-		arg.LeaseExpiresAt,
+		arg.LeaseSeconds,
 		arg.UploadID,
 		arg.PartNo,
 		arg.LeaseToken,
