@@ -151,8 +151,13 @@ function PublicSharePage() {
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = file.name;
+      // The anchor has to be in the document for the click to start the download
+      // in every browser, and revoking the object URL straight away can abort it
+      // (Firefox and Safari read the blob after the click returns).
+      document.body.append(anchor);
       anchor.click();
-      URL.revokeObjectURL(url);
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (cause) {
       setError(userMessage(cause));
     }
@@ -236,24 +241,49 @@ function PublicSharePage() {
 
   const trashSelected = async () => {
     if (!selectedFiles.length) return;
-    try {
-      for (const file of selectedFiles) {
-        await apiFetch(
+    // One refusal must not strand the entries that were already deleted, so the
+    // deletions run together and the listing is refreshed for whatever the
+    // server actually removed.
+    const results = await Promise.allSettled(
+      selectedFiles.map((file) =>
+        apiFetch(
           `/v1/public/shares/${encodeURIComponent(token)}/files/${encodeURIComponent(file.id)}`,
           {
             method: "DELETE",
             headers: shareHeaders(activePassword),
           },
-        );
-      }
-      setSelectedKeys(new Set());
+        ),
+      ),
+    );
+    const removedIds = new Set(
+      selectedFiles
+        .filter((_, index) => results[index]?.status === "fulfilled")
+        .map((file) => file.id),
+    );
+    setSelectedKeys((current) => {
+      const ids =
+        current === "all" ? selectedFiles.map((file) => file.id) : Array.from(current, String);
+      return new Set(ids.filter((id) => !removedIds.has(id)));
+    });
+    try {
       await refreshItems();
-      toast.success(t("routes.share.toast.trashed", { count: selectedFiles.length }));
     } catch (cause) {
       toast.error(t("routes.share.toast.trashFailed"), {
         description: userMessage(cause),
       });
     }
+    const failed = selectedFiles.filter((file) => !removedIds.has(file.id));
+    if (failed.length) {
+      const failure = results.find((result) => result.status === "rejected");
+      toast.error(
+        failed.length === selectedFiles.length
+          ? t("routes.share.toast.trashFailed")
+          : t("routes.share.toast.trashPartial", { count: failed.length }),
+        { description: failure ? userMessage(failure.reason) : undefined },
+      );
+      return;
+    }
+    toast.success(t("routes.share.toast.trashed", { count: removedIds.size }));
   };
 
   const uploadFile = async (file: File) => {
