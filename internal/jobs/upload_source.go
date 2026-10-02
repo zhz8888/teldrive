@@ -1559,7 +1559,13 @@ func NewUploadHTTPClient() *http.Client {
 // safeUploadAddress reports whether a resolved address may be dialed for a
 // user-supplied URL. It works as a denylist: addresses that are invalid, unspecified,
 // loopback, private, link-local or multicast are refused, and any other address is
-// allowed.
+// allowed. An IPv4-mapped IPv6 address is first reduced to the IPv4 address it
+// carries, because the predicates do not agree on unmapping and the dialer does.
 func safeUploadAddress(address netip.Addr) bool {
+	// Judge an IPv4-mapped address as the IPv4 address it carries. netip only
+	// unmaps inside some of the predicates below, so ::ffff:0.0.0.0 would
+	// otherwise pass the unspecified check while the dialer turns it back into
+	// 0.0.0.0 and reaches the loopback interface.
+	address = address.Unmap()
 	return address.IsValid() && !address.IsUnspecified() && !address.IsLoopback() && !address.IsPrivate() && !address.IsLinkLocalUnicast() && !address.IsLinkLocalMulticast() && !address.IsMulticast()
 }
