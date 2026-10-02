@@ -261,6 +261,44 @@ func TestDownloadReaderReusesRangeForSmallSequentialReads(t *testing.T) {
 	}
 }
 
+func TestDownloadReaderRejectsPrematurePartEOF(t *testing.T) {
+	fileID := uuid.New()
+	catalog := &downloadCatalog{
+		file: &sqlcgen.File{
+			ID: pgtype.UUID{Bytes: fileID, Valid: true}, UserID: 7, Name: "short.bin",
+			Kind: sqlcgen.FileKindFile, Size: pgtype.Int8{Int64: 4, Valid: true},
+			Encryption: false, Status: sqlcgen.FileStatusActive,
+		},
+		parts: []*sqlcgen.FilePart{{
+			PartNo: 1, ChannelID: 11, MessageID: 101,
+			PlainSize:  pgtype.Int8{Int64: 4, Valid: true},
+			StoredSize: pgtype.Int8{Int64: 4, Valid: true},
+		}},
+	}
+	// The part promises four bytes but the stored document holds two, the case a
+	// cancelled Telegram fill reports as (0, io.EOF).
+	storage := &downloadStorage{data: map[int64][]byte{101: []byte("ab")}}
+	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+		UserID: 7, FileID: fileID, Length: -1,
+	})
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer download.Reader.Close()
+
+	buf := make([]byte, 4)
+	n, readErr := download.Reader.Read(buf)
+	if !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		t.Fatalf("Read() error = %v, want io.ErrUnexpectedEOF", readErr)
+	}
+	if n != 2 || string(buf[:n]) != "ab" {
+		t.Fatalf("Read() = %d, %q, want 2 bytes %q", n, buf[:n], "ab")
+	}
+	if calls := storage.rangeCalls.Load(); calls != 1 {
+		t.Fatalf("range calls = %d, want the short range opened once", calls)
+	}
+}
+
 type downloadCatalog struct {
 	file      *sqlcgen.File
 	parts     []*sqlcgen.FilePart

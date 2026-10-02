@@ -374,12 +374,18 @@ type downloadReader struct {
 	// reader is the part range currently being streamed, or nil when the next
 	// read must open one at pos.
 	reader io.ReadCloser
+	// readerEnd is the range position just past the last byte the open reader is
+	// expected to yield; it is only meaningful while reader is non-nil.
+	readerEnd int64
 }
 
 // Read streams the range sequentially from the current position, opening and
 // draining one part range at a time. It reports io.EOF only when the whole range
 // was consumed, so a failure in the middle surfaces the storage error after the
-// bytes already read.
+// bytes already read. A part range that ends before the range position the
+// segment promised is such a failure: the reader is closed and the read reports
+// io.ErrUnexpectedEOF instead of reopening the same offset, which would never
+// make progress.
 func (r *downloadReader) Read(p []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -401,6 +407,7 @@ func (r *downloadReader) Read(p []byte) (int, error) {
 			if err != nil {
 				return read, err
 			}
+			r.readerEnd = segmentStart + segment.length
 		}
 		n, err := r.reader.Read(p[read:])
 		read += n
@@ -408,6 +415,9 @@ func (r *downloadReader) Read(p []byte) (int, error) {
 		if errors.Is(err, io.EOF) {
 			_ = r.reader.Close()
 			r.reader = nil
+			if r.readerEnd > r.pos {
+				return read, fmt.Errorf("download reader: part range ended %d bytes early: %w", r.readerEnd-r.pos, io.ErrUnexpectedEOF)
+			}
 			continue
 		}
 		if err != nil {
