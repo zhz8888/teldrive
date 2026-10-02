@@ -224,8 +224,8 @@ func NewService(pool *pgxpool.Pool, catalogService *catalog.Service, channelServ
 // error deletes those messages again on a background context, cancelling the request
 // does not cancel the cleanup, and the deletes are best effort with errors discarded.
 // The one case the scheme cannot cover is a failed copy whose storage response names
-// no message at all, such as a size mismatch reported by an implementation that
-// discards the part it published; that orphan is left to the periodic cleanup sweep.
+// no message at all, which the Storage contract permits; that orphan is left to the
+// periodic cleanup sweep.
 //
 // Only then does one transaction run: it takes the destination advisory lock, looks
 // for an active entry with the root's name, applies in.ConflictPolicy, inserts the
@@ -676,7 +676,9 @@ func (s *Service) Purge(ctx context.Context, userID int64, fileID uuid.UUID) err
 // non-blocking PostgreSQL advisory lock held on a dedicated connection for the whole
 // call: a root that another purge already holds is skipped and reported as success, so
 // concurrent sweeps split the work instead of colliding and a nil error does not
-// guarantee that every root was removed. A root that no longer exists yields
+// guarantee that every root was removed. Only the locks this call took are released
+// again, because the pooled connection may carry session-level locks another package
+// holds. A root that no longer exists yields
 // ErrNotFound and one that is neither trashed nor deletion_pending yields ErrNotTrashed;
 // both abort before anything is marked or deleted.
 //
@@ -712,10 +714,20 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	defer conn.Release()
 	lockQueries := sqlcgen.New(conn)
 	lockedRoots := make([]uuid.UUID, 0, len(uniqueRoots))
+	heldLockIDs := make([]int64, 0, len(uniqueRoots))
 	defer func() {
+		if len(heldLockIDs) == 0 {
+			return
+		}
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, _ = conn.Exec(unlockCtx, "SELECT pg_advisory_unlock_all()")
+		// Release only the locks this call actually took. The connection is
+		// pooled and the same one may carry session-level locks taken by other
+		// packages, so a blanket pg_advisory_unlock_all would drop locks this
+		// caller does not own.
+		for _, lockID := range heldLockIDs {
+			_, _ = lockQueries.ReleaseAdvisoryLock(unlockCtx, lockID)
+		}
 	}()
 	rootByLockID := make(map[int64]uuid.UUID, len(uniqueRoots))
 	lockIDs := make([]int64, 0, len(uniqueRoots))
@@ -730,6 +742,7 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	}
 	for _, lock := range locks {
 		if lock.Locked {
+			heldLockIDs = append(heldLockIDs, lock.LockID)
 			lockedRoots = append(lockedRoots, rootByLockID[lock.LockID])
 		}
 	}
