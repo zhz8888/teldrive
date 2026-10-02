@@ -187,6 +187,17 @@ func (s *Service) Select(ctx context.Context, userID, channelID int64) (*sqlcgen
 // that fails after Telegram already deleted the channel: the row then survives
 // with its Telegram channel gone, which a retry repairs because deleting a
 // channel that no longer resolves succeeds.
+//
+// The reference count and the row delete share that transaction, and the count is
+// taken again after the delete, because nothing in the schema stops a part from
+// being inserted or claimed for this channel in between: the second count sees a
+// reference created after the first one, and the deferred rollback then restores
+// the row and the call reports ErrChannelInUse instead of destroying a channel
+// that is in use. Telegram is only asked to delete the channel once the row is
+// gone and the re-check passed, so a refused delete never destroys anything. The
+// window that remains is a reference inserted after the re-check but before the
+// commit, which the row delete cannot see; closing it would need a foreign key on
+// the part tables or a table lock, neither of which this package can add.
 func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {
 	if userID <= 0 || channelID == 0 || s.creator == nil {
 		return ErrInvalidChannel
@@ -201,24 +212,32 @@ func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {
 	if channel.Selected {
 		return ErrSelectedChannel
 	}
-	references, err := s.queries.CountChannelReferences(ctx, channelID)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin channel deletion: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	q := s.queries.WithTx(tx)
+	references, err := q.CountChannelReferences(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("count channel references: %w", err)
 	}
 	if references > 0 {
 		return ErrChannelInUse
 	}
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin channel deletion: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	count, err := s.queries.WithTx(tx).DeleteChannel(ctx, sqlcgen.DeleteChannelParams{UserID: userID, ChannelID: channelID})
+	count, err := q.DeleteChannel(ctx, sqlcgen.DeleteChannelParams{UserID: userID, ChannelID: channelID})
 	if err != nil {
 		return fmt.Errorf("delete channel record: %w", err)
 	}
 	if count == 0 {
 		return ErrInvalidChannel
+	}
+	references, err = q.CountChannelReferences(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("recount channel references after the delete: %w", err)
+	}
+	if references > 0 {
+		return ErrChannelInUse
 	}
 	if err := s.creator.Delete(ctx, userID, channelID); err != nil {
 		return fmt.Errorf("delete Telegram channel: %w", err)
