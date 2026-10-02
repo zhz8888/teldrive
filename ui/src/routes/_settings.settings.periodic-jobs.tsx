@@ -1,17 +1,8 @@
-import {
-  Button,
-  Card,
-  Chip,
-  Label,
-  ListBox,
-  NumberField,
-  Select,
-  Typography,
-  toast,
-} from "@heroui/react";
+import { Button, Card, Chip, Label, ListBox, NumberField, Select, Typography } from "@heroui/react";
 import { useStore } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { $api as api } from "@/api/client";
 import { queryClient } from "@/api/query-client";
 import type { components } from "@/api/schema";
@@ -99,7 +90,7 @@ function PeriodicJobsPage() {
       setEditorOpen(false);
       void invalidate();
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.createFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.createFailed")),
   });
   const updateJob = api.useMutation("put", "/v1/periodic-jobs/{periodicJobId}", {
     onSuccess: () => {
@@ -107,7 +98,7 @@ function PeriodicJobsPage() {
       setEditorOpen(false);
       void invalidate();
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.updateFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.updateFailed")),
   });
   const deleteMutation = api.useMutation("delete", "/v1/periodic-jobs/{periodicJobId}", {
     onSuccess: () => {
@@ -115,21 +106,21 @@ function PeriodicJobsPage() {
       setDeleteJob(null);
       void invalidate();
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.deleteFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.deleteFailed")),
   });
   const pauseMutation = api.useMutation("post", "/v1/periodic-jobs/{periodicJobId}/pause", {
     onSuccess: () => {
       toast.success(t("settings.periodicJobs.toast.paused"));
       void invalidate();
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.pauseFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.pauseFailed")),
   });
   const resumeMutation = api.useMutation("post", "/v1/periodic-jobs/{periodicJobId}/resume", {
     onSuccess: () => {
       toast.success(t("settings.periodicJobs.toast.resumed"));
       void invalidate();
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.resumeFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.resumeFailed")),
   });
   const resetMutation = api.useMutation("post", "/v1/periodic-jobs/reset", {
     onSuccess: () => {
@@ -139,7 +130,7 @@ function PeriodicJobsPage() {
         queryKey: api.queryOptions("get", "/v1/periodic-jobs").queryKey,
       });
     },
-    onError: () => toast.danger(t("settings.periodicJobs.toast.resetFailed")),
+    onError: () => toast.error(t("settings.periodicJobs.toast.resetFailed")),
   });
 
   const openCreate = () => {
