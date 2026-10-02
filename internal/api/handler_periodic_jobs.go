@@ -14,6 +14,8 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/jobs"
 )
 
+// ListPeriodicJobs returns every configured periodic job with its schedule, queue
+// and pause state. Service failures are mapped by mapServiceError.
 func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes, error) {
 	items, err := h.Jobs.ListPeriodicJobs(ctx)
 	if err != nil {
@@ -26,6 +28,9 @@ func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes
 	return &response, nil
 }
 
+// GetPeriodicJobCatalog returns the built-in schedule templates with their kind,
+// label, default args, queue and recommended cron expression, which clients use to
+// create periodic jobs.
 func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCatalogRes, error) {
 	templates := h.Jobs.PeriodicJobCatalog()
 	response := gen.PeriodicJobCatalog{Templates: make([]gen.PeriodicJobTemplate, 0, len(templates))}
@@ -39,6 +44,8 @@ func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCata
 	return &response, nil
 }
 
+// ResetPeriodicJobs restores the built-in catalog of schedules and returns the
+// resulting list, discarding any user modifications.
 func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsRes, error) {
 	items, err := h.Jobs.ResetPeriodicJobs(ctx)
 	if err != nil {
@@ -51,6 +58,8 @@ func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsR
 	return &response, nil
 }
 
+// CreatePeriodicJob registers a cron schedule and returns it. A duplicate ID is
+// reported as 409 through mapPeriodicJobError.
 func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCreate) (gen.CreatePeriodicJobRes, error) {
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.CreatePeriodicJob(ctx, jobs.PeriodicJobInput{
@@ -66,6 +75,8 @@ func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCre
 	return &response, nil
 }
 
+// UpdatePeriodicJob replaces the schedule identified by the path ID and returns
+// the stored job; unknown IDs map to 404 through mapPeriodicJobError.
 func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpdate, params gen.UpdatePeriodicJobParams) (gen.UpdatePeriodicJobRes, error) {
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.UpdatePeriodicJob(ctx, params.PeriodicJobId, jobs.PeriodicJobInput{
@@ -81,6 +92,8 @@ func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpd
 	return &response, nil
 }
 
+// DeletePeriodicJob removes a schedule, returning 404 through mapPeriodicJobError
+// when the ID does not exist.
 func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriodicJobParams) (gen.DeletePeriodicJobRes, error) {
 	if err := h.Jobs.DeletePeriodicJob(ctx, params.PeriodicJobId); err != nil {
 		return nil, mapPeriodicJobError(err)
@@ -88,6 +101,8 @@ func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriod
 	return &gen.DeletePeriodicJobNoContent{}, nil
 }
 
+// PausePeriodicJob suspends a schedule, which stops future runs but keeps its
+// configuration, and returns the updated job.
 func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodicJobParams) (gen.PausePeriodicJobRes, error) {
 	item, err := h.Jobs.PausePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
@@ -97,6 +112,7 @@ func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodic
 	return &response, nil
 }
 
+// ResumePeriodicJob reactivates a paused schedule and returns the updated job.
 func (h *Handler) ResumePeriodicJob(ctx context.Context, params gen.ResumePeriodicJobParams) (gen.ResumePeriodicJobRes, error) {
 	item, err := h.Jobs.ResumePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
@@ -106,6 +122,8 @@ func (h *Handler) ResumePeriodicJob(ctx context.Context, params gen.ResumePeriod
 	return &response, nil
 }
 
+// periodicJobResponse converts a runtime periodic job into the API model, copying
+// the args, tags and schedule and attaching the pause timestamp when set.
 func periodicJobResponse(item jobs.PeriodicJob) gen.PeriodicJob {
 	response := gen.PeriodicJob{
 		ID: item.ID, Kind: item.Kind, Args: rawMap[gen.PeriodicJobArgs](item.Args), Queue: item.Queue,
@@ -119,6 +137,8 @@ func periodicJobResponse(item jobs.PeriodicJob) gen.PeriodicJob {
 	return response
 }
 
+// jsonRawMap converts a jx.Raw map into JSON messages with copied buffers; it is
+// the inverse of rawMap and keeps the runtime args independent of the request.
 func jsonRawMap[T ~map[string]jx.Raw](input T) map[string]json.RawMessage {
 	result := make(map[string]json.RawMessage, len(input))
 	for key, value := range input {
@@ -127,6 +147,8 @@ func jsonRawMap[T ~map[string]jx.Raw](input T) map[string]json.RawMessage {
 	return result
 }
 
+// mapPeriodicJobError maps riverpro's duplicate-ID error to 409 and River's
+// not-found error to 404, falling back to mapServiceError for everything else.
 func mapPeriodicJobError(err error) error {
 	if errors.Is(err, riverpro.ErrPeriodicJobAlreadyExists) {
 		return problem(http.StatusConflict, "already_exists", "periodic job already exists", err)

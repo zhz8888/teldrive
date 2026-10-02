@@ -6,6 +6,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/api/gen"
 )
 
+// GetStorageStats builds the authenticated user's storage dashboard: totals,
+// growth, category and channel breakdowns, reclaimable space and recent activity.
+// It delegates to h.Catalog and requires a configured catalog service.
 func (h *Handler) GetStorageStats(ctx context.Context) (gen.GetStorageStatsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {

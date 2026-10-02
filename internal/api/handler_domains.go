@@ -22,6 +22,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/transfer"
 )
 
+// TelegramLoginStart begins an unauthenticated Telegram login flow and sends a
+// login code to the requested phone number. It delegates to h.Auth and reports
+// flow errors through mapServiceError; a missing auth service yields 503.
 func (h *Handler) TelegramLoginStart(ctx context.Context, req *gen.TelegramLoginStartRequest, params gen.TelegramLoginStartParams) (gen.TelegramLoginStartRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -34,6 +37,9 @@ func (h *Handler) TelegramLoginStart(ctx context.Context, req *gen.TelegramLogin
 	return &response, nil
 }
 
+// TelegramQRLoginStart begins an unauthenticated QR login flow and returns the
+// QR URL the user must approve in Telegram. Delegates to h.Auth.StartQR, so a
+// missing service or an upstream failure surfaces through mapServiceError.
 func (h *Handler) TelegramQRLoginStart(ctx context.Context, params gen.TelegramQRLoginStartParams) (gen.TelegramQRLoginStartRes, error) {
 	if h.Auth == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -46,6 +52,9 @@ func (h *Handler) TelegramQRLoginStart(ctx context.Context, params gen.TelegramQ
 	return &response, nil
 }
 
+// TelegramQRLoginPoll advances a QR login flow and returns either the refreshed
+// QR challenge or, once the account is authorized, a token pair. It is
+// unauthenticated and maps expired flows to 410 through mapServiceError.
 func (h *Handler) TelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLoginPollRequest, params gen.TelegramQRLoginPollParams) (gen.TelegramQRLoginPollRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -61,6 +70,10 @@ func (h *Handler) TelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLo
 	response := tokenPairResponse(result.Tokens)
 	return &response, nil
 }
+
+// TelegramLoginVerifyCode submits the login code for a flow and returns a token
+// pair, or the flow again with passwordRequired set when two-step verification
+// is enabled. Unauthenticated; invalid codes map to 422 and expired flows to 410.
 func (h *Handler) TelegramLoginVerifyCode(ctx context.Context, req *gen.TelegramCodeVerifyRequest, params gen.TelegramLoginVerifyCodeParams) (gen.TelegramLoginVerifyCodeRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -77,6 +90,9 @@ func (h *Handler) TelegramLoginVerifyCode(ctx context.Context, req *gen.Telegram
 	return &response, nil
 }
 
+// TelegramLoginVerifyPassword completes two-step verification for a pending flow
+// and returns the token pair. Unauthenticated; a wrong password maps to 401 via
+// authn.ErrPasswordInvalid.
 func (h *Handler) TelegramLoginVerifyPassword(ctx context.Context, req *gen.TelegramPasswordVerifyRequest, params gen.TelegramLoginVerifyPasswordParams) (gen.TelegramLoginVerifyPasswordRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -89,6 +105,9 @@ func (h *Handler) TelegramLoginVerifyPassword(ctx context.Context, req *gen.Tele
 	return &response, nil
 }
 
+// RefreshSession rotates the access and refresh token pair using the refresh
+// token in the body; the endpoint is unauthenticated because that token is the
+// credential. Invalid or revoked tokens map to 401.
 func (h *Handler) RefreshSession(ctx context.Context, req *gen.RefreshTokenRequest) (gen.RefreshSessionRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -101,6 +120,9 @@ func (h *Handler) RefreshSession(ctx context.Context, req *gen.RefreshTokenReque
 	return &response, nil
 }
 
+// LogoutSession revokes the session behind the caller's bearer token or browser
+// cookie and returns 204. It requires an authenticated identity; session lookup
+// failures map to 404 and h.Auth failures are mapped by mapServiceError.
 func (h *Handler) LogoutSession(ctx context.Context) (gen.LogoutSessionRes, error) {
 	if h.Auth == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -115,6 +137,9 @@ func (h *Handler) LogoutSession(ctx context.Context) (gen.LogoutSessionRes, erro
 	return &gen.LogoutSessionNoContent{}, nil
 }
 
+// GetCurrentUser returns the authenticated user's profile, including the
+// capabilities derived from their role. Authentication is required, and a
+// missing Auth service reports 503 through mapServiceError.
 func (h *Handler) GetCurrentUser(ctx context.Context) (gen.GetCurrentUserRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -131,6 +156,9 @@ func (h *Handler) GetCurrentUser(ctx context.Context) (gen.GetCurrentUserRes, er
 	return &response, nil
 }
 
+// GetProfilePhoto streams the Telegram profile photo of the authenticated
+// account through h.TelegramAccount and returns 204 when the account has none.
+// The response is cacheable for a day and its ETag is the Telegram photo ID.
 func (h *Handler) GetProfilePhoto(ctx context.Context) (gen.GetProfilePhotoRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -154,6 +182,10 @@ func (h *Handler) GetProfilePhoto(ctx context.Context) (gen.GetProfilePhotoRes, 
 		Response:           gen.GetProfilePhotoOK{Data: bytes.NewReader(photo.Content)},
 	}, nil
 }
+
+// CreateApiKey mints an API key for the authenticated user and returns the
+// plaintext secret exactly once, since only its hash is stored. The generated
+// security layer accepts bearer tokens and browser cookies here, not API keys.
 func (h *Handler) CreateApiKey(ctx context.Context, req *gen.ApiKeyCreateRequest, params gen.CreateApiKeyParams) (gen.CreateApiKeyRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -181,6 +213,9 @@ func (h *Handler) CreateApiKey(ctx context.Context, req *gen.ApiKeyCreateRequest
 	return &response, nil
 }
 
+// ListApiKeys returns a cursor page of the authenticated user's API keys, newest
+// first. The opaque cursor carries the (createdAt, id) pair of the previous page;
+// bearer tokens and browser cookies are accepted, API keys are not.
 func (h *Handler) ListApiKeys(ctx context.Context, params gen.ListApiKeysParams) (gen.ListApiKeysRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -213,6 +248,8 @@ func (h *Handler) ListApiKeys(ctx context.Context, params gen.ListApiKeysParams)
 	return &response, nil
 }
 
+// RevokeApiKey revokes one API key of the authenticated user and returns 204.
+// Unknown or foreign key IDs surface as 404 through authn.ErrAPIKeyNotFound.
 func (h *Handler) RevokeApiKey(ctx context.Context, params gen.RevokeApiKeyParams) (gen.RevokeApiKeyRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -227,6 +264,9 @@ func (h *Handler) RevokeApiKey(ctx context.Context, params gen.RevokeApiKeyParam
 	return &gen.RevokeApiKeyNoContent{}, nil
 }
 
+// ListSessions returns a cursor page of the authenticated account's TelDrive
+// sessions and flags the one backing the current credential. A missing identity
+// or auth service is reported as 404 rather than 401.
 func (h *Handler) ListSessions(ctx context.Context, params gen.ListSessionsParams) (gen.ListSessionsRes, error) {
 	identity, ok := IdentityFromContext(ctx)
 	if !ok || h.Auth == nil {
@@ -270,6 +310,9 @@ func (h *Handler) ListSessions(ctx context.Context, params gen.ListSessionsParam
 	return &response, nil
 }
 
+// RevokeSession revokes one TelDrive session of the authenticated account.
+// Revoking the current session invalidates its bearer token immediately; unknown
+// session IDs and a missing identity surface as 404.
 func (h *Handler) RevokeSession(ctx context.Context, params gen.RevokeSessionParams) (gen.RevokeSessionRes, error) {
 	identity, ok := IdentityFromContext(ctx)
 	if !ok || h.Auth == nil {
@@ -281,6 +324,9 @@ func (h *Handler) RevokeSession(ctx context.Context, params gen.RevokeSessionPar
 	return &gen.RevokeSessionNoContent{}, nil
 }
 
+// CreateBots registers Telegram bot tokens for the authenticated user: malformed
+// or duplicate tokens are reported by index in failedIndexes, the valid ones are
+// stored as pending, and provisioning is queued through h.Jobs.InsertBotProvision.
 func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest, params gen.CreateBotsParams) (gen.CreateBotsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -327,6 +373,8 @@ func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest, par
 	return &response, nil
 }
 
+// ListBots returns a cursor page of the authenticated user's registered bots,
+// newest first. A malformed cursor maps to 422 through bots.ErrInvalidInput.
 func (h *Handler) ListBots(ctx context.Context, params gen.ListBotsParams) (gen.ListBotsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -359,6 +407,8 @@ func (h *Handler) ListBots(ctx context.Context, params gen.ListBotsParams) (gen.
 	return &response, nil
 }
 
+// DeleteBot removes one of the authenticated user's bots. The lookup is scoped by
+// user ID, so unknown or foreign bot IDs surface as 404 via bots.ErrNotFound.
 func (h *Handler) DeleteBot(ctx context.Context, params gen.DeleteBotParams) (gen.DeleteBotRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -373,6 +423,9 @@ func (h *Handler) DeleteBot(ctx context.Context, params gen.DeleteBotParams) (ge
 	return &gen.DeleteBotNoContent{}, nil
 }
 
+// DiscoverChannels lists the Telegram channels where the authenticated account
+// may add administrators, querying Telegram through h.TelegramAccount. Both the
+// account and its upstream call must succeed for the list to be returned.
 func (h *Handler) DiscoverChannels(ctx context.Context) (gen.DiscoverChannelsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -393,6 +446,9 @@ func (h *Handler) DiscoverChannels(ctx context.Context) (gen.DiscoverChannelsRes
 	return &response, nil
 }
 
+// SyncChannels discovers manageable Telegram channels and upserts them through
+// h.Channels.Sync. Rows that are missing remotely are deliberately kept, so the
+// operation never deletes a channel that still holds stored parts.
 func (h *Handler) SyncChannels(ctx context.Context, params gen.SyncChannelsParams) (gen.SyncChannelsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -420,6 +476,10 @@ func (h *Handler) SyncChannels(ctx context.Context, params gen.SyncChannelsParam
 	response := gen.SyncChannelsOKApplicationJSON(items)
 	return &response, nil
 }
+
+// CreateChannel creates a real Telegram channel for the authenticated user and
+// records it. A blank name is generated from the configured prefix and timestamp,
+// and selecting the new channel clears the previous selection.
 func (h *Handler) CreateChannel(ctx context.Context, req *gen.ChannelCreateRequest, params gen.CreateChannelParams) (gen.CreateChannelRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -436,6 +496,9 @@ func (h *Handler) CreateChannel(ctx context.Context, req *gen.ChannelCreateReque
 	return &response, nil
 }
 
+// ListChannels returns a cursor page of the authenticated user's channels, newest
+// first. A malformed cursor is reported as 404 because channels.ErrInvalidChannel
+// maps to not_found in mapServiceError.
 func (h *Handler) ListChannels(ctx context.Context, params gen.ListChannelsParams) (gen.ListChannelsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -468,6 +531,9 @@ func (h *Handler) ListChannels(ctx context.Context, params gen.ListChannelsParam
 	return &response, nil
 }
 
+// SelectChannel makes one channel the active upload target, clearing any previous
+// selection. Unknown channels map to 404 through channels.ErrInvalidChannel, and
+// an unavailable channel is rejected by the service.
 func (h *Handler) SelectChannel(ctx context.Context, params gen.SelectChannelParams) (gen.SelectChannelRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -484,6 +550,9 @@ func (h *Handler) SelectChannel(ctx context.Context, params gen.SelectChannelPar
 	return &response, nil
 }
 
+// DeleteChannel deletes the Telegram channel and its row for the authenticated
+// user. The selected channel is refused with 409 via channels.ErrSelectedChannel,
+// and a channel still holding referenced parts is refused with 409 as well.
 func (h *Handler) DeleteChannel(ctx context.Context, params gen.DeleteChannelParams) (gen.DeleteChannelRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -498,6 +567,9 @@ func (h *Handler) DeleteChannel(ctx context.Context, params gen.DeleteChannelPar
 	return &gen.DeleteChannelNoContent{}, nil
 }
 
+// CopyFile copies a file or folder through h.FileOps.Copy. The source needs read
+// access and the destination edit access; crossing owners is rejected with 403.
+// Success is 201 with ETag and Location headers.
 func (h *Handler) CopyFile(ctx context.Context, req *gen.FileCopyRequest, params gen.CopyFileParams) (gen.CopyFileRes, error) {
 	if h.FileOps == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -546,6 +618,9 @@ func (h *Handler) CopyFile(ctx context.Context, req *gen.FileCopyRequest, params
 	}, nil
 }
 
+// PurgeFile queues permanent deletion of a trashed file through
+// h.FileOps.QueuePurge and asks h.Jobs for an immediate sweep. If that enqueue
+// fails it is only logged, so the request still returns 204.
 func (h *Handler) PurgeFile(ctx context.Context, params gen.PurgeFileParams) (gen.PurgeFileRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -565,6 +640,9 @@ func (h *Handler) PurgeFile(ctx context.Context, params gen.PurgeFileParams) (ge
 	return &gen.PurgeFileNoContent{}, nil
 }
 
+// CleanTrash marks every trashed entry of the authenticated user as pending
+// deletion through h.FileOps.CleanTrash; the background purge worker performs the
+// actual removal. It returns 204 and discards the affected row count.
 func (h *Handler) CleanTrash(ctx context.Context) (gen.CleanTrashRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -579,6 +657,9 @@ func (h *Handler) CleanTrash(ctx context.Context) (gen.CleanTrashRes, error) {
 	return &gen.CleanTrashNoContent{}, nil
 }
 
+// CreateShare creates a public share link for a file the caller owns, defaulting
+// to read permission. Password, expiry and download limit are optional, and the
+// plaintext token is returned only in this response.
 func (h *Handler) CreateShare(ctx context.Context, req *gen.ShareCreateRequest, params gen.CreateShareParams) (gen.CreateShareRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -614,6 +695,9 @@ func (h *Handler) CreateShare(ctx context.Context, req *gen.ShareCreateRequest, 
 	return &response, nil
 }
 
+// ListFileShares returns a cursor page of the shares created for one file, newest
+// first, including revoked and expired rows with their state. The caller must own
+// the file.
 func (h *Handler) ListFileShares(ctx context.Context, params gen.ListFileSharesParams) (gen.ListFileSharesRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -647,6 +731,9 @@ func (h *Handler) ListFileShares(ctx context.Context, params gen.ListFileSharesP
 	return &response, nil
 }
 
+// RevokeShare revokes one share owned by the authenticated user, which makes later
+// resolves of its token fail with 410. Unknown, foreign or already revoked share
+// IDs surface as 404.
 func (h *Handler) RevokeShare(ctx context.Context, params gen.RevokeShareParams) (gen.RevokeShareRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -661,6 +748,9 @@ func (h *Handler) RevokeShare(ctx context.Context, params gen.RevokeShareParams)
 	return &gen.RevokeShareNoContent{}, nil
 }
 
+// GetPublicShare resolves a public share token and returns the shared entry. The
+// endpoint is unauthenticated: the password travels in X-Share-Password, a missing
+// or wrong password maps to 401, and an expired share maps to 410.
 func (h *Handler) GetPublicShare(ctx context.Context, params gen.GetPublicShareParams) (gen.GetPublicShareRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -684,6 +774,9 @@ func (h *Handler) GetPublicShare(ctx context.Context, params gen.GetPublicShareP
 	return &response, nil
 }
 
+// HeadPublicShare returns download metadata for a share root without a body,
+// resolving the token with the same rules as GetPublicShare. Entries that are not
+// sized regular files are reported as 422.
 func (h *Handler) HeadPublicShare(ctx context.Context, params gen.HeadPublicShareParams) (gen.HeadPublicShareRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -702,6 +795,8 @@ func (h *Handler) HeadPublicShare(ctx context.Context, params gen.HeadPublicShar
 	}, nil
 }
 
+// HeadPublicShareLegacy serves the pre-v1 HEAD path with the same token, password
+// and file checks as HeadPublicShare. It exists only for older clients.
 func (h *Handler) HeadPublicShareLegacy(ctx context.Context, params gen.HeadPublicShareLegacyParams) (gen.HeadPublicShareLegacyRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -720,6 +815,9 @@ func (h *Handler) HeadPublicShareLegacy(ctx context.Context, params gen.HeadPubl
 	}, nil
 }
 
+// HeadPublicShareFile resolves one file inside a shared tree and returns its
+// download metadata. Files outside the share are rejected by ResolveFile, and
+// entries without a non-negative size are reported as 422.
 func (h *Handler) HeadPublicShareFile(ctx context.Context, params gen.HeadPublicShareFileParams) (gen.HeadPublicShareFileRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -738,6 +836,8 @@ func (h *Handler) HeadPublicShareFile(ctx context.Context, params gen.HeadPublic
 	}, nil
 }
 
+// HeadPublicShareFileLegacy serves the pre-v1 HEAD path for one file inside a
+// shared tree, applying the same checks as HeadPublicShareFile.
 func (h *Handler) HeadPublicShareFileLegacy(ctx context.Context, params gen.HeadPublicShareFileLegacyParams) (gen.HeadPublicShareFileLegacyRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -756,10 +856,16 @@ func (h *Handler) HeadPublicShareFileLegacy(ctx context.Context, params gen.Head
 	}, nil
 }
 
+// loginFlowResponse converts an authn.FlowResult into the generated login
+// response, exposing the flow ID, its expiry and whether a two-step password is
+// still required.
 func loginFlowResponse(flow *authn.FlowResult) gen.TelegramLoginStartResponse {
 	return gen.TelegramLoginStartResponse{FlowId: apiUUID(flow.ID), ExpiresAt: flow.ExpiresAt, PasswordRequired: flow.PasswordRequired}
 }
 
+// qrLoginFlowResponse converts an authn.QRFlowResult into the generated QR
+// response, translating PasswordRequired into the enum state and omitting the QR
+// URL and expiry when the flow does not carry them.
 func qrLoginFlowResponse(flow *authn.QRFlowResult) gen.TelegramQRLoginResponse {
 	state := gen.TelegramQRLoginStatePending
 	if flow.PasswordRequired {
@@ -776,10 +882,15 @@ func qrLoginFlowResponse(flow *authn.QRFlowResult) gen.TelegramQRLoginResponse {
 	}
 	return response
 }
+
+// tokenPairResponse converts an authn.TokenPair into the generated wire model,
+// which always advertises the Bearer token type.
 func tokenPairResponse(tokens *authn.TokenPair) gen.TokenPair {
 	return gen.TokenPair{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, TokenType: gen.TokenPairTokenTypeBearer, ExpiresIn: tokens.ExpiresIn}
 }
 
+// userProfile converts a user row into the API profile, omitting unset display
+// name and username and expanding the role into capability strings.
 func userProfile(row *sqlcgen.User) gen.UserProfile {
 	out := gen.UserProfile{
 		UserId: row.UserID, Premium: row.Premium, Role: gen.UserRole(row.Role),
@@ -794,6 +905,10 @@ func userProfile(row *sqlcgen.User) gen.UserProfile {
 	return out
 }
 
+// apiKeySummary converts an API key row into its summary, setting the last-used,
+// expiry and revocation timestamps only when their columns are not NULL, so a
+// key that was never used or never expires omits those fields. The key hash is
+// never exposed.
 func apiKeySummary(row *sqlcgen.ApiKey) gen.ApiKeySummary {
 	id, _ := dbtypes.GoogleUUID(row.ID)
 	out := gen.ApiKeySummary{ID: apiUUID(id), Name: row.Name, CreatedAt: row.CreatedAt.Time}
@@ -809,6 +924,8 @@ func apiKeySummary(row *sqlcgen.ApiKey) gen.ApiKeySummary {
 	return out
 }
 
+// botSummary converts a bot row into its API summary, exposing the username only
+// once Telegram has reported it.
 func botSummary(row *sqlcgen.Bot) gen.BotSummary {
 	out := gen.BotSummary{ID: row.BotID, Enabled: row.Enabled, CreatedAt: row.CreatedAt.Time}
 	if row.Username.Valid {
@@ -817,6 +934,8 @@ func botSummary(row *sqlcgen.Bot) gen.BotSummary {
 	return out
 }
 
+// channelSummary converts a channel row into its API summary, including the
+// selection flag and the last known health state.
 func channelSummary(row *sqlcgen.Channel) gen.ChannelSummary {
 	return gen.ChannelSummary{
 		ID: row.ChannelID, Name: row.Name, Selected: row.Selected,
@@ -824,6 +943,8 @@ func channelSummary(row *sqlcgen.Channel) gen.ChannelSummary {
 	}
 }
 
+// shareCreated converts a freshly created share into the API model, including the
+// plaintext token and public URL that are only ever returned here.
 func shareCreated(created *shares.Created) gen.ShareCreated {
 	id, _ := dbtypes.GoogleUUID(created.Row.ID)
 	fileID, _ := dbtypes.GoogleUUID(created.Row.FileID)
@@ -840,6 +961,8 @@ func shareCreated(created *shares.Created) gen.ShareCreated {
 	return out
 }
 
+// shareSummary converts a share row into its summary, reporting password
+// protection, download count and revocation state without the token.
 func shareSummary(row *sqlcgen.FileShare) gen.ShareSummary {
 	id, _ := dbtypes.GoogleUUID(row.ID)
 	fileID, _ := dbtypes.GoogleUUID(row.FileID)
@@ -859,12 +982,22 @@ func shareSummary(row *sqlcgen.FileShare) gen.ShareSummary {
 	return out
 }
 
+// datedUUIDCursor is the keyset cursor payload for pages ordered by creation time
+// and UUID. It is JSON-encoded and base64url-encoded by encodeCursor, so renaming
+// a field would invalidate cursors issued by older builds.
 type datedUUIDCursor struct {
+	// CreatedAt is the creation timestamp of the last row on the previous page.
 	CreatedAt time.Time `json:"created_at"`
-	ID        uuid.UUID `json:"id"`
+	// ID is the UUID of that row and breaks ties between equal timestamps.
+	ID uuid.UUID `json:"id"`
 }
 
+// datedInt64Cursor is the keyset cursor payload for pages ordered by creation time
+// and a numeric ID such as a bot or channel ID. It is encoded exactly like
+// datedUUIDCursor.
 type datedInt64Cursor struct {
+	// CreatedAt is the creation timestamp of the last row on the previous page.
 	CreatedAt time.Time `json:"created_at"`
-	ID        int64     `json:"id"`
+	// ID is the numeric ID of that row and breaks ties between equal timestamps.
+	ID int64 `json:"id"`
 }

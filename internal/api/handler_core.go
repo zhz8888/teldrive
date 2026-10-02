@@ -17,6 +17,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
 )
 
+// HealthLive reports process liveness without touching external dependencies, so
+// it stays available while the database is down. The operation is unauthenticated
+// and returns 503 only when no health service is configured.
 func (h *Handler) HealthLive(ctx context.Context) (*gen.HealthStatus, error) {
 	if h.Health == nil {
 		return nil, problem(503, "service_unavailable", "health service is unavailable", ErrOperationUnavailable)
@@ -25,6 +28,9 @@ func (h *Handler) HealthLive(ctx context.Context) (*gen.HealthStatus, error) {
 	return &gen.HealthStatus{Status: gen.HealthStatusStatus(status.State), Version: status.Version}, nil
 }
 
+// HealthReady probes the service dependencies and reports 503 with the not_ready
+// code as soon as one of them fails. It is unauthenticated and builds its problem
+// directly instead of going through mapServiceError.
 func (h *Handler) HealthReady(ctx context.Context) (gen.HealthReadyRes, error) {
 	if h.Health == nil {
 		return nil, problem(503, "service_unavailable", "health service is unavailable", ErrOperationUnavailable)
@@ -36,6 +42,9 @@ func (h *Handler) HealthReady(ctx context.Context) (gen.HealthReadyRes, error) {
 	return &gen.HealthStatus{Status: gen.HealthStatusStatus(status.State), Version: status.Version}, nil
 }
 
+// CreateFolder creates a folder under an editable parent and returns 201 with the
+// new entry, its ETag and a Location header. Only the fail conflict policy is
+// supported; any other value is rejected with 422.
 func (h *Handler) CreateFolder(ctx context.Context, req *gen.FolderCreateRequest, params gen.CreateFolderParams) (gen.CreateFolderRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -77,6 +86,9 @@ func (h *Handler) CreateFolder(ctx context.Context, req *gen.FolderCreateRequest
 	}, nil
 }
 
+// GetFile returns one catalog entry the caller owns or has been granted. It
+// requires an authenticated identity, reports missing or inaccessible IDs as 404
+// and sets the generation ETag on the response.
 func (h *Handler) GetFile(ctx context.Context, params gen.GetFileParams) (gen.GetFileRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -96,6 +108,9 @@ func (h *Handler) GetFile(ctx context.Context, params gen.GetFileParams) (gen.Ge
 	return &gen.FileEntryHeaders{Etag: generationETag(file.Generation), Response: entry}, nil
 }
 
+// ListFiles pages through the children of a parent folder, or searches the
+// caller's drive when a search term or path is given. The opaque cursor must
+// match the requested sort and order or the request is rejected with 422.
 func (h *Handler) ListFiles(ctx context.Context, params gen.ListFilesParams) (gen.ListFilesRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -181,6 +196,9 @@ func (h *Handler) ListFiles(ctx context.Context, params gen.ListFilesParams) (ge
 	return &response, nil
 }
 
+// UpdateFile renames an entry or changes its modification time and requires edit
+// access. The If-Match generation must still be current, otherwise the catalog
+// precondition failure maps to 412.
 func (h *Handler) UpdateFile(ctx context.Context, req *gen.FileUpdateRequest, params gen.UpdateFileParams) (gen.UpdateFileRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -214,6 +232,9 @@ func (h *Handler) UpdateFile(ctx context.Context, req *gen.FileUpdateRequest, pa
 	return &gen.FileEntryHeaders{Etag: generationETag(file.Generation), Response: entry}, nil
 }
 
+// MoveFile reparents an entry within one owner's drive, applying the requested
+// conflict policy. Detaching an entry the caller does not own, or moving across
+// owners, is rejected with 403, and a name conflict maps to 409.
 func (h *Handler) MoveFile(ctx context.Context, req *gen.FileMoveRequest, params gen.MoveFileParams) (gen.MoveFileRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -255,6 +276,8 @@ func (h *Handler) MoveFile(ctx context.Context, req *gen.FileMoveRequest, params
 	return &gen.FileEntryHeaders{Etag: generationETag(file.Generation), Response: entry}, nil
 }
 
+// TrashFile moves an entry the caller can edit into the trash. The root of a
+// share the caller does not own cannot be trashed and is rejected with 403.
 func (h *Handler) TrashFile(ctx context.Context, params gen.TrashFileParams) (gen.TrashFileRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -273,6 +296,8 @@ func (h *Handler) TrashFile(ctx context.Context, params gen.TrashFileParams) (ge
 	return &gen.TrashFileNoContent{}, nil
 }
 
+// RestoreFile brings a trashed entry back under the caller's own root and returns
+// it with a fresh ETag. Entries that are not trashed map to 409.
 func (h *Handler) RestoreFile(ctx context.Context, params gen.RestoreFileParams) (gen.RestoreFileRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -292,6 +317,9 @@ func (h *Handler) RestoreFile(ctx context.Context, params gen.RestoreFileParams)
 	return &gen.FileEntryHeaders{Etag: generationETag(file.Generation), Response: entry}, nil
 }
 
+// CreateUpload opens a resumable upload session under an editable parent and
+// returns 201 with the session. The session belongs to the parent's owner, so an
+// upload into a granted folder is credited to that owner.
 func (h *Handler) CreateUpload(ctx context.Context, req *gen.UploadCreateRequest, params gen.CreateUploadParams) (gen.CreateUploadRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -320,6 +348,8 @@ func (h *Handler) CreateUpload(ctx context.Context, req *gen.UploadCreateRequest
 	return &response, nil
 }
 
+// GetUpload returns one upload session the caller owns or can reach through a
+// file grant. Unknown sessions map to 404 through uploads.ErrNotFound.
 func (h *Handler) GetUpload(ctx context.Context, params gen.GetUploadParams) (gen.GetUploadRes, error) {
 	if h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -339,6 +369,9 @@ func (h *Handler) GetUpload(ctx context.Context, params gen.GetUploadParams) (ge
 	return &response, nil
 }
 
+// ListUploads pages through the caller's own upload sessions, newest first and
+// optionally filtered by state. The cursor is the (createdAt, id) pair of the
+// previous page.
 func (h *Handler) ListUploads(ctx context.Context, params gen.ListUploadsParams) (gen.ListUploadsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -380,6 +413,9 @@ func (h *Handler) ListUploads(ctx context.Context, params gen.ListUploadsParams)
 	return &response, nil
 }
 
+// ListUploadParts pages through the stored parts of one session after checking
+// that the caller may read it. The cursor is the last part number of the previous
+// page.
 func (h *Handler) ListUploadParts(ctx context.Context, params gen.ListUploadPartsParams) (gen.ListUploadPartsRes, error) {
 	if h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -415,6 +451,9 @@ func (h *Handler) ListUploadParts(ctx context.Context, params gen.ListUploadPart
 	return &response, nil
 }
 
+// PutUploadPart streams one part of a session into storage through the upload
+// pipeline, requiring edit access. It answers 200 when the identical part already
+// existed and 201 when a new part was stored.
 func (h *Handler) PutUploadPart(ctx context.Context, req gen.PutUploadPartReq, params gen.PutUploadPartParams) (gen.PutUploadPartRes, error) {
 	if h.UploadPipeline == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -447,6 +486,9 @@ func (h *Handler) PutUploadPart(ctx context.Context, req gen.PutUploadPartReq, p
 	return &response, nil
 }
 
+// CompleteUpload finalizes a session, assembling the stored parts into a file, and
+// returns 201 with the entry, its ETag and a Location header. Edit access to the
+// session is required.
 func (h *Handler) CompleteUpload(ctx context.Context, params gen.CompleteUploadParams) (gen.CompleteUploadRes, error) {
 	if h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -472,6 +514,8 @@ func (h *Handler) CompleteUpload(ctx context.Context, params gen.CompleteUploadP
 	return &response, nil
 }
 
+// AbortUpload discards an upload session and its stored parts and returns 204.
+// Edit access to the session is required.
 func (h *Handler) AbortUpload(ctx context.Context, params gen.AbortUploadParams) (gen.AbortUploadRes, error) {
 	if h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -486,6 +530,9 @@ func (h *Handler) AbortUpload(ctx context.Context, params gen.AbortUploadParams)
 	return &gen.AbortUploadNoContent{}, nil
 }
 
+// HeadFile returns download metadata for a file without a body: length,
+// disposition, modification time and content ETag. Entries that are not sized
+// regular files are reported as 422.
 func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.HeadFileRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -507,6 +554,8 @@ func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.
 	}, nil
 }
 
+// HeadFileLegacy serves the pre-v1 HEAD path. It behaves like HeadFile but
+// reports entries that are not sized regular files as 404 instead of 422.
 func (h *Handler) HeadFileLegacy(ctx context.Context, params gen.HeadFileLegacyParams) (gen.HeadFileLegacyRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -529,6 +578,8 @@ func (h *Handler) HeadFileLegacy(ctx context.Context, params gen.HeadFileLegacyP
 	}, nil
 }
 
+// contentETag builds a strong ETag from the recorded content hash, falling back
+// to the generation ETag for entries stored before content hashing was enabled.
 func contentETag(file *sqlcgen.File) gen.ETag {
 	if file.HashValue.Valid && strings.TrimSpace(file.HashValue.String) != "" {
 		return gen.ETag(`"` + file.HashValue.String + `"`)

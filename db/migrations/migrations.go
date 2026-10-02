@@ -1,3 +1,10 @@
+// Package migrations embeds the versioned TelDrive SQL migrations and applies
+// them through goose.
+//
+// The migration files are written against a placeholder schema so the same
+// scripts can target any configured PostgreSQL schema. Up rewrites the
+// placeholder before handing the files to goose, which keeps the SQL readable
+// while still producing fully qualified object names at run time.
 package migrations
 
 import (
@@ -14,8 +21,15 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+// schemaTemplateMarker is the placeholder that every embedded migration uses in
+// place of a concrete schema name. Up replaces each occurrence with the
+// sanitised, quoted schema followed by a dot. The marker must be preserved in
+// the SQL files: the runtime rewrite matches it literally.
 const schemaTemplateMarker = "/* TEMPLATE: schema */"
 
+// schemaNamePattern validates a configured schema name before it is interpolated
+// into SQL. It accepts the unquoted identifier form only, which is what goose
+// can safely qualify; anything else is rejected rather than escaped.
 var schemaNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Files contains every versioned TelDrive SQL migration.
@@ -45,6 +59,14 @@ func Up(ctx context.Context, db *sql.DB, schema string) error {
 	return nil
 }
 
+// renderedFiles returns the embedded migrations with every schema placeholder
+// replaced by a reference to schema, ready to hand to goose.
+//
+// The schema name is validated before use and any leading/trailing space is
+// trimmed first. Each file is rewritten to use "<schema>." qualification, and
+// the version table is placed in the same schema by the caller. A missing or
+// unreadable embedded file is reported rather than skipped, so a broken build
+// cannot silently apply a partial migration set.
 func renderedFiles(schema string) (fs.FS, error) {
 	schema = strings.TrimSpace(schema)
 	if !schemaNamePattern.MatchString(schema) {

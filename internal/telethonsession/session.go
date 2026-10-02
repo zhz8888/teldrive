@@ -1,3 +1,10 @@
+// Package telethonsession converts between gotd's raw session blob and the
+// Telethon v1 StringSession format.
+//
+// TelDrive stores Telegram session data as a StringSession because that is the
+// portable form users can paste in from other tooling; gotd needs its own
+// serialised blob. Converting in both directions keeps the stored value
+// independent of the gotd version that wrote it.
 package telethonsession
 
 import (
@@ -12,10 +19,20 @@ import (
 )
 
 const (
-	version      byte   = '1'
+	// version is the leading format marker of a Telethon StringSession. Telethon
+	// writes ASCII '1' for the first revision of the format.
+	version byte = '1'
+
+	// telegramPort is the port encoded into the packed session. Telethon does not
+	// store a per-session port, and Telegram's production data centres listen on
+	// 443.
 	telegramPort uint16 = 443
 )
 
+// productionDCIPv4 maps a Telegram production data-centre ID to its IPv4
+// address. The address is packed into the StringSession because that format
+// carries an address rather than a DC index; a session for a DC missing from
+// this table is rejected instead of being encoded with a wrong endpoint.
 var productionDCIPv4 = map[int]string{
 	1: "149.154.175.53",
 	2: "149.154.167.51",

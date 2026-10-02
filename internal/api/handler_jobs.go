@@ -18,6 +18,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/jobs"
 )
 
+// ListJobs returns the job page visible to the caller: administrators see every
+// user's jobs while ordinary users only see their own. A malformed cursor is
+// reported as 400 rather than through mapServiceError.
 func (h *Handler) ListJobs(ctx context.Context, params gen.ListJobsParams) (gen.ListJobsRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -49,6 +52,9 @@ func (h *Handler) ListJobs(ctx context.Context, params gen.ListJobsParams) (gen.
 	return &response, nil
 }
 
+// CreateJob enqueues an arbitrary job on behalf of an administrator. The admin or
+// owner role is required, and an unknown kind or invalid args are rejected with
+// 400.
 func (h *Handler) CreateJob(ctx context.Context, req *gen.JobCreate) (gen.CreateJobRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -70,6 +76,9 @@ func (h *Handler) CreateJob(ctx context.Context, req *gen.JobCreate) (gen.Create
 	return &response, nil
 }
 
+// CreateUploadImport queues a batch import from local paths or HTTP URLs after
+// validating the destination (folder UUID or absolute path) and each source.
+// Local sources additionally require the admin or owner role.
 func (h *Handler) CreateUploadImport(ctx context.Context, req *gen.UploadImportRequest) (gen.CreateUploadImportRes, error) {
 	if h.Jobs == nil || h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -133,12 +142,16 @@ func (h *Handler) CreateUploadImport(ctx context.Context, req *gen.UploadImportR
 	return &response, nil
 }
 
+// cloneHeaders copies a header map so the queued job args do not alias a map the
+// caller may still mutate after the request returns.
 func cloneHeaders[T ~map[string]string](values T) map[string]string {
 	result := make(map[string]string, len(values))
 	maps.Copy(result, values)
 	return result
 }
 
+// GetJobStatistics returns job counters: cluster-wide for administrators and
+// scoped to the caller's own jobs for everyone else.
 func (h *Handler) GetJobStatistics(ctx context.Context) (gen.GetJobStatisticsRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -166,6 +179,8 @@ func (h *Handler) GetJobStatistics(ctx context.Context) (gen.GetJobStatisticsRes
 	}, nil
 }
 
+// GetJob returns one job after parsing its decimal ID, which must be positive or
+// the request is answered with 404. Non-admins only see their own jobs.
 func (h *Handler) GetJob(ctx context.Context, params gen.GetJobParams) (gen.GetJobRes, error) {
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
@@ -188,6 +203,8 @@ func (h *Handler) GetJob(ctx context.Context, params gen.GetJobParams) (gen.GetJ
 	return &response, nil
 }
 
+// CancelJob cancels an active job and returns its updated record. The same scoping
+// as GetJob applies, so non-admins can only cancel their own jobs.
 func (h *Handler) CancelJob(ctx context.Context, params gen.CancelJobParams) (gen.CancelJobRes, error) {
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
@@ -210,6 +227,8 @@ func (h *Handler) CancelJob(ctx context.Context, params gen.CancelJobParams) (ge
 	return &response, nil
 }
 
+// RetryJob schedules a finalized job for another attempt and returns the updated
+// record. Non-admins can only retry their own jobs.
 func (h *Handler) RetryJob(ctx context.Context, params gen.RetryJobParams) (gen.RetryJobRes, error) {
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
@@ -232,6 +251,9 @@ func (h *Handler) RetryJob(ctx context.Context, params gen.RetryJobParams) (gen.
 	return &response, nil
 }
 
+// DeleteJob removes a finalized job and cancels an active one instead, since River
+// refuses to delete running jobs. It returns 204 and reports an active job that
+// cannot be cancelled as 409.
 func (h *Handler) DeleteJob(ctx context.Context, params gen.DeleteJobParams) (gen.DeleteJobRes, error) {
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
@@ -267,6 +289,9 @@ func (h *Handler) DeleteJob(ctx context.Context, params gen.DeleteJobParams) (ge
 	return &gen.DeleteJobNoContent{}, nil
 }
 
+// PurgeJobs bulk-deletes finalized jobs in one state and returns how many rows
+// were removed. Non-final states are rejected with 409; administrators purge
+// across all users.
 func (h *Handler) PurgeJobs(ctx context.Context, params gen.PurgeJobsParams) (gen.PurgeJobsRes, error) {
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
@@ -287,6 +312,9 @@ func (h *Handler) PurgeJobs(ctx context.Context, params gen.PurgeJobsParams) (ge
 	return &gen.JobPurgeResult{Count: count}, nil
 }
 
+// jobScopeUserID returns the user ID every job operation should be scoped to, or
+// zero for administrators, which is the sentinel that switches each operation to
+// its cluster-wide variant.
 func jobScopeUserID(ctx context.Context) (int64, error) {
 	if HasAdminRole(ctx) {
 		return 0, nil
@@ -294,6 +322,8 @@ func jobScopeUserID(ctx context.Context) (int64, error) {
 	return UserIDFromContext(ctx)
 }
 
+// ListJobQueues returns the River queues with their state and counters: all queues
+// for administrators, only the queues holding the caller's jobs for everyone else.
 func (h *Handler) ListJobQueues(ctx context.Context) (gen.ListJobQueuesRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -324,6 +354,8 @@ func (h *Handler) ListJobQueues(ctx context.Context) (gen.ListJobQueuesRes, erro
 	return &response, nil
 }
 
+// PauseJobQueue stops a queue from handing out new work and requires the admin or
+// owner role; unknown queues map to 404 through mapJobError.
 func (h *Handler) PauseJobQueue(ctx context.Context, params gen.PauseJobQueueParams) (gen.PauseJobQueueRes, error) {
 	if !HasAdminRole(ctx) {
 		return nil, problem(http.StatusForbidden, "forbidden", "administrator access is required", nil)
@@ -334,6 +366,8 @@ func (h *Handler) PauseJobQueue(ctx context.Context, params gen.PauseJobQueuePar
 	return &gen.PauseJobQueueNoContent{}, nil
 }
 
+// ResumeJobQueue lets a paused queue hand out work again and requires the admin or
+// owner role; unknown queues map to 404 through mapJobError.
 func (h *Handler) ResumeJobQueue(ctx context.Context, params gen.ResumeJobQueueParams) (gen.ResumeJobQueueRes, error) {
 	if !HasAdminRole(ctx) {
 		return nil, problem(http.StatusForbidden, "forbidden", "administrator access is required", nil)
@@ -344,6 +378,9 @@ func (h *Handler) ResumeJobQueue(ctx context.Context, params gen.ResumeJobQueueP
 	return &gen.ResumeJobQueueNoContent{}, nil
 }
 
+// parseJobID parses the decimal job ID from the path. A non-numeric or
+// non-positive value becomes river.ErrNotFound so callers answer 404 without
+// leaking which IDs exist.
 func parseJobID(value string) (int64, error) {
 	id, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || id <= 0 {
@@ -352,6 +389,8 @@ func parseJobID(value string) (int64, error) {
 	return id, nil
 }
 
+// isActiveJobState reports whether a River state still occupies a worker, which
+// decides if DeleteJob must cancel the job instead of deleting it.
 func isActiveJobState(state string) bool {
 	switch state {
 	case "available", "pending", "retryable", "running", "scheduled":
@@ -361,6 +400,9 @@ func isActiveJobState(state string) bool {
 	}
 }
 
+// mapJobError translates River-specific failures into HTTP problems: 404 for a
+// missing job and 409 for a job that is still running. Everything else falls back
+// to mapServiceError.
 func mapJobError(err error) error {
 	if errors.Is(err, river.ErrNotFound) {
 		return problem(http.StatusNotFound, "not_found", "job was not found", err)
@@ -371,6 +413,9 @@ func mapJobError(err error) error {
 	return mapServiceError(err)
 }
 
+// jobResponse converts a runtime job into the API model, redacting its args and
+// copying tags and worker lists so the response does not alias mutable runtime
+// state.
 func jobResponse(item jobs.Job) gen.Job {
 	response := gen.Job{
 		ID: strconv.FormatInt(item.ID, 10), Status: gen.JobState(item.State), Type: item.Kind,
@@ -413,6 +458,8 @@ func jobResponse(item jobs.Job) gen.Job {
 	return response
 }
 
+// redactJobArgs rewrites job args before they are exposed to clients. Malformed
+// entries that cannot be decoded are copied through unchanged rather than dropped.
 func redactJobArgs(input map[string]json.RawMessage) map[string]json.RawMessage {
 	result := make(map[string]json.RawMessage, len(input))
 	for key, raw := range input {
@@ -431,6 +478,9 @@ func redactJobArgs(input map[string]json.RawMessage) map[string]json.RawMessage 
 	return result
 }
 
+// redactJobValue replaces sensitive values with a placeholder: headers are masked
+// wholesale, keys containing password, secret, token, authorization, cookie or
+// api_key are redacted, and user_id is preserved while nested values recurse.
 func redactJobValue(key string, value any) any {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_"))
 	if normalized == "headers" {
@@ -459,6 +509,8 @@ func redactJobValue(key string, value any) any {
 	return value
 }
 
+// rawMap copies JSON messages into a jx.Raw map with fresh backing arrays, so the
+// generated response never aliases the source map.
 func rawMap[T ~map[string]jx.Raw](input map[string]json.RawMessage) T {
 	result := make(T, len(input))
 	for key, value := range input {
@@ -467,6 +519,8 @@ func rawMap[T ~map[string]jx.Raw](input map[string]json.RawMessage) T {
 	return result
 }
 
+// rawString returns the value of the first metadata key that decodes as a JSON
+// string, or the empty string when none does.
 func rawString(values map[string]json.RawMessage, keys ...string) string {
 	for _, key := range keys {
 		var value string

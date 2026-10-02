@@ -13,34 +13,66 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 )
 
+// EventCleanupKind is the River job kind of the periodic sweep that deletes user
+// events older than the retention window carried in its arguments.
 const EventCleanupKind = "teldrive_cleanup_user_events"
 
+// ErrEventCleanupNotConfigured is returned by Work when the worker was built
+// without its queries or clock, which means the runtime did not wire it up.
 var ErrEventCleanupNotConfigured = errors.New("event cleanup worker is not configured")
 
+// EventCleanupArgs carries the retention window of one user-event sweep. It is
+// persisted as JSON in river_job, so the field name must stay stable while older
+// jobs may still be queued.
 type EventCleanupArgs struct {
+	// Retention is the Go duration string that decides which events are deleted;
+	// Work rejects values that do not parse or are not positive.
 	Retention string `json:"retention"`
 }
 
+// Kind reports the River job kind handled by EventCleanupWorker.
 func (EventCleanupArgs) Kind() string { return EventCleanupKind }
 
+// InsertOpts runs the sweep on the maintenance queue with three attempts and
+// priority 2, so within that queue it is ordered after the priority-1 purges and
+// trash cleanups.
 func (EventCleanupArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: CleanupQueue, MaxAttempts: 3, Priority: 2}
 }
 
+// EventCleanupWorker deletes user events that are older than the configured
+// retention and records how many rows it removed. Each run is a single DELETE,
+// so retrying after a failure simply deletes whatever is left.
 type EventCleanupWorker struct {
+	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
+	// does not override.
 	river.WorkerDefaults[EventCleanupArgs]
+	// queries performs the retention delete.
 	queries *sqlcgen.Queries
-	now     func() time.Time
+	// now returns the current time; tests replace it to pin the cutoff.
+	now func() time.Time
 }
 
+// NewEventCleanupWorker returns a worker backed by pool and using the system
+// clock for the cutoff. The pool must be non-nil; the worker keeps no reference
+// to it, so it cannot detect a missing pool the way the other workers do.
 func NewEventCleanupWorker(pool *pgxpool.Pool) *EventCleanupWorker {
 	return &EventCleanupWorker{queries: sqlcgen.New(pool), now: time.Now}
 }
 
+// Timeout allows 30 minutes for the retention DELETE, which can touch every row
+// of a large user_events table.
 func (w *EventCleanupWorker) Timeout(*river.Job[EventCleanupArgs]) time.Duration {
 	return 30 * time.Minute
 }
 
+// Work deletes every user event older than the retention window in the job
+// arguments and records the deleted row count and the cutoff as the job output,
+// so an operator can see what a sweep did without querying the database.
+//
+// It fails with ErrEventCleanupNotConfigured when the worker is not wired up, and
+// rejects a retention that does not parse or is not positive. The delete is
+// idempotent, so a retry after a partial failure is safe.
 func (w *EventCleanupWorker) Work(ctx context.Context, job *river.Job[EventCleanupArgs]) error {
 	if w == nil || w.queries == nil || w.now == nil {
 		return ErrEventCleanupNotConfigured

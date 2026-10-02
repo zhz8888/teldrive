@@ -9,6 +9,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// httpRequestLogger returns middleware that emits one "http.request" record per
+// handled request, with status, latency, request ID and client details. Static UI
+// traffic is skipped so asset fetches cannot drown the API log; only paths under
+// /v1/, /api/ and /health/ are recorded. A nil logger falls back to slog.Default.
+// The record is written from a deferred call, and its level tracks the response:
+// error for 5xx, warn for other 4xx, info otherwise.
 func httpRequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

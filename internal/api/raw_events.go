@@ -14,15 +14,34 @@ import (
 	userevents "github.com/tgdrive/teldrive/v2/internal/events"
 )
 
+// streamEventEnvelope is the JSON document carried in the data field of every
+// server-sent event. Its field tags are part of the stream contract published to
+// clients, so they must stay in sync with the generated types rather than being
+// renamed freely.
 type streamEventEnvelope struct {
-	Version      int             `json:"version"`
-	OccurredAt   time.Time       `json:"occurredAt"`
-	ResourceType string          `json:"resourceType"`
-	ResourceID   string          `json:"resourceId,omitempty"`
-	Generation   *int64          `json:"generation,omitempty"`
-	Payload      json.RawMessage `json:"payload"`
+	// Version is the envelope schema version; it is currently always 1 and lets
+	// clients reject payloads they do not understand.
+	Version int `json:"version"`
+	// OccurredAt is when the domain event happened, in UTC.
+	OccurredAt time.Time `json:"occurredAt"`
+	// ResourceType names the kind of resource the event is about, for example
+	// "file" or "upload".
+	ResourceType string `json:"resourceType"`
+	// ResourceID identifies that resource and is empty for events that are not
+	// about a single resource.
+	ResourceID string `json:"resourceId,omitempty"`
+	// Generation carries the resource generation after the change when the event
+	// tracks one; nil means the event has no generation.
+	Generation *int64 `json:"generation,omitempty"`
+	// Payload is the event-specific JSON body. It is never null: a missing stored
+	// payload is replaced by an empty object.
+	Payload json.RawMessage `json:"payload"`
 }
 
+// StreamEvents serves the authenticated server-sent event feed, replaying events
+// after the Last-Event-ID/after cursor and then pushing new batches until the
+// client disconnects. A cursor that has fallen out of the retention window
+// produces a sync.required control event instead of a replay.
 func (h *RawHandler) StreamEvents(ctx context.Context, params gen.StreamEventsParams, w http.ResponseWriter) error {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -144,6 +163,11 @@ func (h *RawHandler) StreamEvents(ctx context.Context, params gen.StreamEventsPa
 	}
 }
 
+// eventCursor resolves the replay position requested by the client from the
+// Last-Event-ID header and the after query parameter. The boolean reports whether
+// the client asked for a position at all, which lets the stream start from the
+// current cursor instead of replaying history; it fails when a value is
+// malformed, negative, or when the two sources disagree.
 func eventCursor(params gen.StreamEventsParams) (cursor int64, set bool, err error) {
 	if header, ok := params.LastEventID.Get(); ok {
 		value := strings.TrimSpace(header)
@@ -168,6 +192,9 @@ func eventCursor(params gen.StreamEventsParams) (cursor int64, set bool, err err
 	return cursor, set, nil
 }
 
+// normalizeEventTypes trims and de-duplicates the client's event type filter
+// while preserving the order it was given in. It rejects empty entries and more
+// than 50 filters, which bounds the SQL array parameter of every later query.
 func normalizeEventTypes(values []string) ([]string, error) {
 	if len(values) > 50 {
 		return nil, errors.New("too many event types")
@@ -188,6 +215,9 @@ func normalizeEventTypes(values []string) ([]string, error) {
 	return result, nil
 }
 
+// writeStreamEvent writes one server-sent event frame with the event ID, type and
+// JSON envelope to w. It refuses events whose ID is not positive or whose type is
+// not a valid event name, and substitutes an empty object for a missing payload.
 func writeStreamEvent(w http.ResponseWriter, event userevents.Event) error {
 	if event.ID <= 0 || !validEventName(event.Type) {
 		return errors.New("invalid event")
@@ -211,6 +241,9 @@ func writeStreamEvent(w http.ResponseWriter, event userevents.Event) error {
 	return err
 }
 
+// writeStreamControl writes a control frame such as sync.required or stream.error.
+// Control frames carry no event ID, so they never advance the client's replay
+// cursor; the name must be a valid event name.
 func writeStreamControl(w http.ResponseWriter, name string, payload any) error {
 	if !validEventName(name) {
 		return errors.New("invalid control event name")
@@ -223,6 +256,10 @@ func writeStreamControl(w http.ResponseWriter, name string, payload any) error {
 	return err
 }
 
+// validEventName reports whether value may be emitted as the event name of a
+// server-sent event. It must be non-empty and contain only letters, digits, dots,
+// underscores and hyphens, so a value can never inject additional frames through
+// whitespace or a newline.
 func validEventName(value string) bool {
 	if value == "" {
 		return false
@@ -236,6 +273,11 @@ func validEventName(value string) bool {
 	return true
 }
 
+// writeAndFlushStream runs write and flushes the response, applying a write
+// deadline of timeout beforehand so a stuck client cannot hold the streaming
+// goroutine forever. A timeout of zero leaves the deadline untouched, and a
+// ResponseWriter that does not support deadlines (http.ErrNotSupported) is
+// tolerated; any other error from write or Flush is returned.
 func writeAndFlushStream(w http.ResponseWriter, timeout time.Duration, write func() error) error {
 	controller := http.NewResponseController(w)
 	deadlineSet := false

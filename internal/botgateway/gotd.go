@@ -1,3 +1,10 @@
+// Package botgateway connects the bot registry to the Telegram storage
+// boundary: it verifies bot tokens, resolves the bots that must join a new
+// channel, promotes a verified bot into the user's existing channels, and runs
+// uploads and downloads through a selected bot session. Selection happens per
+// operation and bot sessions are stored as encrypted Telethon StringSession
+// values, so an authorized bot survives restarts and is reused instead of
+// logging in again.
 package botgateway
 
 import (
@@ -14,10 +21,17 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 )
 
+// GotdVerifier authenticates bot tokens against Telegram on a throwaway
+// in-memory session, so verification neither touches the stored session of the
+// user nor leaves an authorization behind. It implements bots.Verifier.
 type GotdVerifier struct {
+	// factory builds the gotd client used for the one-off login.
 	factory *telegramstore.Factory
 }
 
+// NewGotdVerifier returns a verifier that logs in through factory. A nil
+// factory is reported as bots.ErrInvalidInput. Every Verify call creates and
+// tears down its own client, so the factory must be safe for concurrent use.
 func NewGotdVerifier(factory *telegramstore.Factory) (*GotdVerifier, error) {
 	if factory == nil {
 		return nil, bots.ErrInvalidInput
@@ -25,6 +39,11 @@ func NewGotdVerifier(factory *telegramstore.Factory) (*GotdVerifier, error) {
 	return &GotdVerifier{factory: factory}, nil
 }
 
+// Verify logs in with token and returns the identity Telegram reports for it.
+// Every failure is wrapped with "verify Telegram bot"; a credential that
+// authenticates as a regular user is reported with bots.ErrNotBot inside that
+// wrap, so callers must test it with errors.Is. The session is in-memory only,
+// so nothing is written and the authorization cannot be resumed later.
 func (v *GotdVerifier) Verify(ctx context.Context, token string) (bots.Identity, error) {
 	memory := &session.StorageMemory{}
 	client, err := v.factory.New(memory)
@@ -52,10 +71,18 @@ func (v *GotdVerifier) Verify(ctx context.Context, token string) (bots.Identity,
 	return identity, nil
 }
 
+// ChannelBotProvider resolves a user's enabled bots to Telegram input users, so
+// a newly created channel can add them before it is handed out for uploads. It
+// implements telegramstore.BotProvider; a user without enabled bots yields an
+// empty list, which is valid.
 type ChannelBotProvider struct {
+	// queries reads the enabled bot rows of the user, in ascending bot ID
+	// order.
 	queries *sqlcgen.Queries
 }
 
+// NewChannelBotProvider returns a provider backed by pool. A nil pool is
+// reported as bots.ErrInvalidInput, and the pool is not pinged.
 func NewChannelBotProvider(pool *pgxpool.Pool) (*ChannelBotProvider, error) {
 	if pool == nil {
 		return nil, bots.ErrInvalidInput
@@ -63,6 +90,13 @@ func NewChannelBotProvider(pool *pgxpool.Pool) (*ChannelBotProvider, error) {
 	return &ChannelBotProvider{queries: sqlcgen.New(pool)}, nil
 }
 
+// ChannelBots resolves every enabled bot of userID to a tg.InputUserClass by
+// its stored username. Bots without a stored username are skipped, and a
+// username that no longer resolves to the recorded bot ID fails the whole call
+// with a message wrapping bots.ErrNotFound, so a caller never adds the wrong
+// account to a channel. It returns bots.ErrInvalidInput for a nil receiver,
+// query handle or API client, or a non-positive user ID; api must be running
+// and authorized as the channel owner.
 func (p *ChannelBotProvider) ChannelBots(ctx context.Context, userID int64, api *tg.Client) ([]tg.InputUserClass, error) {
 	if p == nil || p.queries == nil || userID <= 0 || api == nil {
 		return nil, bots.ErrInvalidInput

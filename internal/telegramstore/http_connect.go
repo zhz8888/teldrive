@@ -15,12 +15,27 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// httpConnectDialer opens TCP tunnels through an HTTP or HTTPS forward proxy
+// with the CONNECT method. It implements proxy.ContextDialer so it can act as
+// the dialer of a gotd data center resolver.
 type httpConnectDialer struct {
+	// proxyURL is the validated proxy address. Only the http and https schemes
+	// are accepted and the URL must carry a host.
 	proxyURL *url.URL
-	forward  proxy.ContextDialer
-	timeout  time.Duration
+	// forward dials the proxy hop itself. Production passes proxy.Direct, so
+	// the connection to the proxy is not proxied a second time.
+	forward proxy.ContextDialer
+	// timeout bounds tunnel setup as a whole: connecting to the proxy, the TLS
+	// handshake for an https proxy, and the CONNECT exchange. Zero leaves the
+	// caller's context deadline as the only limit. It does not constrain the
+	// established tunnel.
+	timeout time.Duration
 }
 
+// newHTTPConnectDialer returns a context aware dialer that tunnels through the
+// HTTP or HTTPS proxy described by proxyURL. A nil URL, any other scheme, or a
+// missing host is reported as an error; timeout (zero for no extra limit)
+// bounds each tunnel setup.
 func newHTTPConnectDialer(proxyURL *url.URL, timeout time.Duration) (proxy.ContextDialer, error) {
 	if proxyURL == nil || (proxyURL.Scheme != "http" && proxyURL.Scheme != "https") || proxyURL.Host == "" {
 		return nil, errors.New("invalid HTTP proxy URL")
@@ -28,10 +43,22 @@ func newHTTPConnectDialer(proxyURL *url.URL, timeout time.Duration) (proxy.Conte
 	return &httpConnectDialer{proxyURL: proxyURL, forward: proxy.Direct, timeout: timeout}, nil
 }
 
+// Dial dials through the proxy without a caller supplied context, so only the
+// dialer timeout can interrupt the tunnel setup. It exists to satisfy the
+// proxy.Dialer interface.
 func (d *httpConnectDialer) Dial(network, address string) (net.Conn, error) {
 	return d.DialContext(context.Background(), network, address)
 }
 
+// DialContext opens a tunnel to address through the proxy. Only TCP networks are
+// supported; anything else is rejected. When the proxy URL carries userinfo, the
+// CONNECT request is sent with basic proxy credentials, and an https proxy is
+// contacted over TLS with a minimum version of TLS 1.2. The returned connection
+// is the raw tunnel and belongs to the caller, who must close it. The CONNECT
+// response body is deliberately neither closed nor drained: some proxies add
+// Transfer-Encoding or Content-Length to a 2xx response, and draining those
+// bytes would block forever on framing that never arrives. A failed exchange
+// closes the underlying connection before returning.
 func (d *httpConnectDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, fmt.Errorf("HTTP CONNECT proxy requires TCP network, got %q", network)
@@ -96,11 +123,21 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 	return &bufferedConn{Conn: conn, reader: reader}, nil
 }
 
+// bufferedConn is the tunnel connection returned by DialContext. It exists to
+// preserve the bytes that were read ahead while parsing the CONNECT response,
+// which already belong to the tunneled stream.
 type bufferedConn struct {
+	// Conn is the underlying connection to the proxy. Closing it closes the
+	// tunnel, and writes and deadlines pass through to it unchanged.
 	net.Conn
+	// reader holds the bytes buffered during the CONNECT handshake followed by
+	// the rest of the tunnel, so reads must go through it.
 	reader *bufio.Reader
 }
 
+// Read returns tunneled bytes, first draining what the CONNECT response parser
+// already buffered and then reading from the underlying connection. Other
+// net.Conn methods are inherited from the embedded connection.
 func (c *bufferedConn) Read(p []byte) (int, error) {
 	return c.reader.Read(p)
 }

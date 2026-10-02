@@ -1,3 +1,17 @@
+// Package localtelegram implements a filesystem-backed stand-in for the
+// Telegram MTProto storage API.
+//
+// It exists so the server can be exercised without Telegram credentials: the
+// subset of RPCs that the storage boundary actually uses (channels, uploads,
+// documents, messages, file ranges) is answered from a directory on disk. The
+// backend is selected with the "filesystem" value of the Telegram backend
+// setting and is intended for development, integration tests and the local UI
+// harness, not for production.
+//
+// The emulated semantics deliberately mirror the real API where callers depend
+// on them: access hashes must match, file references must be echoed back, upload
+// parts are addressed by index, and a document stays downloadable only while a
+// message references it.
 package localtelegram
 
 import (
@@ -22,21 +36,52 @@ import (
 )
 
 const (
-	stateFileName    = "state.json"
-	uploadsDirName   = "uploads"
+	// stateFileName is the JSON file holding persistedState, relative to the root.
+	stateFileName = "state.json"
+
+	// uploadsDirName is the directory holding in-flight upload parts, one
+	// subdirectory per upload file ID.
+	uploadsDirName = "uploads"
+
+	// documentsDirName is the directory holding finalized documents, one
+	// "<documentID>.bin" file each.
 	documentsDirName = "documents"
 )
 
+// Server answers emulated Telegram RPCs from a directory tree. It implements
+// tg.Invoker, so it can be handed to tg.NewClient in place of a network
+// connection.
+//
+// All RPC handling is serialised by mu, which makes the in-memory state safe to
+// mutate without finer-grained locking. The state is persisted after every
+// mutating RPC, so the emulator can be restarted mid-suite without losing
+// created channels or stored documents.
 type Server struct {
-	root         string
-	statePath    string
-	uploadsDir   string
+	// root is the absolute directory containing the state file, uploads and
+	// documents.
+	root string
+
+	// statePath is the absolute path of the state file.
+	statePath string
+
+	// uploadsDir is the absolute path of the in-flight upload directory.
+	uploadsDir string
+
+	// documentsDir is the absolute path of the finalized document directory.
 	documentsDir string
 
-	mu    sync.Mutex
+	// mu serialises RPC handling and therefore guards state.
+	mu sync.Mutex
+
+	// state is the in-memory copy of the persisted database, guarded by mu.
 	state persistedState
 }
 
+// Open prepares the emulator rooted at root, creating the directory layout if
+// needed, loading any existing state and discarding leftover in-flight uploads.
+//
+// root may be relative and is resolved to an absolute path. Every directory is
+// created with mode 0700. The returned server is ready for concurrent use.
 func Open(root string) (*Server, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -71,6 +116,9 @@ func Open(root string) (*Server, error) {
 	return server, nil
 }
 
+// Root reports the absolute directory the emulator stores its data in. It
+// returns an empty string for a nil receiver so callers can report the location
+// without checking first.
 func (s *Server) Root() string {
 	if s == nil {
 		return ""
@@ -78,6 +126,9 @@ func (s *Server) Root() string {
 	return s.root
 }
 
+// Client wraps the server in a gotd client that talks to it in process, so
+// storage code can use the normal gotd call sites without a network connection.
+// It returns nil for a nil receiver.
 func (s *Server) Client() *tg.Client {
 	if s == nil {
 		return nil
@@ -85,6 +136,13 @@ func (s *Server) Client() *tg.Client {
 	return tg.NewClient(s)
 }
 
+// Invoke implements tg.Invoker by dispatching input to the matching emulated
+// RPC and decoding the reply into output.
+//
+// An unsupported RPC type is reported as an error rather than silently
+// succeeding, so a test that needs an unimplemented method fails loudly. Both
+// encoding the reply and decoding it into output can fail and are reported with
+// their own context.
 func (s *Server) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
 	if s == nil || input == nil || output == nil {
 		return errors.New("local Telegram invoker is not configured")
@@ -106,6 +164,13 @@ func (s *Server) Invoke(ctx context.Context, input bin.Encoder, output bin.Decod
 	return nil
 }
 
+// handle dispatches one decoded RPC to its emulated implementation while
+// holding mu, so every handler may read and mutate s.state without further
+// synchronisation.
+//
+// Handlers that touch the filesystem receive ctx so a cancelled request stops
+// before writing more parts. The default branch rejects unknown RPCs by type
+// name, which is how callers discover that the emulator lacks a method.
 func (s *Server) handle(ctx context.Context, input bin.Encoder) (bin.Encoder, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,6 +203,10 @@ func (s *Server) handle(ctx context.Context, input bin.Encoder) (bin.Encoder, er
 	}
 }
 
+// getChannels resolves the requested channel references and returns those that
+// exist. Entries that are not plain channels, or that name an unknown channel,
+// are skipped rather than reported, matching Telegram's partial-result
+// behaviour for this method.
 func (s *Server) getChannels(request *tg.ChannelsGetChannelsRequest) *tg.MessagesChats {
 	chats := make([]tg.ChatClass, 0, len(request.ID))
 	for _, input := range request.ID {
@@ -152,6 +221,10 @@ func (s *Server) getChannels(request *tg.ChannelsGetChannelsRequest) *tg.Message
 	return &tg.MessagesChats{Chats: chats}
 }
 
+// getDialogs lists the emulated channels as dialogs, oldest identifier first so
+// pagination is deterministic. request.Limit caps the page; a non-positive limit
+// is treated as "all channels", which keeps the emulator usable without the
+// offset bookkeeping the real API requires.
 func (s *Server) getDialogs(request *tg.MessagesGetDialogsRequest) *tg.MessagesDialogs {
 	channels := make([]channelRecord, 0, len(s.state.Channels))
 	for _, channel := range s.state.Channels {
@@ -174,6 +247,9 @@ func (s *Server) getDialogs(request *tg.MessagesGetDialogsRequest) *tg.MessagesD
 	return &tg.MessagesDialogs{Dialogs: dialogs, Chats: chats}
 }
 
+// getUsers always answers with a single self user, because the emulator only
+// ever acts as one pre-authenticated account. Storage code uses the reply to
+// learn the account ID and nothing else.
 func (s *Server) getUsers(*tg.UsersGetUsersRequest) *tg.UserClassVector {
 	return &tg.UserClassVector{Elems: []tg.UserClass{&tg.User{
 		Self: true, ID: 1, AccessHash: 1_000_001,
@@ -181,6 +257,14 @@ func (s *Server) getUsers(*tg.UsersGetUsersRequest) *tg.UserClassVector {
 	}}}
 }
 
+// saveUploadPart stores one part of an in-flight upload as
+// "<uploadsDir>/<fileID>/<part>.part".
+//
+// Telegraphing the real API, parts are written by index and may arrive in any
+// order; finalizeUpload is what checks that all of them are present. The write
+// is atomic, so a crashed or cancelled request cannot leave a half-written part
+// that would later pass that check. The handler is shared by the small-file and
+// big-file RPCs, which differ only in their request type.
 func (s *Server) saveUploadPart(ctx context.Context, fileID int64, part int, payload []byte) (bin.Encoder, error) {
 	if fileID == 0 || part < 0 {
 		return nil, errors.New("invalid local Telegram upload part")
@@ -199,6 +283,14 @@ func (s *Server) saveUploadPart(ctx context.Context, fileID int64, part int, pay
 	return &tg.BoolTrue{}, nil
 }
 
+// sendMedia posts a message to a channel, either finalizing a freshly uploaded
+// document or re-referencing one that is already stored.
+//
+// Re-referencing checks the access hash, mirroring the real API: a mismatch is
+// reported as "does not exist" so a stale handle cannot be used to reach a
+// document the caller should not know about. The new state is persisted before
+// the reply is built, so a message that the caller sees is always recoverable
+// after a restart.
 func (s *Server) sendMedia(ctx context.Context, request *tg.MessagesSendMediaRequest) (bin.Encoder, error) {
 	channelID, ok := inputPeerChannelID(request.Peer)
 	if !ok {
@@ -253,6 +345,19 @@ func (s *Server) sendMedia(ctx context.Context, request *tg.MessagesSendMediaReq
 	}, nil
 }
 
+// finalizeUpload turns the parts previously written by saveUploadPart into one
+// stored document.
+//
+// The parts are concatenated in index order while a SHA-256 of the result is
+// computed, so the document bytes and its file reference are derived in a single
+// pass. The document is written to a temporary file and renamed into place, then
+// the upload directory is removed; a failure before the rename leaves only the
+// original parts, which Open discards on the next start.
+//
+// The part count reported by the client must match what is on disk, and the MIME
+// type falls back to application/octet-stream. The file name comes from the
+// document attributes when the client supplies one, otherwise from the upload
+// request.
 func (s *Server) finalizeUpload(ctx context.Context, media *tg.InputMediaUploadedDocument) (documentRecord, error) {
 	fileID, parts, name, ok := inputFileDetails(media.File)
 	if !ok || parts <= 0 {
@@ -341,6 +446,9 @@ func (s *Server) finalizeUpload(ctx context.Context, media *tg.InputMediaUploade
 	return record, nil
 }
 
+// getMessages resolves the requested message references inside one channel and
+// returns those that exist. Unknown identifiers are skipped, so a partially
+// deleted range still yields the surviving messages.
 func (s *Server) getMessages(request *tg.ChannelsGetMessagesRequest) *tg.MessagesMessages {
 	channelID, ok := inputChannelID(request.Channel)
 	if !ok {
@@ -363,6 +471,14 @@ func (s *Server) getMessages(request *tg.ChannelsGetMessagesRequest) *tg.Message
 	return &tg.MessagesMessages{Messages: messages, Chats: chats}
 }
 
+// getFile reads a byte range of a stored document.
+//
+// Only plain document locations are supported, and the access hash must match,
+// so a wrong handle cannot be used to read arbitrary files. The requested range
+// is clamped to the document length, which lets a downloader ask for a full
+// part without knowing the exact remaining size. A short read at the end of the
+// file is treated as success, matching where the real API returns a truncated
+// payload rather than an error.
 func (s *Server) getFile(ctx context.Context, request *tg.UploadGetFileRequest) (bin.Encoder, error) {
 	location, ok := request.Location.(*tg.InputDocumentFileLocation)
 	if !ok {
@@ -396,6 +512,12 @@ func (s *Server) getFile(ctx context.Context, request *tg.UploadGetFileRequest) 
 	return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Mtime: document.CreatedAt, Bytes: payload}, nil
 }
 
+// deleteMessages removes messages from one channel and then collects any
+// document they were the last reference to.
+//
+// Deleting an identifier that is not present is not an error, so a retried
+// deletion is harmless. Collection runs before the state is persisted so the
+// on-disk state never references a document file that has already been removed.
 func (s *Server) deleteMessages(request *tg.ChannelsDeleteMessagesRequest) (bin.Encoder, error) {
 	channelID, ok := inputChannelID(request.Channel)
 	if !ok {
@@ -413,6 +535,9 @@ func (s *Server) deleteMessages(request *tg.ChannelsDeleteMessagesRequest) (bin.
 	return &tg.MessagesAffectedMessages{Pts: s.state.NextMessageID, PtsCount: len(request.ID)}, nil
 }
 
+// createChannel allocates the next channel identifier and persists it. The
+// access hash is derived from the identifier so it is stable across restarts and
+// can be recomputed rather than looked up.
 func (s *Server) createChannel(request *tg.ChannelsCreateChannelRequest) (bin.Encoder, error) {
 	title := strings.TrimSpace(request.Title)
 	if title == "" {
@@ -433,6 +558,9 @@ func (s *Server) createChannel(request *tg.ChannelsCreateChannelRequest) (bin.En
 	return &tg.Updates{Chats: []tg.ChatClass{telegramChannel(record)}, Date: record.CreatedAt, Seq: s.state.NextMessageID}, nil
 }
 
+// deleteChannel removes a channel together with every message posted to it, and
+// then collects the documents that losing those messages left unreferenced.
+// Deleting an unknown channel is not an error.
 func (s *Server) deleteChannel(request *tg.ChannelsDeleteChannelRequest) (bin.Encoder, error) {
 	channelID, ok := inputChannelID(request.Channel)
 	if !ok {
@@ -453,6 +581,9 @@ func (s *Server) deleteChannel(request *tg.ChannelsDeleteChannelRequest) (bin.En
 	return &tg.Updates{Date: int(time.Now().Unix()), Seq: s.state.NextMessageID}, nil
 }
 
+// telegramMessage renders a stored message in the shape clients expect: a
+// channel post carrying the document it references. The caller must hold mu,
+// because the document is looked up in the shared state.
 func (s *Server) telegramMessage(record messageRecord) *tg.Message {
 	document := s.state.Documents[documentKey(record.DocumentID)]
 	return &tg.Message{
@@ -465,6 +596,13 @@ func (s *Server) telegramMessage(record messageRecord) *tg.Message {
 	}
 }
 
+// garbageCollectDocuments deletes every stored document that no surviving
+// message references, both from disk and from the state.
+//
+// This is what makes the emulator behave like Telegram, where an unreferenced
+// upload is eventually reclaimed rather than kept forever. A file that is
+// already gone is not an error. The caller must hold mu and is responsible for
+// persisting the state afterwards.
 func (s *Server) garbageCollectDocuments() error {
 	referenced := make(map[int64]struct{}, len(s.state.Messages))
 	for _, message := range s.state.Messages {
@@ -482,6 +620,13 @@ func (s *Server) garbageCollectDocuments() error {
 	return nil
 }
 
+// recoverUploads discards every in-flight upload directory left behind by a
+// previous run.
+//
+// A part directory is only meaningful while the process that accepted the parts
+// is still finalizing them, so anything found at startup is abandoned work. It
+// is removed rather than resumed to keep the on-disk state consistent with a
+// state file that never recorded the incomplete upload.
 func (s *Server) recoverUploads() error {
 	entries, err := os.ReadDir(s.uploadsDir)
 	if err != nil {
@@ -498,6 +643,8 @@ func (s *Server) recoverUploads() error {
 	return nil
 }
 
+// telegramChannel renders a stored channel as a created broadcast channel, which
+// is the only kind the emulator produces and the only kind TelDrive stores to.
 func telegramChannel(record channelRecord) *tg.Channel {
 	return &tg.Channel{
 		Creator:    true,
@@ -510,6 +657,9 @@ func telegramChannel(record channelRecord) *tg.Channel {
 	}
 }
 
+// telegramDocument renders a stored document for the wire. The file reference is
+// copied rather than aliased so a caller that mutates the reply cannot corrupt
+// the persisted state.
 func telegramDocument(record documentRecord) *tg.Document {
 	attributes := make([]tg.DocumentAttributeClass, 0, 1)
 	if record.FileName != "" {
@@ -527,6 +677,12 @@ func telegramDocument(record documentRecord) *tg.Document {
 	}
 }
 
+// writeAtomic writes payload to path with mode, replacing any existing file.
+//
+// The data goes to a temporary file in the destination directory, which is
+// chmodded, written, fsynced and renamed. Readers therefore only ever observe
+// the previous or the new content, never a partial write. The temporary file is
+// removed on every failure path.
 func writeAtomic(path string, payload []byte, mode os.FileMode) error {
 	temp, err := os.CreateTemp(filepath.Dir(path), ".part-*.tmp")
 	if err != nil {
@@ -559,6 +715,9 @@ func writeAtomic(path string, payload []byte, mode os.FileMode) error {
 	return nil
 }
 
+// inputChannelID extracts a channel identifier from an inputChannel reference.
+// The boolean result is false for other reference kinds and for a zero
+// identifier, so callers can treat "not addressable" as a single case.
 func inputChannelID(input tg.InputChannelClass) (int64, bool) {
 	channel, ok := input.(*tg.InputChannel)
 	if !ok || channel.ChannelID == 0 {
@@ -567,6 +726,8 @@ func inputChannelID(input tg.InputChannelClass) (int64, bool) {
 	return channel.ChannelID, true
 }
 
+// inputPeerChannelID is inputChannelID for the peer form of a channel
+// reference, which is what message-sending requests carry.
 func inputPeerChannelID(input tg.InputPeerClass) (int64, bool) {
 	channel, ok := input.(*tg.InputPeerChannel)
 	if !ok || channel.ChannelID == 0 {
@@ -575,6 +736,9 @@ func inputPeerChannelID(input tg.InputPeerClass) (int64, bool) {
 	return channel.ChannelID, true
 }
 
+// inputMessageID extracts a message identifier from an inputMessage reference.
+// Only explicit single-message references are supported; ranges and other forms
+// report false so callers skip them.
 func inputMessageID(input tg.InputMessageClass) (int, bool) {
 	message, ok := input.(*tg.InputMessageID)
 	if !ok || message.ID <= 0 {
@@ -583,6 +747,10 @@ func inputMessageID(input tg.InputMessageClass) (int, bool) {
 	return message.ID, true
 }
 
+// inputFileDetails normalises the two input file forms TelDrive uses into
+// id/parts/name. The small-file and big-file forms carry the same fields but are
+// distinct types; anything else, or a reference without an identifier or part
+// count, reports false so the caller can reject it with one message.
 func inputFileDetails(input tg.InputFileClass) (id int64, parts int, name string, ok bool) {
 	switch file := input.(type) {
 	case *tg.InputFile:
@@ -594,6 +762,10 @@ func inputFileDetails(input tg.InputFileClass) (id int64, parts int, name string
 	}
 }
 
+// filenameFromAttributes returns the first file-name attribute, which is how a
+// client supplies the name a document should be stored under. It returns an
+// empty string when the client sent no name, leaving the caller to fall back to
+// the upload request's own name.
 func filenameFromAttributes(attributes []tg.DocumentAttributeClass) string {
 	for _, attribute := range attributes {
 		if filename, ok := attribute.(*tg.DocumentAttributeFilename); ok {
@@ -603,10 +775,16 @@ func filenameFromAttributes(attributes []tg.DocumentAttributeClass) string {
 	return ""
 }
 
+// Runner adapts the emulator to the telegramstore.Runner contract so the
+// filesystem backend can be selected through the same option as the real gotd
+// runner. It is a value type, safe to copy.
 type Runner struct {
+	// client is the in-process gotd client bound to the emulator.
 	client *tg.Client
 }
 
+// NewRunner binds a server to the telegramstore.Runner interface. It returns an
+// error for a nil server rather than a Runner that would fail on first use.
 func NewRunner(server *Server) (Runner, error) {
 	if server == nil {
 		return Runner{}, errors.New("local Telegram server is required")
@@ -614,6 +792,13 @@ func NewRunner(server *Server) (Runner, error) {
 	return Runner{client: server.Client()}, nil
 }
 
+// Run executes fn against the emulator's client.
+//
+// The emulator has a single pre-authenticated account, so an operation and its
+// user are accepted but not acted on; the arguments are validated only to keep
+// the contract identical to the production runner. A zero Runner, a
+// non-positive user or a nil callback is rejected with
+// telegramstore.ErrInvalidRequest.
 func (r Runner) Run(ctx context.Context, userID int64, _ telegramstore.Operation, fn func(context.Context, *tg.Client) error) error {
 	if r.client == nil || userID <= 0 || fn == nil {
 		return telegramstore.ErrInvalidRequest

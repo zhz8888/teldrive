@@ -29,32 +29,80 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/telethonsession"
 )
 
+// ErrTelegramConfiguration reports missing or contradictory gotd client
+// configuration, such as an absent application ID or hash, a negative retry
+// count, an incomplete rate limit, or a proxy combination that cannot be used.
+// Callers must test it with errors.Is.
 var ErrTelegramConfiguration = errors.New("Telegram client factory is not configured")
 
+// FactoryConfig is the gotd client configuration taken from the application
+// config. AppID and AppHash are the only mandatory fields: NewFactory applies
+// the defaults described below and then validates the result, so a zero valued
+// timing or device field is not an error by itself.
 type FactoryConfig struct {
-	AppID            int
-	AppHash          string
-	Device           telegram.DeviceConfig
-	DialTimeout      time.Duration
+	// AppID is the Telegram application ID and must be positive.
+	AppID int
+	// AppHash is the Telegram application hash and must not be blank.
+	AppHash string
+	// Device is the device identity the client announces to Telegram.
+	// NewFactory substitutes "TelDrive Backend v2", "2", and "Server" for a
+	// blank SystemVersion, AppVersion, and DeviceModel; the language fields are
+	// passed through as configured.
+	Device telegram.DeviceConfig
+	// DialTimeout bounds one Telegram connection attempt and each HTTP proxy
+	// tunnel setup. Values at or below zero become 15 seconds.
+	DialTimeout time.Duration
+	// ReconnectTimeout caps the total exponential reconnect backoff, which grows
+	// by a factor of 1.1 with at most 10 seconds between attempts. Values at or
+	// below zero become 5 minutes.
 	ReconnectTimeout time.Duration
-	MaxRetries       int
-	RateLimit        bool
-	RateInterval     time.Duration
-	RateBurst        int
-	Proxy            string
-	MTProxyAddress   string
-	MTProxySecret    string
-	Logger           log.Logger
+	// MaxRetries is both the transport retry count of the gotd client and the
+	// number of immediate retries of a transient RPC error per invocation. Zero
+	// disables retrying and a negative value is rejected.
+	MaxRetries int
+	// RateLimit enables the client side rate limiter, which spaces requests by
+	// RateInterval and allows bursts of RateBurst.
+	RateLimit bool
+	// RateInterval is the minimum interval between requests while rate limiting
+	// is enabled and must then be positive; it is ignored otherwise.
+	RateInterval time.Duration
+	// RateBurst is the burst allowance of the rate limiter and must be at least
+	// one while rate limiting is enabled; it is ignored otherwise.
+	RateBurst int
+	// Proxy is an HTTP, HTTPS, or SOCKS5 proxy URL. A blank value connects
+	// directly, an http or https URL tunnels through CONNECT, and any other
+	// supported scheme is dialed by golang.org/x/net/proxy.
+	Proxy string
+	// MTProxyAddress is the MTProto proxy address in host:port form. It must be
+	// set together with MTProxySecret and cannot be combined with Proxy.
+	MTProxyAddress string
+	// MTProxySecret is the MTProto proxy secret in hexadecimal form; it must
+	// decode as hex.
+	MTProxySecret string
+	// Logger receives gotd client logs. A nil logger disables client logging.
+	Logger log.Logger
 }
 
 // Factory creates unstarted gotd clients. Each caller must execute the client
 // with Client.Run for exactly one request-scoped operation.
 type Factory struct {
-	config     FactoryConfig
-	resolver   dcs.Resolver
+	// config is the configuration with defaults applied; newClient reads the
+	// client options from it and AppCredentials the application credentials.
+	config FactoryConfig
+	// resolver decides which Telegram data centers the client dials and carries
+	// the configured proxy.
+	resolver dcs.Resolver
+	// middleware is the shared client middleware chain, outermost first: flood
+	// wait, transient retry, and optionally rate limiting. Every client and every
+	// connection pool built by the factory wraps its own copy of this slice.
 	middleware []telegram.Middleware
 }
 
+// NewFactory validates config, applies the documented defaults, and builds the
+// middleware chain that every client created afterwards will share. It returns
+// ErrTelegramConfiguration (wrapped) when the credentials are missing, the
+// retry count is negative, the rate limit is enabled without a positive
+// interval and burst, or the proxy settings are incomplete or unusable.
 func NewFactory(config FactoryConfig) (*Factory, error) {
 	if config.AppID <= 0 || strings.TrimSpace(config.AppHash) == "" {
 		return nil, ErrTelegramConfiguration
@@ -95,6 +143,12 @@ func NewFactory(config FactoryConfig) (*Factory, error) {
 	return &Factory{config: config, resolver: resolver, middleware: middlewares}, nil
 }
 
+// resolverFromConfig turns the proxy settings into a data center resolver: an
+// MTProto resolver when an MTProxy is configured, otherwise a plain resolver
+// whose dialer tunnels through the HTTP(S) proxy, dials through the SOCKS5
+// proxy, or connects directly. Address and secret must be configured together
+// and an MTProxy cannot be combined with Proxy; every rejection is reported as
+// ErrTelegramConfiguration (wrapped).
 func resolverFromConfig(config FactoryConfig) (dcs.Resolver, error) {
 	proxyURL := strings.TrimSpace(config.Proxy)
 	mtAddress := strings.TrimSpace(config.MTProxyAddress)
@@ -143,10 +197,17 @@ func resolverFromConfig(config FactoryConfig) (dcs.Resolver, error) {
 	return dcs.Plain(dcs.PlainOptions{Dial: dialer.DialContext}), nil
 }
 
+// New returns an unstarted gotd client that keeps its session in storage and
+// ignores Telegram updates. A nil factory, missing credentials, or a nil
+// storage returns ErrTelegramConfiguration; the caller owns Client.Run and
+// must run the client exactly once, because Client.Run is not reentrant.
 func (f *Factory) New(storage telegram.SessionStorage) (*telegram.Client, error) {
 	return f.newClient(storage, nil)
 }
 
+// NewWithUpdates is New with an update handler installed, for clients that must
+// receive updates. A nil handler is rejected with ErrTelegramConfiguration
+// instead of silently producing a client that drops updates.
 func (f *Factory) NewWithUpdates(storage telegram.SessionStorage, handler telegram.UpdateHandler) (*telegram.Client, error) {
 	if handler == nil {
 		return nil, ErrTelegramConfiguration
@@ -154,6 +215,14 @@ func (f *Factory) NewWithUpdates(storage telegram.SessionStorage, handler telegr
 	return f.newClient(storage, handler)
 }
 
+// PooledAPI spreads the client over size extra connections to the current data
+// center and returns an API that load balances calls over them, plus the
+// function that closes those connections. It must be called while the client is
+// running, which the runner does inside Client.Run. The pooled API wraps its own
+// copy of the factory middleware chain, so it keeps the flood wait, retry, and
+// rate limit behavior of the single connection API. A nil factory or client, or
+// a size below one, returns ErrTelegramConfiguration, and the caller must call
+// the returned close function when the work is done.
 func (f *Factory) PooledAPI(client *telegram.Client, size int) (*tg.Client, func() error, error) {
 	if f == nil || client == nil || size < 1 {
 		return nil, nil, ErrTelegramConfiguration
@@ -169,12 +238,21 @@ func (f *Factory) PooledAPI(client *telegram.Client, size int) (*tg.Client, func
 	return tg.NewClient(wrapped), invoker.Close, nil
 }
 
+// AppCredentials reports the application ID and hash used by this factory. The
+// boolean is false for a nil factory or for credentials that NewFactory would
+// have rejected, so callers can decide whether Telegram login is available.
 func (f *Factory) AppCredentials() (int, string, bool) {
 	if f == nil || f.config.AppID <= 0 || strings.TrimSpace(f.config.AppHash) == "" {
 		return 0, "", false
 	}
 	return f.config.AppID, f.config.AppHash, true
 }
+
+// newClient assembles the gotd options shared by New and NewWithUpdates: the
+// session storage, the device identity, the resolver, a copy of the middleware
+// chain, and the reconnect backoff derived from ReconnectTimeout. A nil
+// factory, missing credentials, or a nil storage returns
+// ErrTelegramConfiguration.
 func (f *Factory) newClient(storage telegram.SessionStorage, handler telegram.UpdateHandler) (*telegram.Client, error) {
 	if f == nil || f.config.AppID <= 0 || f.config.AppHash == "" || storage == nil {
 		return nil, ErrTelegramConfiguration
@@ -205,11 +283,19 @@ func (f *Factory) newClient(storage telegram.SessionStorage, handler telegram.Up
 // constructs a fresh gotd client, and returns it unstarted. ClientRunner owns
 // Client.Run and closes all network state when the request ends.
 type DatabaseClientProvider struct {
+	// queries reads and writes the TelDrive session rows. It is built from the
+	// pool passed to NewDatabaseClientProvider and is never nil.
 	queries *sqlcgen.Queries
-	cipher  *secureblob.Cipher
+	// cipher seals and opens the stored Telegram session blob.
+	cipher *secureblob.Cipher
+	// factory builds the gotd client for the loaded session.
 	factory *Factory
 }
 
+// NewDatabaseClientProvider returns a ClientProvider that loads the caller's
+// active Telegram session from the database and builds a fresh gotd client for
+// it. A nil pool, cipher, or factory is rejected with
+// ErrTelegramConfiguration, so a non-nil provider always has all three.
 func NewDatabaseClientProvider(pool *pgxpool.Pool, cipher *secureblob.Cipher, factory *Factory) (*DatabaseClientProvider, error) {
 	if pool == nil || cipher == nil || factory == nil {
 		return nil, ErrTelegramConfiguration
@@ -217,6 +303,13 @@ func NewDatabaseClientProvider(pool *pgxpool.Pool, cipher *secureblob.Cipher, fa
 	return &DatabaseClientProvider{queries: sqlcgen.New(pool), cipher: cipher, factory: factory}, nil
 }
 
+// Client loads the user's active Telegram session and returns an unstarted
+// gotd client that writes session updates back to the same row. When ctx
+// carries the identity of the requested user, that login's session is loaded;
+// otherwise the user's most recently active session is used. It returns
+// ErrTelegramConfiguration for an unusable provider or a non-positive user ID
+// and a wrapped error when the session cannot be loaded. The operation is
+// ignored because session lookup does not depend on it.
 func (p *DatabaseClientProvider) Client(ctx context.Context, userID int64, _ Operation) (*telegram.Client, error) {
 	if p == nil || p.queries == nil || p.cipher == nil || p.factory == nil || userID <= 0 {
 		return nil, ErrTelegramConfiguration
@@ -240,13 +333,27 @@ func (p *DatabaseClientProvider) Client(ctx context.Context, userID int64, _ Ope
 	return p.factory.New(storage)
 }
 
+// databaseSessionStorage persists gotd session updates into one stored session
+// row, translating between the binary gotd format and the Telethon string
+// format TelDrive keeps in the database and encrypting the result. It is bound
+// to a single session row, so every client needs its own instance.
 type databaseSessionStorage struct {
-	queries   *sqlcgen.Queries
-	cipher    *secureblob.Cipher
+	// queries accesses the session row.
+	queries *sqlcgen.Queries
+	// cipher seals and opens the blob under the "telegram-session" purpose.
+	cipher *secureblob.Cipher
+	// sessionID is the row that receives updates. An invalid UUID makes both
+	// methods fail with ErrTelegramConfiguration.
 	sessionID pgtype.UUID
-	userID    int64
+	// userID is the owner of the row and scopes every query, so a session ID can
+	// never be used for another user.
+	userID int64
 }
 
+// LoadSession reads the row, decrypts the stored blob, and decodes the Telethon
+// session string into the gotd format telegram.Client expects. It returns
+// ErrTelegramConfiguration for a nil or incomplete storage and a wrapped error
+// when the row cannot be read, decrypted, or decoded.
 func (s *databaseSessionStorage) LoadSession(ctx context.Context) ([]byte, error) {
 	if s == nil || s.queries == nil || s.cipher == nil || s.userID <= 0 || !s.sessionID.Valid {
 		return nil, ErrTelegramConfiguration
@@ -268,6 +375,11 @@ func (s *databaseSessionStorage) LoadSession(ctx context.Context) ([]byte, error
 	return raw, nil
 }
 
+// StoreSession encodes a gotd session update as a Telethon string, encrypts it,
+// and writes it back to the row. It returns ErrTelegramConfiguration for a nil
+// or incomplete storage or empty data, ErrClientUnavailable when the update
+// matched no row because the session was revoked while the client ran, and a
+// wrapped error for an encoding, encryption, or database failure.
 func (s *databaseSessionStorage) StoreSession(ctx context.Context, data []byte) error {
 	if s == nil || s.queries == nil || s.cipher == nil || len(data) == 0 || !s.sessionID.Valid {
 		return ErrTelegramConfiguration

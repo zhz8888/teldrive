@@ -1,3 +1,16 @@
+// Package catalog owns the metadata of the file tree: folders and files, path
+// resolution, listing and search, rename, move and copy conflict handling, trash
+// and restore, and the per-file part records that point at Telegram messages.
+//
+// Reads and writes are scoped to one owner: their SQL carries the caller's user
+// ID, so an ID belonging to another user is reported as ErrNotFound instead of
+// exposing somebody else's row. The part-size backfills are the exception, as
+// they take no user ID and rely on the caller having checked ownership.
+// Single-entry mutations are one statement;
+// multi-row operations such as BulkTrash and MoveWithPolicy/BulkMove run in a
+// single transaction and invalidate the affected cache entries only after the
+// commit succeeds. The zero value of Service is not usable: build one with
+// NewService.
 package catalog
 
 import (
@@ -16,6 +29,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 )
 
+// validCategories holds the category filters accepted by listAdvanced. Each key
+// matches a bucket that ListFilesAdvanced derives from MIME type and file name,
+// so an unknown value is rejected up front instead of silently matching nothing.
 var validCategories = map[string]struct{}{
 	"archive": {}, "audio": {}, "document": {}, "image": {}, "video": {}, "other": {},
 }
@@ -113,6 +129,14 @@ func (s *Service) EnsureFolderPath(ctx context.Context, userID int64, rootID *uu
 	return current, nil
 }
 
+// listAdvanced serves the filtered branch of List. It validates the filter
+// vocabulary before touching the database (search type, sort key, order, updated
+// window and categories) and reports every invalid combination as
+// ErrInvalidParent. A regex search is compiled first so a broken pattern is
+// rejected rather than sent to PostgreSQL. When in.AfterID is set the keyset
+// cursor is decoded according to in.Sort: "name" takes the name itself, updatedAt
+// expects RFC3339Nano and size a decimal byte count, and "id" needs no cursor value
+// because it compares IDs alone. in.AfterValue takes precedence over in.AfterName.
 func (s *Service) listAdvanced(ctx context.Context, in ListInput) ([]*sqlcgen.File, error) {
 	if in.SearchType != "text" && in.SearchType != "regex" {
 		return nil, ErrInvalidParent
@@ -193,6 +217,12 @@ func (s *Service) listAdvanced(ctx context.Context, in ListInput) ([]*sqlcgen.Fi
 	return files, nil
 }
 
+// FileCursorValue renders the keyset cursor value of file for sortBy, using the
+// same encoding listAdvanced parses back: RFC3339Nano in UTC for "updatedAt", a
+// decimal byte count for "size", the UUID string for "id" and the plain name for
+// any other value. It returns "" for a nil file or one whose ID is NULL and
+// cannot be formatted, and "-1" for a size-sorted file without a recorded size,
+// mirroring the COALESCE(size, -1) the SQL ordering uses.
 func FileCursorValue(file *sqlcgen.File, sortBy string) string {
 	if file == nil {
 		return ""
@@ -215,12 +245,20 @@ func FileCursorValue(file *sqlcgen.File, sortBy string) string {
 	}
 }
 
+// CategoryStatistic aggregates the active files of one drive by the category
+// bucket derived from their MIME type and name.
 type CategoryStatistic struct {
-	Category   string
+	// Category is the bucket name; it is one of the keys of validCategories.
+	Category string
+	// TotalFiles is the number of active files in the bucket.
 	TotalFiles int64
-	TotalSize  int64
+	// TotalSize is the summed logical size of those files in bytes.
+	TotalSize int64
 }
 
+// CategoryStatistics returns one CategoryStatistic per bucket that holds at
+// least one of the caller's active files, ordered by category name. Folders and
+// trashed entries are excluded; the result is an empty slice, never nil.
 func (s *Service) CategoryStatistics(ctx context.Context, userID int64) ([]CategoryStatistic, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidOwner
@@ -238,15 +276,26 @@ func (s *Service) CategoryStatistics(ctx context.Context, userID int64) ([]Categ
 	return items, nil
 }
 
+// DriveStatistic summarises one user's drive: live entries and their bytes,
+// trashed entries, and the shares and upload sessions currently in flight.
 type DriveStatistic struct {
-	TotalFiles   int64
+	// TotalFiles is the number of active files.
+	TotalFiles int64
+	// TotalFolders is the number of active folders.
 	TotalFolders int64
-	TotalBytes   int64
+	// TotalBytes is the summed size of active files in bytes.
+	TotalBytes int64
+	// TrashedFiles counts every trashed entry, folders included, so the name is
+	// narrower than what the counter actually measures.
 	TrashedFiles int64
+	// ActiveShares counts shares that are neither revoked nor expired.
 	ActiveShares int64
-	OpenUploads  int64
+	// OpenUploads counts upload sessions still in the open or completing state.
+	OpenUploads int64
 }
 
+// DriveStatistics returns the DriveStatistic for userID in a single query. It
+// returns ErrInvalidOwner for a non-positive user ID and wraps database failures.
 func (s *Service) DriveStatistics(ctx context.Context, userID int64) (DriveStatistic, error) {
 	if userID <= 0 {
 		return DriveStatistic{}, ErrInvalidOwner

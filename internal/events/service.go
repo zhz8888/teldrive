@@ -20,53 +20,125 @@ import (
 )
 
 var (
+	// ErrInvalidCursor is returned when the client's cursor is ahead of the
+	// newest event id, which means it was never valid for this user. Callers must
+	// test it with errors.Is; the HTTP layer maps it to 422 Unprocessable Entity.
 	ErrInvalidCursor = errors.New("invalid event stream cursor")
+	// ErrInvalidTicket is returned by AuthenticateTicket for a blank, unknown,
+	// expired or already deleted ticket. The security layer turns it into an
+	// unauthenticated request.
 	ErrInvalidTicket = errors.New("invalid or expired event stream ticket")
 )
 
+// Config holds the tunables of Service. The zero value of every field means
+// "use the built-in default" and is replaced by withDefaults, so a caller only
+// has to avoid negative and out-of-range values.
 type Config struct {
-	BatchSize             int32
+	// BatchSize is the maximum number of events one ListAfter call returns; it
+	// must be between 1 and 1000.
+	BatchSize int32
+	// MaxConnectionsPerUser caps the concurrent SSE streams a single user may
+	// hold; it must be between 1 and 1000.
 	MaxConnectionsPerUser int
-	Heartbeat             time.Duration
-	WriteTimeout          time.Duration
-	TicketTTL             time.Duration
-	CleanupInterval       time.Duration
-	ConnectTimeout        time.Duration
-	PingInterval          time.Duration
-	ReconnectMin          time.Duration
-	ReconnectMax          time.Duration
+	// Heartbeat is how long the SSE handler may stay silent before it polls for
+	// new events and writes a keep-alive comment.
+	Heartbeat time.Duration
+	// WriteTimeout bounds a single write to a slow SSE client.
+	WriteTimeout time.Duration
+	// TicketTTL is how long an issued event stream ticket keeps authenticating.
+	TicketTTL time.Duration
+	// CleanupInterval is how often expired event stream tickets are deleted.
+	CleanupInterval time.Duration
+	// ConnectTimeout bounds one listener connect attempt and each ticket cleanup
+	// query.
+	ConnectTimeout time.Duration
+	// PingInterval is how long the listener may idle on a blocking read before it
+	// pings PostgreSQL to prove the connection is still alive.
+	PingInterval time.Duration
+	// ReconnectMin is the delay before the listener's first reconnect attempt.
+	ReconnectMin time.Duration
+	// ReconnectMax caps the listener's exponential reconnect backoff and must not
+	// be smaller than ReconnectMin.
+	ReconnectMax time.Duration
 }
 
+// Event is one persisted row of the user event log, as returned by ListAfter and
+// rendered by the SSE handler as a single event frame. The durable row, not the
+// wake-up notification, is what clients are guaranteed to see.
 type Event struct {
-	ID           int64
-	UserID       int64
-	Type         string
+	// ID is the monotonically increasing event id assigned by the database and
+	// doubles as the stream cursor clients send back.
+	ID int64
+	// UserID is the owner of the event; a stream only ever reads its own user's
+	// rows.
+	UserID int64
+	// Type is the event name written to the SSE event field, for example
+	// file.created.
+	Type string
+	// ResourceType names the kind of resource the event is about, for example
+	// file or upload.
 	ResourceType string
-	ResourceID   string
-	Generation   *int64
-	Payload      []byte
-	OccurredAt   time.Time
+	// ResourceID identifies that resource and is empty for events that do not
+	// target a single resource.
+	ResourceID string
+	// Generation is the resource generation after the change when the event
+	// tracks one; nil means the event carries no generation.
+	Generation *int64
+	// Payload is the event-specific JSON object copied from the jsonb column. It
+	// is always a JSON object and never aliases the driver's row buffer.
+	Payload []byte
+	// OccurredAt is when the event was stored, normalized to UTC.
+	OccurredAt time.Time
 }
 
+// Ticket is a short-lived bearer credential that lets a browser EventSource,
+// which cannot set an Authorization header, authenticate the event stream
+// through a query parameter. Only the SHA-256 hash of Value is stored, so the
+// database never holds anything usable as a credential.
 type Ticket struct {
-	Value     string
+	// Value is the base64url random secret handed to the client; it cannot be
+	// recovered from the stored hash.
+	Value string
+	// ExpiresAt is when the ticket stops authenticating, in UTC.
 	ExpiresAt time.Time
 }
 
+// Service is the entry point of the event subsystem. It owns the hub, the
+// LISTEN listener and the ticket store, and exposes the reads the SSE handler
+// needs. Build it with NewService, start it with Start and stop it with Close;
+// the read methods are safe for concurrent use.
 type Service struct {
-	queries  *sqlcgen.Queries
-	hub      *Hub
+	// queries reads persisted events and manages stream tickets.
+	queries *sqlcgen.Queries
+	// hub fans wake-ups out to the local subscribers of a user.
+	hub *Hub
+	// listener owns the dedicated LISTEN connection.
 	listener *Listener
-	logger   *slog.Logger
-	config   Config
+	// logger reports listener trouble and cleanup failures; never nil after
+	// NewService.
+	logger *slog.Logger
+	// config is the validated configuration with defaults already applied.
+	config Config
 
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	done    chan struct{}
+	// mu guards cancel, done, running and closed.
+	mu sync.Mutex
+	// cancel stops the ticket cleanup goroutine; nil while the service is
+	// stopped.
+	cancel context.CancelFunc
+	// done is closed when the cleanup goroutine returns; NewService and Done keep
+	// it closed until the first Start.
+	done chan struct{}
+	// running reports whether the cleanup goroutine is active.
 	running bool
-	closed  bool
+	// closed records that Close ran; it is final, so Start and IssueTicket refuse
+	// further work.
+	closed bool
 }
 
+// NewService builds an event service around pool. It applies the defaults to
+// cfg, validates the result and creates the hub and the LISTEN listener, but
+// connects nothing yet: the service stays idle until Start. It returns an error
+// for a nil pool or an invalid configuration.
 func NewService(pool *pgxpool.Pool, logger *slog.Logger, cfg Config) (*Service, error) {
 	if pool == nil {
 		return nil, errors.New("event service requires a database pool")
@@ -96,6 +168,9 @@ func NewService(pool *pgxpool.Pool, logger *slog.Logger, cfg Config) (*Service, 
 	}, nil
 }
 
+// withDefaults returns a copy of cfg in which every zero field is replaced by
+// the built-in default. Callers therefore cannot request a zero value, which is
+// why validateConfig only has to reject negative and out-of-range settings.
 func withDefaults(cfg Config) Config {
 	if cfg.BatchSize == 0 {
 		cfg.BatchSize = 100
@@ -130,6 +205,10 @@ func withDefaults(cfg Config) Config {
 	return cfg
 }
 
+// validateConfig reports the first setting the service cannot honour: a batch
+// size or per-user connection cap outside 1..1000, a non-positive duration, or
+// reconnect bounds whose maximum is below their minimum. Every message names the
+// offending setting, and a nil result means cfg is usable.
 func validateConfig(cfg Config) error {
 	switch {
 	case cfg.BatchSize < 1 || cfg.BatchSize > 1000:
@@ -155,6 +234,11 @@ func validateConfig(cfg Config) error {
 	}
 }
 
+// Start launches the listener and the periodic ticket cleanup under ctx. It is
+// idempotent while running and returns ErrServiceClosed after Close. The
+// listener connects synchronously, so a connection failure is reported here and
+// the service stays stopped; cancelling ctx stops both goroutines and Close
+// waits for them.
 func (s *Service) Start(ctx context.Context) error {
 	if s == nil || s.listener == nil {
 		return errors.New("event service is not configured")
@@ -181,6 +265,10 @@ func (s *Service) Start(ctx context.Context) error {
 	return nil
 }
 
+// Close stops the listener and the ticket cleanup, closes the hub and waits for
+// the cleanup goroutine to exit. It is idempotent and safe on a nil service.
+// Closing the hub ends every in-flight SSE stream, and if ctx expires before the
+// goroutine stops, the listener error is joined with ctx.Err() and returned.
 func (s *Service) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -211,6 +299,10 @@ func (s *Service) Close(ctx context.Context) error {
 	}
 }
 
+// Done returns the channel that is closed once the ticket cleanup goroutine has
+// stopped. It is already closed before the first Start and closes as the service
+// shuts down, so a select on it works as a shutdown signal without extra
+// bookkeeping; a nil service returns a closed channel too.
 func (s *Service) Done() <-chan struct{} {
 	if s == nil {
 		done := make(chan struct{})
@@ -222,6 +314,10 @@ func (s *Service) Done() <-chan struct{} {
 	return s.done
 }
 
+// Subscribe returns the wake-up channel for userID together with the function
+// that unregisters it; see Hub.Subscribe for the buffering, closing and
+// unsubscribe semantics. It returns ErrServiceClosed for a nil service, so a
+// caller can treat any subscription failure as "the stream cannot start".
 func (s *Service) Subscribe(userID int64) (<-chan struct{}, func(), error) {
 	if s == nil || s.hub == nil {
 		return nil, nil, ErrServiceClosed
@@ -229,6 +325,8 @@ func (s *Service) Subscribe(userID int64) (<-chan struct{}, func(), error) {
 	return s.hub.Subscribe(userID)
 }
 
+// BatchSize returns the configured number of events one ListAfter call may
+// return, falling back to the package default for a nil service.
 func (s *Service) BatchSize() int32 {
 	if s == nil {
 		return 100
@@ -236,6 +334,8 @@ func (s *Service) BatchSize() int32 {
 	return s.config.BatchSize
 }
 
+// Heartbeat returns the configured SSE keep-alive interval, falling back to the
+// package default for a nil service.
 func (s *Service) Heartbeat() time.Duration {
 	if s == nil {
 		return 20 * time.Second
@@ -243,6 +343,8 @@ func (s *Service) Heartbeat() time.Duration {
 	return s.config.Heartbeat
 }
 
+// WriteTimeout returns the configured deadline for a single SSE write, falling
+// back to the package default for a nil service.
 func (s *Service) WriteTimeout() time.Duration {
 	if s == nil {
 		return 10 * time.Second
@@ -250,6 +352,14 @@ func (s *Service) WriteTimeout() time.Duration {
 	return s.config.WriteTimeout
 }
 
+// ListAfter returns up to BatchSize events of userID with an id greater than
+// afterID, in ascending id order, so the caller advances its cursor to the id of
+// the last event it received. An empty eventTypes slice selects every type and a
+// non-empty one restricts the result to those exact names. An empty result with
+// a nil error means the user has nothing new. afterID zero starts at the beginning
+// of the retained log, and events already deleted by retention are skipped
+// silently, which CursorExpired detects for the caller. A stored row that fails
+// validation fails the whole call instead of being dropped.
 func (s *Service) ListAfter(ctx context.Context, userID, afterID int64, eventTypes []string) ([]Event, error) {
 	if s == nil || s.queries == nil || userID <= 0 || afterID < 0 {
 		return nil, errors.New("invalid event list request")
@@ -286,6 +396,12 @@ func (s *Service) CurrentCursor(ctx context.Context, userID int64) (int64, error
 	return state.LastEventID, nil
 }
 
+// CursorExpired reports whether the client's cursor has fallen out of the
+// retained window: the event with that id no longer exists while newer events
+// are available, so the gap can never be replayed. A non-positive cursor is
+// treated as not expired, a cursor ahead of the newest event yields
+// ErrInvalidCursor, and a failed lookup returns a wrapped error. The SSE handler
+// turns a true result into a sync.required control frame.
 func (s *Service) CursorExpired(ctx context.Context, userID, afterID int64) (bool, error) {
 	if afterID <= 0 {
 		return false, nil
@@ -303,6 +419,12 @@ func (s *Service) CursorExpired(ctx context.Context, userID, afterID int64) (boo
 	return !state.CursorExists && state.LastEventID > afterID, nil
 }
 
+// IssueTicket creates a stream ticket for userID and returns its plaintext value
+// and expiry; only the SHA-256 hash is persisted, so a value that is lost cannot
+// be recovered. The ticket keeps authenticating any number of requests until it
+// expires and is only removed by the periodic cleanup, so callers must treat the
+// value as a bearer secret. It returns ErrServiceClosed after shutdown, and the
+// random source or the insert can fail the call too.
 func (s *Service) IssueTicket(ctx context.Context, userID int64) (Ticket, error) {
 	if s == nil || s.queries == nil || userID <= 0 {
 		return Ticket{}, errors.New("invalid event ticket request")
@@ -330,6 +452,10 @@ func (s *Service) IssueTicket(ctx context.Context, userID int64) (Ticket, error)
 	return Ticket{Value: value, ExpiresAt: expiresAt}, nil
 }
 
+// AuthenticateTicket resolves a ticket value to the user it was issued for. It
+// returns ErrInvalidTicket for a blank or unknown value, for a ticket past its
+// expiry and for a stored row whose user id is not positive, and a wrapped error
+// only when the lookup itself fails.
 func (s *Service) AuthenticateTicket(ctx context.Context, value string) (int64, error) {
 	if s == nil || s.queries == nil || strings.TrimSpace(value) == "" {
 		return 0, ErrInvalidTicket
@@ -348,6 +474,11 @@ func (s *Service) AuthenticateTicket(ctx context.Context, value string) (int64, 
 	return userID, nil
 }
 
+// runTicketCleanup deletes expired event stream tickets every CleanupInterval
+// until ctx is cancelled. Each sweep runs under its own ConnectTimeout, and a
+// failure is logged instead of stopping the loop, so the goroutine only exits
+// through ctx; on the way out it clears the running flag and closes the done
+// channel Start handed out, which is what Close waits for.
 func (s *Service) runTicketCleanup(ctx context.Context, done chan struct{}) {
 	defer func() {
 		s.mu.Lock()
@@ -373,6 +504,10 @@ func (s *Service) runTicketCleanup(ctx context.Context, done chan struct{}) {
 	}
 }
 
+// eventFromRow converts one stored user_events row into an Event, copying the
+// payload so the result does not alias the driver's row buffer. It rejects rows
+// without a positive id or user, or without a timestamp, and maps a null
+// resource_id to an empty string and a null generation to a nil pointer.
 func eventFromRow(row *sqlcgen.UserEvent) (Event, error) {
 	if row == nil || row.ID <= 0 || row.UserID <= 0 || !row.OccurredAt.Valid {
 		return Event{}, errors.New("invalid stored user event")

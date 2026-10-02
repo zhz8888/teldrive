@@ -8,12 +8,23 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 )
 
+// DailyStatistic is one calendar day of completed upload activity.
 type DailyStatistic struct {
-	Date           time.Time
-	UploadedBytes  int64
+	// Date is the day the aggregate grouped by, at midnight; the day boundary comes
+	// from the database session's CURRENT_DATE.
+	Date time.Time
+	// UploadedBytes is the summed plaintext size, in bytes, of the sessions that
+	// completed that day.
+	UploadedBytes int64
+	// CompletedFiles counts the sessions that completed that day.
 	CompletedFiles int64
 }
 
+// Statistics returns the user's completed upload activity for the last days
+// calendar days, oldest first, with one entry per day: days without completions
+// come back as zero-valued rows rather than being omitted. days must be between 1
+// and 366 inclusive and userID positive, otherwise ErrInvalidInput is returned; a
+// nil service is rejected the same way instead of panicking.
 func (s *Service) Statistics(ctx context.Context, userID int64, days int32) ([]DailyStatistic, error) {
 	if s == nil || s.queries == nil || userID <= 0 || days < 1 || days > 366 {
 		return nil, ErrInvalidInput

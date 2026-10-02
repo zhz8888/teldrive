@@ -17,8 +17,15 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 )
 
+// maxBulkFiles caps how many entries a single bulk operation may address. It
+// keeps the generated UUID arrays and the per-entry name matching bounded, at the
+// cost of rejecting larger batches with ErrNotFound.
 const maxBulkFiles = 500
 
+// normalizeBulkIDs validates a batch of entry IDs and removes duplicates while
+// keeping the caller's order, which the move path relies on to return its results.
+// An empty batch, one larger than maxBulkFiles, or one containing uuid.Nil is
+// rejected with ErrNotFound; duplicates are silently dropped.
 func normalizeBulkIDs(ids []uuid.UUID) ([]uuid.UUID, error) {
 	if len(ids) == 0 || len(ids) > maxBulkFiles {
 		return nil, ErrNotFound
@@ -91,10 +98,25 @@ func (s *Service) MoveWithPolicy(ctx context.Context, userID int64, fileID uuid.
 	return items[0], nil
 }
 
+// BulkMove moves several entries to parentID in one transaction. It applies the
+// same conflict vocabulary as MoveWithPolicy: "fail" (also the meaning of an
+// empty policy) aborts on the first name clash with ErrConflict, "replace" marks
+// the clashing entry's subtree for deletion, and "rename" picks the next free
+// "(n)" name. An unknown policy is rejected as ErrConflict. It performs no
+// generation precondition check, and the returned rows follow the order of ids.
 func (s *Service) BulkMove(ctx context.Context, userID int64, ids []uuid.UUID, parentID *uuid.UUID, policy string) ([]*sqlcgen.File, error) {
 	return s.bulkMove(ctx, userID, ids, parentID, nil, policy)
 }
 
+// bulkMove is the shared implementation of MoveWithPolicy and BulkMove. The whole
+// move runs in one transaction: it locks the destination folder and the
+// destination namespace, locks the moving rows, rejects cycles, resolves name
+// conflicts against the entries already there, marks replaced subtrees for
+// deletion and revokes their shares, and finally updates the rows. Any error rolls
+// the transaction back untouched; the cache is invalidated only after the commit,
+// for both the replaced and the moved entries. A nil parentID means the drive
+// root, and expectedGeneration is checked for every moved row, so only the
+// single-entry path passes a non-nil value.
 func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID, parentID *uuid.UUID, expectedGeneration *int64, policy string) ([]*sqlcgen.File, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidOwner
@@ -293,6 +315,10 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 	return result, nil
 }
 
+// nextAvailableNameFromSet returns a variant of original with " (n)" inserted
+// before its extension, for the first n between 1 and 10000 that is not in used.
+// It gives up with ErrConflict once that range is exhausted and does not add the
+// name it returns to used, so the caller has to reserve it.
 func nextAvailableNameFromSet(original string, used map[string]struct{}) (string, error) {
 	base, extension := splitCatalogName(original)
 	for sequence := 1; sequence <= 10000; sequence++ {
@@ -304,6 +330,10 @@ func nextAvailableNameFromSet(original string, used map[string]struct{}) (string
 	return "", ErrConflict
 }
 
+// splitCatalogName splits name at its last dot into base and extension, keeping
+// the dot in the extension. A dot at the first position or at the very end does
+// not start an extension, so dotfiles and names ending in a dot are returned
+// whole with an empty extension.
 func splitCatalogName(name string) (string, string) {
 	index := strings.LastIndex(name, ".")
 	if index <= 0 || index == len(name)-1 {
@@ -312,6 +342,11 @@ func splitCatalogName(name string) (string, string) {
 	return name[:index], name[index:]
 }
 
+// catalogDestinationLockID derives the advisory-lock key that serialises moves
+// into one destination namespace, so two concurrent moves cannot both decide that
+// a name is free. The key is a hash of a fixed prefix, the user ID and the parent
+// ID, with 16 zero bytes standing in for the drive root, which makes it stable per
+// user and destination and distinct for every other pair.
 func catalogDestinationLockID(userID int64, parentID *uuid.UUID) int64 {
 	input := []byte("teldrive/catalog-destination/")
 	var user [8]byte
@@ -326,6 +361,9 @@ func catalogDestinationLockID(userID int64, parentID *uuid.UUID) int64 {
 	return int64(binary.BigEndian.Uint64(digest[:8]))
 }
 
+// pgUUIDs converts a batch of Google UUIDs into the pgtype form the array
+// parameters of the generated bulk queries expect. It always returns a fresh
+// slice, so callers may keep or modify the result.
 func pgUUIDs(ids []uuid.UUID) []pgtype.UUID {
 	result := make([]pgtype.UUID, len(ids))
 	for index, id := range ids {
@@ -334,6 +372,9 @@ func pgUUIDs(ids []uuid.UUID) []pgtype.UUID {
 	return result
 }
 
+// fileUUID converts the ID of a generated row into a Google UUID. It reports false
+// for a nil row and for a NULL uuid column, which lets callers distinguish "row
+// without an ID" from the valid uuid.Nil value.
 func fileUUID(file *sqlcgen.File) (uuid.UUID, bool) {
 	if file == nil || !file.ID.Valid {
 		return uuid.Nil, false

@@ -1,3 +1,11 @@
+// Package treehash implements the block-wise BLAKE3 tree hash TelDrive stores as
+// a file's content fingerprint.
+//
+// A stream is split into BlockSize chunks, each chunk is hashed on its own, and
+// the concatenated chunk digests are hashed once more by ComputeTreeHash. The
+// two-level scheme lets an uploader hash chunks as they arrive instead of
+// buffering the whole file, and lets the server validate the digest list it is
+// handed before trusting the resulting file hash.
 package treehash
 
 import (
@@ -6,9 +14,12 @@ import (
 	"github.com/zeebo/blake3"
 )
 
-// BlockSize is the fixed block size for tree hashing (16MB)
 const (
-	BlockSize  = 16 * 1024 * 1024
+	// BlockSize is the fixed block size for tree hashing (16MB)
+	BlockSize = 16 * 1024 * 1024
+
+	// DigestSize is the length in bytes of a single BLAKE3 digest, and therefore
+	// the stride of the concatenated digest list produced by BlockHasher.Sum.
 	DigestSize = 32
 )
 
@@ -22,9 +33,18 @@ const (
 
 // BlockHasher processes data in fixed-size blocks and accumulates block hashes
 type BlockHasher struct {
-	blockSize    int64
-	currentHash  *blake3.Hasher
-	blockHashes  [][]byte
+	// blockSize is the chunk size the stream is split into. NewBlockHasher sets it
+	// to BlockSize; Write relies on it being positive.
+	blockSize int64
+
+	// currentHash accumulates the block currently being filled. It is nil until
+	// the first Write starts a block.
+	currentHash *blake3.Hasher
+
+	// blockHashes holds the digest of every completed block, in stream order.
+	blockHashes [][]byte
+
+	// bytesInBlock counts how many bytes of the current block have been written.
 	bytesInBlock int64
 }
 

@@ -1,5 +1,9 @@
 //go:build integration
 
+// Package postgres provisions throwaway PostgreSQL databases for integration
+// tests. It is compiled only under the integration build tag and expects the
+// harness started by scripts/test-postgres.sh (Podman plus the pinned PostgreSQL
+// image), which is what exports TEST_DATABASE_URL.
 package postgres
 
 import (
@@ -18,11 +22,21 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/database"
 )
 
+// testDatabaseEnv names the environment variable holding the connection URL of
+// the harness PostgreSQL instance; it must point at a database whose credentials
+// may create and drop other databases.
 const testDatabaseEnv = "TEST_DATABASE_URL"
 
+// Database is a test database owned by the caller. It is created by New and
+// released by the cleanup that New registers with t, so tests must not close
+// Pool or connect to URL after the test has finished.
 type Database struct {
+	// Pool is connected to the dedicated database and is closed by the cleanup
+	// registered with the testing.TB passed to New.
 	Pool *pgxpool.Pool
-	URL  string
+	// URL is the connection string of the dedicated database. It is only valid
+	// until the test's cleanup runs, which drops the database.
+	URL string
 }
 
 // New creates a dedicated PostgreSQL database, applies all embedded migrations,
@@ -92,6 +106,10 @@ func New(t testing.TB) *Database {
 	return &Database{Pool: pool, URL: targetURL}
 }
 
+// withDatabase returns rawURL with its database component replaced by
+// databaseName, preserving any credentials and query parameters. It returns an
+// error when rawURL cannot be parsed or uses a scheme other than postgres or
+// postgresql, and it never modifies its inputs.
 func withDatabase(rawURL, databaseName string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {

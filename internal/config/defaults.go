@@ -11,10 +11,19 @@ import (
 )
 
 var (
+	// durationType is the reflect type of time.Duration, used to recognize
+	// fields whose default is written as a Go duration string such as "10s".
 	durationType = reflect.TypeFor[time.Duration]()
-	sizeType     = reflect.TypeFor[size.Size]()
+	// sizeType is the reflect type of size.Size, used to recognize fields whose
+	// default is written as a human-readable byte size such as "5MB".
+	sizeType = reflect.TypeFor[size.Size]()
 )
 
+// applyDefaults fills every field of target that carries a `default` struct
+// tag, descending into nested structs. The target must be a non-nil pointer to
+// a struct. It returns an error naming the offending field path when a tag
+// cannot be parsed into its field type or targets an unsupported type, and the
+// fields visited before the failure keep their new values.
 func applyDefaults(target any) error {
 	value := reflect.ValueOf(target)
 	if value.Kind() != reflect.Pointer || value.IsNil() {
@@ -23,6 +32,11 @@ func applyDefaults(target any) error {
 	return applyStructDefaults(value.Elem(), "")
 }
 
+// applyStructDefaults walks the fields of one configuration struct and applies
+// each `default` tag through setDefaultValue, recursing into nested structs and
+// extending path with the field names so errors can point at a config key. It
+// returns an error for a non-struct value or for the first default that cannot
+// be parsed.
 func applyStructDefaults(value reflect.Value, path string) error {
 	if value.Kind() != reflect.Struct {
 		return fmt.Errorf("default target %q must be a struct", path)
@@ -52,6 +66,13 @@ func applyStructDefaults(value reflect.Value, path string) error {
 	return nil
 }
 
+// setDefaultValue stores the raw `default` tag text into field, converting it
+// according to the field type: durations and sizes are parsed from their string
+// forms and the remaining kinds use the matching strconv parser. Slices are
+// split on commas with each element trimmed. A whitespace-only value produces
+// an empty slice or map, and a non-empty map default is rejected because maps
+// can only default to empty. It returns an error when the field cannot be set,
+// the value does not parse, or the type is unsupported.
 func setDefaultValue(field reflect.Value, raw string) error {
 	if !field.CanSet() {
 		return fmt.Errorf("field cannot be set")

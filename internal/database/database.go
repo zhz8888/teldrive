@@ -1,3 +1,6 @@
+// Package database opens the PostgreSQL connection pool used by TelDrive,
+// applies the embedded TelDrive, River, and RiverPro migrations, and validates
+// the configured schema name.
 package database
 
 import (
@@ -19,12 +22,21 @@ import (
 )
 
 const (
+	// defaultConnectTimeout is the fallback for connection attempts when
+	// Config.ConnectTimeout is zero or negative, and it is also the timeout
+	// Migrate applies to its ping regardless of that setting.
 	defaultConnectTimeout = 10 * time.Second
-	DefaultSchema         = "teldrive"
+	// DefaultSchema is applied when Config.Schema is empty.
+	DefaultSchema = "teldrive"
 )
 
+// schemaNamePattern matches the PostgreSQL identifiers accepted as TelDrive
+// schema names; quoting is never performed, so anything outside this set is
+// rejected by Config.validate.
 var schemaNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// ErrLegacySchema reports that the target database holds a TelDrive v1 schema.
+// Migrate wraps it, so callers must test it with errors.Is.
 var ErrLegacySchema = errors.New("legacy TelDrive schema detected")
 
 // Config controls the PostgreSQL connection pool used by TelDrive.
@@ -39,9 +51,17 @@ type Config struct {
 	HealthCheckInterval time.Duration `koanf:"health-check-interval" default:"30s" validate:"gt=0" description:"PostgreSQL pool health-check interval"`
 	ConnectTimeout      time.Duration `koanf:"connect-timeout" default:"10s" validate:"gt=0" description:"PostgreSQL connection timeout"`
 	AutoMigrateLegacy   bool          `koanf:"auto-migrate-legacy" default:"true" description:"Automatically migrate a detected TelDrive v1 database during startup"`
-	AllowLegacySchema   bool          `koanf:"-"`
+	// AllowLegacySchema accepts connecting to a database that still contains the
+	// TelDrive v1 schema instead of failing with ErrLegacySchema. It has no
+	// corresponding configuration key and is set programmatically, which keeps
+	// operators from disabling the safety check by accident.
+	AllowLegacySchema bool `koanf:"-"`
 }
 
+// withDefaults returns a copy of c with empty fields replaced by their
+// defaults. Only Schema is defaulted here; the pool settings are applied by Open
+// when positive and otherwise keep the pgxpool defaults, except ConnectTimeout
+// which falls back to defaultConnectTimeout.
 func (c Config) withDefaults() Config {
 	if c.Schema == "" {
 		c.Schema = DefaultSchema
@@ -49,6 +69,11 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
+// validate reports whether c can be used, after applying withDefaults. It
+// requires a URL and a PostgreSQL-identifier schema name, rejects negative
+// connection limits, and rejects a minimum that exceeds a non-zero maximum.
+// The validation rules mirrored in the Koanf `validate` tags are deliberately
+// re-checked here because programmatic callers bypass that decoding path.
 func (c Config) validate() error {
 	c = c.withDefaults()
 	if c.URL == "" {
@@ -177,6 +202,10 @@ func Migrate(ctx context.Context, cfg Config) error {
 	return nil
 }
 
+// hasLegacySchema reports whether db holds the ActiveRecord/Goose migration
+// bookkeeping table used by TelDrive v1. The query runs on the caller's
+// connection and adds no timeout of its own: Migrate passes its ctx through
+// unchanged, so only the caller can bound it.
 func hasLegacySchema(ctx context.Context, db *sql.DB) (bool, error) {
 	var legacy bool
 	if err := db.QueryRowContext(ctx, `SELECT to_regclass('public.goose_db_version') IS NOT NULL`).Scan(&legacy); err != nil {

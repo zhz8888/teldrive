@@ -11,6 +11,11 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/shares"
 )
 
+// BulkMoveFiles moves every listed file into one destination folder. All files
+// must be editable by the caller and share a single owner with the destination;
+// moving to the drive root (no parent) is only allowed for files the caller
+// owns. The conflict policy defaults to "fail" and the response lists the moved
+// entries.
 func (h *Handler) BulkMoveFiles(ctx context.Context, req *gen.FileBulkMoveRequest, params gen.BulkMoveFilesParams) (gen.BulkMoveFilesRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -53,6 +58,10 @@ func (h *Handler) BulkMoveFiles(ctx context.Context, req *gen.FileBulkMoveReques
 	return &gen.FileBulkResult{Items: items}, nil
 }
 
+// BulkTrashFiles moves every listed file to the trash in one transaction. Files
+// the caller reaches only through a share may be trashed, except the share root
+// itself, because trashing it would remove the whole shared subtree for every
+// visitor.
 func (h *Handler) BulkTrashFiles(ctx context.Context, req *gen.FileBulkTrashRequest, params gen.BulkTrashFilesParams) (gen.BulkTrashFilesRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -81,6 +90,14 @@ func (h *Handler) BulkTrashFiles(ctx context.Context, req *gen.FileBulkTrashRequ
 	return &gen.FileBulkResult{Items: items}, nil
 }
 
+// resolveAuthenticatedFileAccessMany resolves one access record per file, in the
+// order the IDs were given, and reduces them to the single owner the catalog
+// operation must run as.
+//
+// It fails when the caller is unauthenticated, the list is empty, or the files do
+// not all belong to the same owner, because catalog operations take one owner ID.
+// When the shares service is not configured it falls back to looking each file up
+// through the catalog, which grants full access to the caller's own files only.
 func (h *Handler) resolveAuthenticatedFileAccessMany(ctx context.Context, fileIDs []uuid.UUID, requireEdit bool) (int64, []*shares.Access, error) {
 	actorID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -118,6 +135,9 @@ func (h *Handler) resolveAuthenticatedFileAccessMany(ctx context.Context, fileID
 	return ownerID, accesses, nil
 }
 
+// GetFileCategoryStatistics returns the file count and total bytes of every
+// category in the authenticated user's drive, used by the storage breakdown
+// view. Categories with no files are absent from the result.
 func (h *Handler) GetFileCategoryStatistics(ctx context.Context) (gen.GetFileCategoryStatisticsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -140,6 +160,9 @@ func (h *Handler) GetFileCategoryStatistics(ctx context.Context) (gen.GetFileCat
 	return &response, nil
 }
 
+// GetDriveStatistics returns the dashboard counters of the authenticated user's
+// drive: file and folder totals, bytes stored, trashed files, active shares and
+// open uploads.
 func (h *Handler) GetDriveStatistics(ctx context.Context) (gen.GetDriveStatisticsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -158,6 +181,10 @@ func (h *Handler) GetDriveStatistics(ctx context.Context) (gen.GetDriveStatistic
 	}, nil
 }
 
+// UpdateShare applies a partial update to a share owned by the caller. Fields the
+// request omits keep their current value, while the clear flags explicitly remove
+// a password, expiry or download limit; combining a value with its clear flag is
+// rejected by the service as invalid input.
 func (h *Handler) UpdateShare(ctx context.Context, req *gen.ShareUpdateRequest, params gen.UpdateShareParams) (gen.UpdateShareRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -192,6 +219,11 @@ func (h *Handler) UpdateShare(ctx context.Context, req *gen.ShareUpdateRequest, 
 	return &response, nil
 }
 
+// ListPublicShareFiles lists the contents of a shared folder without
+// authentication, optionally narrowed by path or search term and gated by the
+// optional share password. A cursor is returned only when a full page was
+// produced; the cursor is decoded before the share is resolved, while the limit is
+// only defaulted here and clamped later by the catalog listing.
 func (h *Handler) ListPublicShareFiles(ctx context.Context, params gen.ListPublicShareFilesParams) (gen.ListPublicShareFilesRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -225,6 +257,8 @@ func (h *Handler) ListPublicShareFiles(ctx context.Context, params gen.ListPubli
 	return &response, nil
 }
 
+// GetUploadStatistics returns the daily upload counters of the authenticated user
+// for the requested number of past days, defaulting to 30.
 func (h *Handler) GetUploadStatistics(ctx context.Context, params gen.GetUploadStatisticsParams) (gen.GetUploadStatisticsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -246,6 +280,10 @@ func (h *Handler) GetUploadStatistics(ctx context.Context, params gen.GetUploadS
 	response := gen.GetUploadStatisticsOKApplicationJSON(items)
 	return &response, nil
 }
+
+// fileEntries maps database file rows to their API representation, failing on the
+// first row whose stored ID is NULL. The result is never nil, so it serializes as
+// an empty list rather than null.
 func fileEntries(files []*sqlcgen.File) ([]gen.FileEntry, error) {
 	items := make([]gen.FileEntry, 0, len(files))
 	for _, file := range files {

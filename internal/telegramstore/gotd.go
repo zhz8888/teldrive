@@ -21,49 +21,107 @@ import (
 )
 
 const (
-	defaultUploadThreads        = 4
-	telegramUploadPart          = 512 * 1024
-	telegramReadChunk           = 1024 * 1024
-	telegramReadAlign           = 4 * 1024
-	defaultTelegramReadBuffers  = 32
+	// defaultUploadThreads is the number of parallel upload connections used
+	// when UploadRequest.Threads is not positive.
+	defaultUploadThreads = 4
+	// telegramUploadPart is the part size of an upload, 512 KiB, which keeps a
+	// single upload request within the size Telegram accepts for a document.
+	telegramUploadPart = 512 * 1024
+	// telegramReadChunk is the 1 MiB window Telegram serves per upload.getFile
+	// call; a read plan must never cross one of its boundaries.
+	telegramReadChunk = 1024 * 1024
+	// telegramReadAlign is the 4 KiB granularity Telegram requires for the
+	// offset and limit of an upload.getFile request.
+	telegramReadAlign = 4 * 1024
+	// defaultTelegramReadBuffers is the number of prefetched chunks a range
+	// reader buffers when no option or pool setting overrides it.
+	defaultTelegramReadBuffers = 32
+	// defaultTelegramReadParallel is the number of concurrent chunk fetches per
+	// stream, and the number of connections requested for a download session,
+	// when no option or pool setting overrides it.
 	defaultTelegramReadParallel = 4
-	defaultTelegramReadTimeout  = 30 * time.Second
+	// defaultTelegramReadTimeout bounds one upload.getFile attempt; an attempt
+	// that times out is retried while attempts remain.
+	defaultTelegramReadTimeout = 30 * time.Second
+	// defaultTelegramReadAttempts is how many times one chunk fetch is attempted
+	// before the stream fails with the last error.
 	defaultTelegramReadAttempts = 3
-	deleteBatchSize             = 100
+	// deleteBatchSize is the largest number of message IDs one
+	// channels.deleteMessages call may carry.
+	deleteBatchSize = 100
 )
 
 // Runner owns Telegram authentication, client lifetime, bot selection, retry,
 // rate-limit, and flood-wait middleware. The callback is invoked only while the
 // underlying gotd client is running.
 type Runner interface {
+	// Run starts the user's Telegram client, invokes fn with the running API,
+	// and stops the client when fn returns, so authentication, updates,
+	// reconnects, flood waits, and connection teardown share one lifetime. fn
+	// runs at most once and must not be retained: its context is cancelled as
+	// soon as the client stops. Implementations reject a non-positive user ID or
+	// a nil callback with ErrInvalidRequest, report a client that never became
+	// usable as ErrClientUnavailable, and wrap failures with the operation name.
 	Run(ctx context.Context, userID int64, operation Operation, fn func(context.Context, *tg.Client) error) error
 }
 
 // BotProvider resolves the upload bots that must be members of newly created
 // storage channels. Returning an empty list is valid for user-only deployments.
 type BotProvider interface {
+	// ChannelBots returns the accounts that must be promoted to channel admin
+	// when a storage channel is created, usually the upload bots of the user.
+	// It runs inside the management session that is creating the channel, so the
+	// returned accounts must be usable with that API. An empty list is valid for
+	// user-only deployments; an error aborts the creation.
 	ChannelBots(ctx context.Context, userID int64, api *tg.Client) ([]tg.InputUserClass, error)
 }
 
+// GotdStorage is the production Storage implementation. Every call runs on a
+// session of the target user through the configured Runner, so the storage
+// keeps no per-user state and is safe for concurrent use.
 type GotdStorage struct {
-	runner               Runner
-	botProvider          BotProvider
-	downloadPool         *DownloadClientPool
-	downloadReadBuffers  int
+	// runner executes all Telegram calls and owns authentication and the client
+	// lifetime. A nil runner makes every method return ErrInvalidRequest.
+	runner Runner
+	// botProvider, when set, supplies the bots that are made channel admins
+	// after CreateChannel; nil creates user-only channels.
+	botProvider BotProvider
+	// downloadPool, when set, makes OpenDownloadSession lease a shared client;
+	// nil gives every session its own private client.
+	downloadPool *DownloadClientPool
+	// downloadReadBuffers is the number of prefetched chunks per download
+	// stream; it starts at defaultTelegramReadBuffers.
+	downloadReadBuffers int
+	// downloadReadParallel is the number of concurrent chunk fetches per stream
+	// and the number of connections requested per download session; it starts at
+	// defaultTelegramReadParallel.
 	downloadReadParallel int
-	globalCache          cache.Cacher
+	// globalCache caches document locations so repeated reads of one message do
+	// not resolve it again; nil disables caching.
+	globalCache cache.Cacher
 }
 
+// GotdStorageOption adjusts a GotdStorage inside NewGotdStorage. Options run
+// in the order given and nil options are skipped, so an unconditionally built
+// option slice is safe to pass.
 type GotdStorageOption func(*GotdStorage)
 
+// WithBotProvider makes CreateChannel promote the bots returned by provider to
+// channel admins before it returns, deleting the freshly created channel when
+// that fails. A nil provider disables bot provisioning.
 func WithBotProvider(provider BotProvider) GotdStorageOption {
 	return func(storage *GotdStorage) { storage.botProvider = provider }
 }
 
+// WithDownloadClientPool routes OpenDownloadSession through pool, so sessions
+// share pooled clients instead of each starting a private one. A nil pool
+// keeps the private per-session behavior.
 func WithDownloadClientPool(pool *DownloadClientPool) GotdStorageOption {
 	return func(storage *GotdStorage) { storage.downloadPool = pool }
 }
 
+// WithDownloadReadBuffers sets the number of prefetched chunks per download
+// stream. Values below one are ignored, so the default stays in place.
 func WithDownloadReadBuffers(buffers int) GotdStorageOption {
 	return func(storage *GotdStorage) {
 		if buffers > 0 {
@@ -72,6 +130,9 @@ func WithDownloadReadBuffers(buffers int) GotdStorageOption {
 	}
 }
 
+// WithDownloadReadParallel sets the number of concurrent chunk fetches per
+// stream, which is also the connection count requested for a download session.
+// Values below one are ignored, so the default stays in place.
 func WithDownloadReadParallel(parallel int) GotdStorageOption {
 	return func(storage *GotdStorage) {
 		if parallel > 0 {
@@ -80,6 +141,11 @@ func WithDownloadReadParallel(parallel int) GotdStorageOption {
 	}
 }
 
+// NewGotdStorage returns storage that runs Telegram calls through runner and
+// caches document locations in c, which may be nil. Read concurrency starts at
+// the package defaults and is changed by the given options; runner is not
+// validated here, so a nil runner fails later with ErrInvalidRequest instead of
+// at construction time.
 func NewGotdStorage(runner Runner, c cache.Cacher, options ...GotdStorageOption) *GotdStorage {
 	storage := &GotdStorage{runner: runner, globalCache: c, downloadReadBuffers: defaultTelegramReadBuffers, downloadReadParallel: defaultTelegramReadParallel}
 	for _, option := range options {
@@ -90,6 +156,13 @@ func NewGotdStorage(runner Runner, c cache.Cacher, options ...GotdStorageOption)
 	return storage
 }
 
+// Upload sends request.Reader as one document and publishes it in the target
+// channel. Every call creates a new message, so a retry after a partial failure
+// can leave an orphan document behind. It returns ErrInvalidRequest for a
+// malformed request, ErrSizeMismatch when Telegram stored a different size (the
+// document is already published and this call cannot delete it), and
+// ErrMessageNotFound when the publish response carries no channel message. The
+// reader is not closed, and Telegram errors are wrapped with the operation name.
 func (s *GotdStorage) Upload(ctx context.Context, request UploadRequest) (StoredPart, error) {
 	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.Reader == nil || request.Size < 0 || strings.TrimSpace(request.Name) == "" {
 		return StoredPart{}, ErrInvalidRequest
@@ -139,10 +212,20 @@ func (s *GotdStorage) Upload(ctx context.Context, request UploadRequest) (Stored
 	return stored, nil
 }
 
+// runUpload runs one upload callback on an upload session, spread over threads
+// connections when the runner supports pooling. The operation is OperationUpload,
+// so a session that may not upload is never selected for it.
 func (s *GotdStorage) runUpload(ctx context.Context, userID int64, threads int, fn func(context.Context, *tg.Client) error) error {
 	return runWithConnections(ctx, s.runner, userID, OperationUpload, threads, fn)
 }
 
+// Metadata resolves the stored size of a document without transferring it,
+// serving repeated lookups of the same message from the shared location cache.
+// It runs on a single download session. A nil runner, non-positive user ID, zero
+// channel ID, or negative message ID returns ErrInvalidRequest, while a message
+// ID of zero is looked up and reported as a document lookup error. The returned
+// part repeats the requested channel and message IDs and carries the size
+// Telegram reported.
 func (s *GotdStorage) Metadata(ctx context.Context, request MetadataRequest) (StoredPart, error) {
 	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.MessageID < 0 {
 		return StoredPart{}, ErrInvalidRequest
@@ -162,6 +245,14 @@ func (s *GotdStorage) Metadata(ctx context.Context, request MetadataRequest) (St
 	return stored, nil
 }
 
+// OpenRange streams a byte range of a stored document. It returns the reader
+// immediately and resolves the document location on a background download
+// session, so lookup and download failures surface while reading rather than
+// here; a range that starts past the end of the document reads as io.EOF without
+// transferring anything. The reader belongs to the caller and must be closed to
+// cancel the background download. A nil runner, non-positive user or message ID,
+// zero channel ID, negative offset, or length below -1 returns
+// ErrInvalidRequest.
 func (s *GotdStorage) OpenRange(ctx context.Context, request RangeRequest) (io.ReadCloser, error) {
 	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.MessageID <= 0 || request.Offset < 0 || request.Length < -1 {
 		return nil, ErrInvalidRequest
@@ -185,6 +276,10 @@ func (s *GotdStorage) OpenRange(ctx context.Context, request RangeRequest) (io.R
 	return reader, nil
 }
 
+// fillRangeWithLocation clamps the requested range to the document and starts
+// the read pipeline. A negative length, or one that runs past the end, is
+// shortened to the remaining bytes; a range that starts past the end reports
+// io.EOF without reading anything.
 func fillRangeWithLocation(ctx context.Context, api *tg.Client, request RangeRequest, reader *telegramRangeReader, location *tg.InputDocumentFileLocation, documentSize int64, refresh func(context.Context) (*tg.InputDocumentFileLocation, error)) error {
 	if request.Offset > documentSize {
 		return io.EOF
@@ -196,29 +291,69 @@ func fillRangeWithLocation(ctx context.Context, api *tg.Client, request RangeReq
 	return reader.fill(ctx, api, location, request.Offset, remaining, refresh)
 }
 
+// gotdDownloadSession is one download session over a running client. A private
+// session owns the client it started, while a pooled session borrows one through
+// clientFn and returns it through closeFn. api, err, and clientID are guarded by
+// mu; the channels and hooks are fixed before the session is handed out.
 type gotdDownloadSession struct {
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	ready                chan struct{}
-	done                 chan struct{}
-	api                  *tg.Client
-	err                  error
-	clientFn             func() (*tg.Client, error)
-	closeFn              func() error
-	close                sync.Once
-	mu                   sync.Mutex
-	downloadReadBuffers  int
+	// ctx is the session lifetime; cancelling it stops a private client run.
+	ctx context.Context
+	// cancel cancels ctx and is called by Close for a private session.
+	cancel context.CancelFunc
+	// ready is closed once the private client is usable, or once its run ended
+	// without becoming usable.
+	ready chan struct{}
+	// done is closed when the private client run returned; OpenDownloadSession
+	// and Close wait on it.
+	done chan struct{}
+	// api is the running client of a private session, nil until ready closes.
+	// Guarded by mu.
+	api *tg.Client
+	// err is the private client run error, guarded by mu. It is reported instead
+	// of ErrClientUnavailable when the session never became usable.
+	err error
+	// clientFn, when set, resolves the client of a pooled session on every use,
+	// which is how a released or restarted pool slot is detected.
+	clientFn func() (*tg.Client, error)
+	// closeFn, when set, releases the pooled lease instead of stopping a private
+	// client.
+	closeFn func() error
+	// close guards Close, so releasing the session twice is harmless.
+	close sync.Once
+	// mu guards api, err, and clientID.
+	mu sync.Mutex
+	// downloadReadBuffers is the number of prefetched chunks per range reader
+	// opened by this session.
+	downloadReadBuffers int
+	// downloadReadParallel is the number of concurrent chunk fetches per range
+	// reader, and the connection count requested for a private session.
 	downloadReadParallel int
-	clientID             int64
+	// clientID is the Telegram account ID that scopes the document location
+	// cache. It is zero until a private client is running; a pooled session is
+	// given the ID of its slot.
+	clientID int64
 
+	// globalCache is the shared document location cache; nil disables caching.
 	globalCache cache.Cacher
 }
 
+// cachedDocumentLocation is the cached value of one document lookup: the file
+// location together with the document size, keyed per Telegram account, channel,
+// and message.
 type cachedDocumentLocation struct {
+	// Location is the file reference Telegram returned. File references expire, so
+	// a reader refreshes the location when a download reports
+	// FILE_REFERENCE_EXPIRED.
 	Location *tg.InputDocumentFileLocation `msgpack:"location"`
-	Size     int64                         `msgpack:"size"`
+	// Size is the document size in bytes as Telegram reported it.
+	Size int64 `msgpack:"size"`
 }
 
+// fetchDocumentLocation resolves a document message to its file location and
+// size, caching the result for four hours per Telegram account, channel, and
+// message when ctx carries a client ID and a cache is configured; without either
+// it falls back to a plain lookup. A cache backend failure is reported as a
+// lookup error, and a failed write back to the cache is ignored.
 func fetchDocumentLocation(ctx context.Context, api *tg.Client, channelID, messageID int64, c cache.Cacher) (*tg.InputDocumentFileLocation, int64, error) {
 	clientID, ok := ClientID(ctx)
 	if c == nil || !ok {
@@ -238,6 +373,9 @@ func fetchDocumentLocation(ctx context.Context, api *tg.Client, channelID, messa
 	return result.Location, result.Size, nil
 }
 
+// refreshDocumentLocation drops the cached location of a message and resolves it
+// again, which is how an expired file reference is replaced. Dropping a missing
+// entry is not an error.
 func refreshDocumentLocation(ctx context.Context, api *tg.Client, channelID, messageID int64, c cache.Cacher) (*tg.InputDocumentFileLocation, int64, error) {
 	clientID, ok := ClientID(ctx)
 	if c != nil && ok {
@@ -245,6 +383,14 @@ func refreshDocumentLocation(ctx context.Context, api *tg.Client, channelID, mes
 	}
 	return fetchDocumentLocation(ctx, api, channelID, messageID, c)
 }
+
+// OpenDownloadSession returns a session bound to the user's download client,
+// leasing one from the configured pool when there is a pool and otherwise
+// starting a private client and waiting until it is authenticated. It returns
+// ErrInvalidRequest for a nil or unconfigured storage or a non-positive user ID,
+// ErrClientUnavailable when a private client stops before becoming usable, the
+// pool's own error for a pooled session, and ctx.Err() when ctx ends first. The
+// caller owns the session and must close it after the readers it opened.
 func (s *GotdStorage) OpenDownloadSession(ctx context.Context, userID int64) (DownloadSession, error) {
 	if s == nil || s.runner == nil || userID <= 0 {
 		return nil, ErrInvalidRequest
@@ -292,6 +438,11 @@ func (s *GotdStorage) OpenDownloadSession(ctx context.Context, userID int64) (Do
 	}
 }
 
+// Metadata resolves a document size through the session client and its location
+// cache. It deliberately performs no request validation of its own, unlike
+// GotdStorage.Metadata, so a non-positive channel or message ID is sent to
+// Telegram and comes back as a lookup error. It must be called while the session
+// is open: a closed pooled session reports ErrClientUnavailable.
 func (s *gotdDownloadSession) Metadata(ctx context.Context, request MetadataRequest) (StoredPart, error) {
 	api, err := s.client()
 	if err != nil {
@@ -304,6 +455,12 @@ func (s *gotdDownloadSession) Metadata(ctx context.Context, request MetadataRequ
 	return StoredPart{ChannelID: request.ChannelID, MessageID: request.MessageID, Size: size}, nil
 }
 
+// OpenRange opens a range reader on the session client, resolving the document
+// location on a background goroutine. It performs no request validation of its
+// own, unlike GotdStorage.OpenRange, so a length below -1 is treated as reading
+// to the end and a negative offset is forwarded to Telegram, which reports an
+// opaque error instead of ErrInvalidRequest. The caller owns the reader and must
+// close it.
 func (s *gotdDownloadSession) OpenRange(ctx context.Context, request RangeRequest) (io.ReadCloser, error) {
 	api, err := s.client()
 	if err != nil {
@@ -326,14 +483,24 @@ func (s *gotdDownloadSession) OpenRange(ctx context.Context, request RangeReques
 	return reader, nil
 }
 
+// documentLocation resolves a document through the session cache, tagging ctx
+// with the session's Telegram account ID so the cached location stays scoped to
+// the account that fetched it.
 func (s *gotdDownloadSession) documentLocation(ctx context.Context, api *tg.Client, channelID, messageID int64) (*tg.InputDocumentFileLocation, int64, error) {
 	return fetchDocumentLocation(WithClientID(ctx, s.clientID), api, channelID, messageID, s.globalCache)
 }
 
+// refreshDocumentLocation forces a new resolution of the document location,
+// used when Telegram reports that the cached file reference expired.
 func (s *gotdDownloadSession) refreshDocumentLocation(ctx context.Context, api *tg.Client, channelID, messageID int64) (*tg.InputDocumentFileLocation, int64, error) {
 	return refreshDocumentLocation(WithClientID(ctx, s.clientID), api, channelID, messageID, s.globalCache)
 }
 
+// client returns the API the caller must use for this session. A pooled session
+// asks the pool on every call, so a closed pool or a released slot reports
+// ErrClientUnavailable. A private session returns the client it started, and
+// after Close that is the client it already stopped, so later calls fail on
+// first use instead of reporting ErrClientUnavailable.
 func (s *gotdDownloadSession) client() (*tg.Client, error) {
 	if s.clientFn != nil {
 		return s.clientFn()
@@ -349,6 +516,11 @@ func (s *gotdDownloadSession) client() (*tg.Client, error) {
 	return s.api, nil
 }
 
+// Close releases the session: a pooled session returns its lease, a private
+// session cancels its context and waits for the client run to finish. It is
+// idempotent, returns the release error of a pooled session, and must be called
+// after every reader opened through OpenRange has been closed, because closing
+// the session stops the client those readers use.
 func (s *gotdDownloadSession) Close() error {
 	var err error
 	s.close.Do(func() {
@@ -362,33 +534,72 @@ func (s *gotdDownloadSession) Close() error {
 	return err
 }
 
+// telegramRangeReader is a sequential io.ReadCloser over one byte range of a
+// Telegram document. A fill goroutine fetches aligned chunks ahead of the
+// consumer into a bounded channel, keeping at most parallel fetches in flight,
+// and closes the channel when the range ends or fails. Read must be called from
+// a single goroutine; Close is idempotent and cancels the fetch.
 type telegramRangeReader struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	buffers    chan *telegramRangeBuffer
-	done       chan struct{}
-	cur        *telegramRangeBuffer
-	readErr    error
+	// ctx is the stream lifetime; it is cancelled by Close and by the caller of
+	// newTelegramRangeReader.
+	ctx context.Context
+	// cancel cancels ctx, which aborts in-flight fetches.
+	cancel context.CancelFunc
+	// buffers carries prefetched chunks in range order; fill closes it when the
+	// range ends, which makes Read report the terminal error or io.EOF.
+	buffers chan *telegramRangeBuffer
+	// done is closed by finish after buffers, so Close can wait for the fill
+	// goroutine to stop.
+	done chan struct{}
+	// cur is the chunk currently being drained. Only Read touches it.
+	cur *telegramRangeBuffer
+	// readErr is the terminal fill error reported once buffers is drained. It is
+	// guarded by mu because fill writes it from another goroutine.
+	readErr error
+	// finishOnce guards finish, so a stream ends exactly once.
 	finishOnce sync.Once
-	closeOnce  sync.Once
-	mu         sync.Mutex
-	parallel   int
-	timeout    time.Duration
-	attempts   int
+	// closeOnce guards the cancel in Close.
+	closeOnce sync.Once
+	// mu guards readErr.
+	mu sync.Mutex
+	// parallel is the maximum number of chunk fetches in flight.
+	parallel int
+	// timeout bounds one upload.getFile attempt; a timed-out attempt is retried.
+	timeout time.Duration
+	// attempts is how many times one chunk fetch is attempted before it fails.
+	attempts int
 }
 
+// telegramRangeBuffer is one fetched chunk together with the read cursor into
+// it.
 type telegramRangeBuffer struct {
+	// buf holds the chunk payload.
 	buf []byte
+	// off is the number of bytes already handed to the consumer.
 	off int
 }
 
+// telegramReadPlan is one upload.getFile request derived from a byte range.
 type telegramReadPlan struct {
+	// offset is the request offset, aligned down to telegramReadAlign and kept
+	// inside a single telegramReadChunk window.
 	offset int64
-	limit  int
-	skip   int
+	// limit is the aligned request length sent to Telegram, which covers skip
+	// plus length.
+	limit int
+	// skip is the number of leading response bytes that belong to earlier data
+	// and must be dropped.
+	skip int
+	// length is the number of payload bytes the caller wants from this request.
 	length int
 }
 
+// newTelegramRangeReader returns a reader over the range served on ctx, using a
+// buffer channel of the given size and at most parallel fetches in flight.
+// Non-positive buffer or parallel counts select the package defaults, and the
+// retry policy starts at defaultTelegramReadTimeout and
+// defaultTelegramReadAttempts. The caller keeps ownership of cancel and must
+// invoke it, directly or through Close, to release the fetches.
 func newTelegramRangeReader(ctx context.Context, cancel context.CancelFunc, buffers, parallel int) *telegramRangeReader {
 	if buffers <= 0 {
 		buffers = defaultTelegramReadBuffers
@@ -403,6 +614,12 @@ func newTelegramRangeReader(ctx context.Context, cancel context.CancelFunc, buff
 	}
 }
 
+// Read returns bytes from the current chunk, pulling the next chunk when the
+// current one is drained; it copies at most one chunk per call. Once the
+// buffers are drained it returns the terminal fill error, except that a fill
+// stopped by the stream context is reported as io.EOF at the end of the range.
+// A zero length read returns (0, nil) without waiting, and ctx.Err() is
+// returned when the stream context ends while waiting for a chunk.
 func (r *telegramRangeReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
@@ -429,6 +646,9 @@ func (r *telegramRangeReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// Close cancels the stream and waits until the fill goroutine finished or the
+// stream context is done, whichever comes first. It is idempotent and always
+// returns nil, so a reader can be closed on every error path.
 func (r *telegramRangeReader) Close() error {
 	r.closeOnce.Do(func() { r.cancel() })
 	select {
@@ -438,6 +658,9 @@ func (r *telegramRangeReader) Close() error {
 	return nil
 }
 
+// finish records the terminal error of the stream, closes the buffer channel
+// so Read can drain what was already prefetched, and closes done. It runs at
+// most once; later calls are ignored.
 func (r *telegramRangeReader) finish(err error) {
 	r.finishOnce.Do(func() {
 		r.mu.Lock()
@@ -448,6 +671,14 @@ func (r *telegramRangeReader) finish(err error) {
 	})
 }
 
+// fill fetches the requested range in aligned chunks on up to parallel
+// goroutines and pushes them into the reader's buffer channel in range order,
+// so a slow consumer waits instead of accumulating unbounded read-ahead. Each
+// chunk is attempted up to attempts times with a per-attempt timeout, and a
+// download rejected with FILE_REFERENCE_EXPIRED triggers one shared refresh
+// before that chunk is retried. It returns the first terminal error, from the
+// stream context or from a chunk that ran out of attempts, and reports the
+// outcome through finish rather than closing the reader itself.
 func (r *telegramRangeReader) fill(ctx context.Context, api *tg.Client, location *tg.InputDocumentFileLocation, offset, remaining int64, refresh func(context.Context) (*tg.InputDocumentFileLocation, error)) error {
 	type readResult struct {
 		seq     int64
@@ -585,6 +816,12 @@ func (r *telegramRangeReader) fill(ctx context.Context, api *tg.Client, location
 	return nil
 }
 
+// planTelegramReads splits a byte range into at most count upload.getFile
+// requests that each stay inside one telegramReadChunk window. Every plan aligns
+// the request offset down to telegramReadAlign, keeps the request limit aligned
+// as well, and records how many leading response bytes skip must be dropped, so
+// the caller receives exactly the requested bytes while Telegram sees aligned
+// block reads.
 func planTelegramReads(offset, remaining int64, count int) []telegramReadPlan {
 	plans := make([]telegramReadPlan, 0, count)
 	for remaining > 0 && len(plans) < count {
@@ -609,14 +846,26 @@ func planTelegramReads(offset, remaining int64, count int) []telegramReadPlan {
 	return plans
 }
 
+// empty reports whether the buffer has no unread byte. It is safe on a nil
+// buffer, so a consumer can test its current chunk before using it.
 func (b *telegramRangeBuffer) empty() bool {
 	return b == nil || len(b.buf)-b.off <= 0
 }
 
+// remaining returns the unread part of the buffer as a slice into the stored
+// payload. It must not be called on a nil or fully drained buffer.
 func (b *telegramRangeBuffer) remaining() []byte {
 	return b.buf[b.off:]
 }
 
+// CopyPart republishes an existing document into another channel by reference,
+// so no bytes are transferred, and returns the new part. It runs as a
+// management operation and checks the copied size against the source, reporting
+// ErrSizeMismatch when they differ; the copy is already published at that point,
+// so this call cannot clean it up and leaves it to the orphan cleanup sweep.
+// Every call creates a new message, so it is not idempotent. A nil runner,
+// non-positive user ID, zero channel ID, or non-positive source message ID
+// returns ErrInvalidRequest.
 func (s *GotdStorage) CopyPart(ctx context.Context, userID, sourceChannelID, sourceMessageID, destinationChannelID int64) (StoredPart, error) {
 	if s.runner == nil || userID <= 0 || sourceChannelID == 0 || sourceMessageID <= 0 || destinationChannelID == 0 {
 		return StoredPart{}, ErrInvalidRequest
@@ -660,6 +909,13 @@ func (s *GotdStorage) CopyPart(ctx context.Context, userID, sourceChannelID, sou
 	return copied, nil
 }
 
+// DeleteMessages deletes the given messages from a channel in batches of at most
+// deleteBatchSize, on a management session. An empty slice is a no-op and a
+// channel that no longer resolves counts as already deleted. The validation of
+// the message IDs happens inside the batch loop, so the batches are not
+// transactional: a failure, including an ID at or below zero detected late,
+// leaves earlier batches deleted. A nil runner, non-positive user ID, or zero
+// channel ID returns ErrInvalidRequest before any Telegram call.
 func (s *GotdStorage) DeleteMessages(ctx context.Context, userID, channelID int64, messageIDs []int64) error {
 	if s.runner == nil || userID <= 0 || channelID == 0 {
 		return ErrInvalidRequest
@@ -692,6 +948,12 @@ func (s *GotdStorage) DeleteMessages(ctx context.Context, userID, channelID int6
 	})
 }
 
+// ListDocumentMessages returns one page of a channel's history, newest first,
+// skipping entries without document media while still tracking the lowest
+// message ID seen, so the caller can continue from page.BeforeID. Exhausted is
+// inferred from a page shorter than the requested limit. It runs on a management
+// session and returns ErrInvalidRequest for a nil runner, a non-positive user ID
+// or limit, a limit above 100, a zero channel ID, or a negative cursor.
 func (s *GotdStorage) ListDocumentMessages(ctx context.Context, request ListDocumentMessagesRequest) (DocumentMessagePage, error) {
 	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.BeforeID < 0 || request.Limit <= 0 || request.Limit > 100 {
 		return DocumentMessagePage{}, ErrInvalidRequest
@@ -738,6 +1000,13 @@ func (s *GotdStorage) ListDocumentMessages(ctx context.Context, request ListDocu
 	return page, nil
 }
 
+// CreateChannel creates a broadcast channel titled with the trimmed name and
+// returns it. When an upload bot provider is configured, its bots are granted
+// channel admin rights before the channel is returned, and a bot failure deletes
+// the freshly created channel before the error is passed on. It runs on a
+// management session; a nil runner, non-positive user ID, or blank name returns
+// ErrInvalidRequest, and a response that carries no channel is reported as
+// ErrInvalidChannel.
 func (s *GotdStorage) CreateChannel(ctx context.Context, userID int64, name string) (Channel, error) {
 	if s.runner == nil || userID <= 0 || strings.TrimSpace(name) == "" {
 		return Channel{}, ErrInvalidRequest
@@ -784,6 +1053,10 @@ func (s *GotdStorage) CreateChannel(ctx context.Context, userID int64, name stri
 	return created, nil
 }
 
+// DeleteChannel deletes a channel together with every message it holds on a
+// management session. A channel that no longer resolves is treated as already
+// deleted and returns nil, which keeps the operation idempotent for callers
+// that retry it; other failures are wrapped Telegram errors.
 func (s *GotdStorage) DeleteChannel(ctx context.Context, userID, channelID int64) error {
 	if s.runner == nil || userID <= 0 || channelID == 0 {
 		return ErrInvalidRequest
@@ -803,6 +1076,13 @@ func (s *GotdStorage) DeleteChannel(ctx context.Context, userID, channelID int64
 	})
 }
 
+// InviteBot resolves username to a bot and promotes it to channel admin on the
+// user's own management session. The username is trimmed and may carry a leading
+// "@"; only a resolved user that is a bot and whose username matches case
+// insensitively is accepted, and anything else returns ErrInvalidRequest
+// (wrapped). Progress is logged at info level. A nil runner, non-positive user
+// ID, zero channel ID, or blank username returns ErrInvalidRequest, and a
+// channel that no longer resolves fails instead of succeeding silently.
 func (s *GotdStorage) InviteBot(ctx context.Context, userID, channelID int64, username string) error {
 	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
 	if s.runner == nil || userID <= 0 || channelID == 0 || username == "" {
@@ -854,6 +1134,10 @@ func (s *GotdStorage) InviteBot(ctx context.Context, userID, channelID int64, us
 	})
 }
 
+// setBotAdmin grants bot a fixed message-administration rights set on channel,
+// under the rank "bot". It returns ErrInvalidRequest for a nil API, channel, or
+// bot and otherwise the raw Telegram error, letting callers decide whether to
+// roll back the surrounding operation.
 func setBotAdmin(ctx context.Context, api *tg.Client, channel tg.InputChannelClass, bot tg.InputUserClass) error {
 	if api == nil || channel == nil || bot == nil {
 		return ErrInvalidRequest
@@ -881,6 +1165,9 @@ func setBotAdmin(ctx context.Context, api *tg.Client, channel tg.InputChannelCla
 	return err
 }
 
+// inputChannel resolves a numeric channel ID through fullChannel and returns the
+// input form Telegram expects, which carries the access hash later calls need.
+// A channel that does not resolve is reported as ErrInvalidChannel.
 func inputChannel(ctx context.Context, api *tg.Client, channelID int64) (*tg.InputChannel, error) {
 	channel, err := fullChannel(ctx, api, channelID)
 	if err != nil {
@@ -889,6 +1176,10 @@ func inputChannel(ctx context.Context, api *tg.Client, channelID int64) (*tg.Inp
 	return channel.AsInput(), nil
 }
 
+// fullChannel loads the channel with the given ID and returns the full Telegram
+// channel, which carries the access hash and title. An empty chat list is
+// reported as ErrInvalidChannel, another chat type as an unexpected-response
+// error, and a transport failure as a wrapped resolve error.
 func fullChannel(ctx context.Context, api *tg.Client, channelID int64) (*tg.Channel, error) {
 	response, err := api.ChannelsGetChannels(ctx, []tg.InputChannelClass{&tg.InputChannel{ChannelID: channelID}})
 	if err != nil {
@@ -905,6 +1196,11 @@ func fullChannel(ctx context.Context, api *tg.Client, channelID int64) (*tg.Chan
 	return channel, nil
 }
 
+// uploadedMessage extracts the message ID and the stored document size from the
+// update Telegram returns after a document is published. It returns
+// ErrDocumentNotFound when the new channel message carries no document, for
+// example when non-file media was published, and ErrMessageNotFound when the
+// response contains no channel message at all.
 func uploadedMessage(response tg.UpdatesClass) (int64, int64, error) {
 	updates, ok := response.(*tg.Updates)
 	if !ok {
@@ -928,6 +1224,10 @@ func uploadedMessage(response tg.UpdatesClass) (int64, int64, error) {
 	return 0, 0, ErrMessageNotFound
 }
 
+// documentLocation resolves one document message to its file location and size
+// without caching. It returns ErrInvalidChannel when the channel cannot be
+// resolved, ErrMessageNotFound when the message does not exist or is not a plain
+// message, and ErrDocumentNotFound when it carries no document media.
 func documentLocation(ctx context.Context, api *tg.Client, channelID, messageID int64) (*tg.InputDocumentFileLocation, int64, error) {
 	channel, err := inputChannel(ctx, api, channelID)
 	if err != nil {
@@ -955,6 +1255,9 @@ func documentLocation(ctx context.Context, api *tg.Client, channelID, messageID 
 	return document.AsInputDocumentFileLocation(""), document.Size, nil
 }
 
+// messageDocument returns the document carried by a message, reporting false
+// when the message has no media or its media is not a document, such as a photo,
+// poll, or service message.
 func messageDocument(msg *tg.Message) (*tg.Document, bool) {
 	media, ok := msg.Media.(*tg.MessageMediaDocument)
 	if !ok {
@@ -964,11 +1267,18 @@ func messageDocument(msg *tg.Message) (*tg.Document, bool) {
 	return document, ok
 }
 
+// cancelReadCloser pairs a reader with the cancel function that stops its
+// producer, so closing the reader also releases the work behind it.
 type cancelReadCloser struct {
+	// ReadCloser is the wrapped reader, closed after the producer is cancelled.
 	io.ReadCloser
+	// cancel stops the producer of the wrapped reader.
 	cancel context.CancelFunc
 }
 
+// Close cancels the producer and then closes the wrapped reader, returning that
+// reader's error. It does not guard against a second call, so the wrapped reader
+// must tolerate being closed twice.
 func (r *cancelReadCloser) Close() error {
 	r.cancel()
 	return r.ReadCloser.Close()

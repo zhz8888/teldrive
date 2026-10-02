@@ -1,3 +1,34 @@
+// Package app is the composition root of the TelDrive backend and the owner of
+// the process lifecycle.
+//
+// New builds the whole object graph in the one order the dependencies allow:
+// configuration is validated, a legacy database is migrated when asked for, the
+// SQL schema is configured, River and application migrations run, the long-lived
+// connection pool opens, and only then are the cipher, the shared cache, the
+// Telegram gateways, the domain services, the job runtime and the HTTP router
+// created. Each stage consumes the previous one — the Telegram session provider
+// and every service need the open pool, the upload pipeline needs channels and
+// storage, and the job runtime needs the file operations service — so the order
+// is a correctness requirement, not a style choice. Migrations likewise run on
+// their own short-lived connection before the pool exists, which keeps a schema
+// upgrade from serving traffic against a half-migrated database.
+//
+// Run and Serve own the running process. They start the event service first and
+// the River workers second, so nothing can subscribe to a service or enqueue work
+// against a runtime that is not up, and then serve HTTP on a listener that is
+// never silently re-bound: a taken port is a startup error rather than a server
+// that quietly moved elsewhere.
+//
+// Shutdown unwinds in the opposite direction — SSE handlers, then HTTP while
+// in-flight requests drain, then warm Telegram download clients, then River
+// workers, then the shared cache, and the connection pool last — so a request
+// still being served keeps its database access for as long as it is allowed to
+// run. Close is the bounded-timeout form for callers that treat an App as a
+// resource rather than running Serve directly.
+//
+// The package also installs the browser-facing security chain, namely trusted
+// proxy detection, session renewal and CSRF checks, and serves the UI bundle
+// embedded in the binary.
 package app
 
 import (
@@ -41,29 +72,77 @@ import (
 )
 
 var (
+	// ErrInvalidDependencies reports that Run or Serve was called on an App whose
+	// required collaborators are missing, which happens when the value did not
+	// come from New or was left zero. It is detected before any listener is bound
+	// or touched, so a rejected Serve leaves the caller's listener open and owned
+	// by the caller.
 	ErrInvalidDependencies = errors.New("invalid application dependencies")
-	ErrAlreadyRunning      = errors.New("application is already running")
+	// ErrAlreadyRunning reports that Serve was called while another Serve call on
+	// the same App is still active. The rejected call leaves the supplied listener
+	// untouched, so the caller still owns closing it.
+	ErrAlreadyRunning = errors.New("application is already running")
 )
 
+// Dependencies carries the collaborators and metadata that New cannot derive from
+// configuration. Every field is an override, so the zero value is valid: a nil
+// Storage makes New build the storage for the configured Telegram backend, a nil
+// Authenticator makes New wire its own authentication service into the generated
+// server, and a nil Logger falls back to slog.Default.
 type Dependencies struct {
-	Storage       telegramstore.Storage
+	// Storage replaces the Telegram storage the configured backend would build,
+	// which lets tests and alternate deployments inject a fake. When nil, New
+	// constructs the real one; when set, the caller owns it and App never closes
+	// it.
+	Storage telegramstore.Storage
+	// Authenticator replaces the credential resolver used by the HTTP security
+	// layer. When nil, New passes its own authn service, which is what production
+	// uses.
 	Authenticator api.Authenticator
-	Logger        *slog.Logger
-	Version       string
+	// Logger receives startup, migration and request logging. A nil value falls
+	// back to slog.Default.
+	Logger *slog.Logger
+	// Version is the build version reported by the health endpoints and stamped
+	// into every health status. It may be empty when the binary carries no version
+	// information.
+	Version string
 }
 
+// App owns a fully constructed backend together with the resources it opened. New
+// returns it unstarted; Run or Serve starts serving, and Shutdown or Close
+// releases the resources exactly once. The lifecycle flags make the value safe for
+// concurrent use, but only one Serve call may be active at a time.
 type App struct {
-	config            config.Config
-	pool              *pgxpool.Pool
-	http              *http.Server
-	jobs              *jobs.Runtime
-	events            *userevents.Service
+	// config is the validated configuration New received. It is read-only after
+	// construction and supplies the HTTP address and shutdown timeout.
+	config config.Config
+	// pool is the long-lived PostgreSQL pool shared by every service in the
+	// graph. Shutdown closes it last, so it must outlive all of them.
+	pool *pgxpool.Pool
+	// http is the configured HTTP server whose Handler is the router New built.
+	// Run binds its address; Serve uses the listener it is given instead.
+	http *http.Server
+	// jobs is the River runtime for background work. Serve starts it only when
+	// Jobs.RunWorkers is enabled, so it may legitimately stay idle.
+	jobs *jobs.Runtime
+	// events is the SSE event service. It is started before HTTP starts serving so
+	// no request can subscribe to a service that is not running yet.
+	events *userevents.Service
+	// telegramDownloads is the warm Telegram client pool, or nil when the backend
+	// does not pool clients or the storage was injected. Shutdown closes it after
+	// HTTP has drained but before the job workers stop.
 	telegramDownloads *telegramstore.DownloadClientPool
-	globalCache       cache.Cacher
+	// globalCache is the process-local cache shared by the catalog and the Telegram
+	// storage layer. It is closed after the workers stop.
+	globalCache cache.Cacher
 
-	mu      sync.Mutex
+	// mu guards the lifecycle flags below so Serve and Shutdown cannot interleave.
+	mu sync.Mutex
+	// running reports whether a Serve call currently owns the HTTP server.
 	running bool
-	closed  bool
+	// closed reports whether Shutdown has already released the resources. It is
+	// never reset, so a closed App cannot be restarted.
+	closed bool
 }
 
 // New builds the complete v2 backend. It upgrades legacy databases and runs all
@@ -249,6 +328,11 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 	return application, nil
 }
 
+// expandHomePath resolves a configured path that may begin with a tilde. Exactly
+// "~" becomes the current user's home directory and "~/sub/path" is joined onto it;
+// any other "~user" form is rejected, because resolving another account's home
+// directory is not portable. A path without a tilde is returned trimmed of
+// surrounding whitespace, so the result is empty only when the input was blank.
 func expandHomePath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "~" {
@@ -271,6 +355,11 @@ func expandHomePath(path string) (string, error) {
 	return path, nil
 }
 
+// requestIDMiddleware makes a request ID available to everything downstream. It
+// reuses a non-blank X-Request-ID supplied by the caller, which keeps a trace
+// intact across a reverse proxy, and mints a UUID otherwise, so the ID is always
+// present. The value is stored under middleware.RequestIDKey for the logger and
+// echoed back in the X-Request-ID response header.
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
@@ -283,6 +372,9 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Handler returns the router to serve. A nil receiver or an App without an HTTP
+// server yields a handler that answers 503 instead of panicking, so a partially
+// wired App cannot crash the process at request time.
 func (a *App) Handler() http.Handler {
 	if a == nil || a.http == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -292,6 +384,10 @@ func (a *App) Handler() http.Handler {
 	return a.http.Handler
 }
 
+// Pool returns the long-lived database pool for callers that need it outside the
+// HTTP stack, such as health probes and tests. Ownership stays with the App: the
+// pool is closed by Shutdown and must not be closed by the caller. A nil receiver
+// returns nil.
 func (a *App) Pool() *pgxpool.Pool {
 	if a == nil {
 		return nil
@@ -299,6 +395,10 @@ func (a *App) Pool() *pgxpool.Pool {
 	return a.pool
 }
 
+// Cache returns the process-local cache shared by the services in the graph, so
+// callers can invalidate entries those services wrote. As with Pool, the App owns
+// the instance and closes it during Shutdown. A nil receiver returns nil, which
+// callers must treat as "no cache configured" rather than creating one.
 func (a *App) Cache() cache.Cacher {
 	if a == nil {
 		return nil

@@ -1,3 +1,13 @@
+// Package legacymigrate upgrades a v1.x TelDrive database to the v2 layout
+// in place.
+//
+// The legacy database keeps everything in the "teldrive" schema and records its
+// migration history in public.goose_db_version. The upgrade builds a complete v2
+// schema under a staging name, copies and rewrites every row into it, and only
+// then swaps schemas inside one transaction: the legacy schema is renamed to a
+// timestamped backup and the staging schema is renamed into place. A failure
+// before the swap drops the staging schema and leaves the legacy database
+// untouched, so the operation is safe to retry.
 package legacymigrate
 
 import (
@@ -16,32 +26,99 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
 )
 
+// Config describes one migration run.
+//
+// SourceURL and Target.URL must point at the same PostgreSQL database: the
+// upgrade rewrites the schema in place rather than copying between servers. Both
+// LegacySchema and FinalSchema must be database.DefaultSchema, because the legacy
+// data hard-codes that name, and the staging schema in Target.Schema must differ
+// from the legacy, final, and backup schemas.
 type Config struct {
-	SourceURL            string
-	Target               database.Config
-	LegacySchema         string
-	FinalSchema          string
-	BackupSchema         string
-	DataKey              string
+	// SourceURL is the database holding the legacy schema.
+	SourceURL string
+
+	// Target describes the staging database and schema that the v2 tables are
+	// built in before the swap.
+	Target database.Config
+
+	// LegacySchema is the schema the legacy tables are read from.
+	LegacySchema string
+
+	// FinalSchema is the schema the staging schema is promoted to.
+	FinalSchema string
+
+	// BackupSchema is the schema the legacy data is renamed to, so an operator can
+	// still inspect or roll back to it after a successful migration.
+	BackupSchema string
+
+	// DataKey is the base64 secureblob key used to encrypt migrated bot tokens.
+	DataKey string
+
+	// EncryptionKeyVersion is recorded on every migrated encrypted file. It must
+	// be positive.
 	EncryptionKeyVersion int
-	Apply                bool
-	BotVerifier          bots.Verifier
+
+	// Apply selects a real migration. When false, Run only inspects the source and
+	// reports what would be migrated without writing anything.
+	Apply bool
+
+	// BotVerifier resolves duplicate bot tokens against Telegram. It is required
+	// only when the legacy data contains two tokens for the same bot; without it
+	// such a duplicate aborts the migration.
+	BotVerifier bots.Verifier
 }
 
+// Report summarises what a migration found, and for an applied migration what it
+// wrote. The counters describe the legacy input, except BackupSchema which names
+// the schema the legacy data was moved to.
 type Report struct {
-	Users        int64
-	Channels     int64
-	Bots         int64
-	Files        int64
-	Folders      int64
-	FileParts    int64
-	Encrypted    int64
-	SkippedZero  int64
+	// Users is the number of legacy user rows.
+	Users int64
+
+	// Channels is the number of legacy channel rows.
+	Channels int64
+
+	// Bots is the number of distinct (user, bot) pairs.
+	Bots int64
+
+	// Files is the number of legacy rows that are not folders.
+	Files int64
+
+	// Folders is the number of legacy folders, after synthetic drive roots have
+	// been flattened away.
+	Folders int64
+
+	// FileParts is the number of Telegram parts referenced by migrated files.
+	FileParts int64
+
+	// Encrypted is the number of migrated files that carry per-part salts.
+	Encrypted int64
+
+	// SkippedZero counts zero-byte files with no parts. They are migrated as empty
+	// files rather than rejected, because that is a valid state in the legacy data.
+	SkippedZero int64
+
+	// BackupSchema is the schema the legacy data was renamed to. It is set only for
+	// an applied migration.
 	BackupSchema string
 }
 
+// migrationLockID is the advisory lock key that serialises migration detection
+// across processes. Its value is the ASCII string "TELDRIVE", chosen only to be
+// recognisable in pg_locks.
 const migrationLockID int64 = 0x54454c4452495645
 
+// MigrateIfNeeded upgrades the database described by cfg when, and only when, it
+// still looks like a legacy TelDrive database, and reports whether it did.
+//
+// Detection is the presence of public.goose_db_version, which the v2 schema does
+// not use. The whole check runs under a session advisory lock so two starting
+// instances cannot migrate concurrently, and the caller must supply a data key
+// because migrated bot tokens are encrypted with it.
+//
+// A legacy database with a non-default schema is rejected rather than migrated,
+// and the staging and backup schemas are named after the current timestamp so a
+// failed attempt never collides with its own leftovers.
 func MigrateIfNeeded(ctx context.Context, cfg database.Config, dataKey string, verifier bots.Verifier) (Report, bool, error) {
 	if strings.TrimSpace(cfg.URL) == "" {
 		return Report{}, false, errors.New("database URL is required")
@@ -93,39 +170,108 @@ func MigrateIfNeeded(ctx context.Context, cfg database.Config, dataKey string, v
 	return report, true, nil
 }
 
+// legacyPart is one entry of a legacy file's parts JSON column. Salt is present
+// only for encrypted files and is carried over verbatim so the per-part key
+// derivation still works after migration.
 type legacyPart struct {
-	ID   int64  `json:"id"`
+	// ID is the Telegram message ID holding the part.
+	ID int64 `json:"id"`
+
+	// Salt is the per-part key salt for encrypted files, empty otherwise.
 	Salt string `json:"salt,omitempty"`
 }
 
+// legacyFile is one row of the legacy teldrive.files table. Its fields keep the
+// legacy column names and types; the conversion to the v2 shape happens in
+// migrateFiles.
 type legacyFile struct {
-	ID        uuid.UUID
-	Name      string
-	Kind      string
-	MimeType  string
-	Size      *int64
-	UserID    int64
-	ParentID  *uuid.UUID
-	Status    string
+	// ID is the file UUID and stays the primary key across the migration.
+	ID uuid.UUID
+
+	// Name is the display name; it is not normalised during migration.
+	Name string
+
+	// Kind is "folder" or "file" in the legacy data, and is copied verbatim.
+	Kind string
+
+	// MimeType is the legacy content type. Folders use "drive/folder".
+	MimeType string
+
+	// Size is the file size in bytes. It is a pointer because the legacy column is
+	// nullable for folders, and it must be non-negative for files.
+	Size *int64
+
+	// UserID is the owning Telegram user ID.
+	UserID int64
+
+	// ParentID points at the containing folder, or nil for a top-level entry.
+	ParentID *uuid.UUID
+
+	// Status is the legacy lifecycle value. Anything other than "active" becomes
+	// deletion_pending in v2.
+	Status string
+
+	// ChannelID is the Telegram channel holding the file's parts. It may be nil for
+	// folders and for zero-byte files.
 	ChannelID *int64
-	Parts     []legacyPart
+
+	// Parts lists the Telegram messages that make up the file content, in order.
+	Parts []legacyPart
+
+	// Encrypted reports whether the content was encrypted by the v1 server, in
+	// which case every part must carry a salt.
 	Encrypted bool
-	Hash      *string
+
+	// Hash is the legacy content hash, if the v1 server recorded one. It is stored
+	// as a blake3-tree hash value in v2.
+	Hash *string
+
+	// CreatedAt is the original creation time, preserved so ordering and display
+	// stay stable after migration.
 	CreatedAt time.Time
+
+	// UpdatedAt is the original modification time. For non-active entries it also
+	// becomes the v2 deletion timestamp.
 	UpdatedAt time.Time
 }
 
+// legacyBot is one row of the legacy teldrive.bots table.
 type legacyBot struct {
+	// UserID is the owner of the bot token.
 	UserID int64
-	Token  string
-	BotID  int64
+
+	// Token is the plaintext bot token. It is encrypted with the configured data
+	// key before being written to the v2 table.
+	Token string
+
+	// BotID is the Telegram bot identity the token belongs to.
+	BotID int64
 }
 
+// legacyReader is the subset of pgx used to read the legacy database. It lets the
+// same queries run on a plain connection during detection and inside the locking
+// transaction during the migration itself.
 type legacyReader interface {
+	// Query runs a statement returning rows. The caller owns the returned rows and
+	// must close them.
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+
+	// QueryRow runs a statement expected to return at most one row, whose error is
+	// surfaced by Scan rather than by this call.
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+// Run performs one migration, or one dry inspection when cfg.Apply is false.
+//
+// The applied path is deliberately ordered: both schemas are validated, the
+// legacy tables are locked in ACCESS EXCLUSIVE mode for the whole run so no v1
+// writer can add rows mid-copy, the v2 tables are built in a staging schema, and
+// only then are the two schemas swapped and committed together. Until that
+// commit the legacy database is untouched; afterwards the original data is still
+// available under cfg.BackupSchema.
+//
+// A copy failure drops the staging schema in a fresh, bounded context so cleanup
+// still happens after the caller's context is cancelled.
 func Run(ctx context.Context, cfg Config) (Report, error) {
 	if strings.TrimSpace(cfg.SourceURL) == "" || strings.TrimSpace(cfg.Target.URL) == "" {
 		return Report{}, errors.New("database URL is required")
@@ -249,6 +395,9 @@ IN ACCESS EXCLUSIVE MODE`); err != nil {
 	return report, nil
 }
 
+// withSchemaDefaults fills in the schema names a caller may omit. The legacy and
+// final schemas default to the v1 name, and the backup schema is derived from the
+// legacy schema rather than from a timestamp so a dry run is reproducible.
 func withSchemaDefaults(cfg Config) Config {
 	if cfg.LegacySchema == "" {
 		cfg.LegacySchema = database.DefaultSchema
@@ -262,6 +411,9 @@ func withSchemaDefaults(cfg Config) Config {
 	return cfg
 }
 
+// ensureSchemaAbsent fails when schema already exists. Refusing to reuse a
+// schema is what keeps a failed attempt from being silently resumed on top of
+// half-migrated data; the operator is expected to inspect and drop it.
 func ensureSchemaAbsent(ctx context.Context, conn legacyReader, schema string) error {
 	var exists bool
 	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname=$1)`, schema).Scan(&exists); err != nil {
@@ -273,6 +425,13 @@ func ensureSchemaAbsent(ctx context.Context, conn legacyReader, schema string) e
 	return nil
 }
 
+// swapSchemas performs the cutover: the legacy schema is renamed to the backup
+// name, the legacy goose history table is moved out of public into that backup,
+// and the staging schema is renamed into the final name.
+//
+// All three steps run in the caller's transaction, so a failure anywhere leaves
+// the original names in place. Moving goose_db_version is what makes the
+// database stop looking legacy to the next start-up.
 func swapSchemas(ctx context.Context, tx pgx.Tx, cfg Config) error {
 	legacy := pgx.Identifier{cfg.LegacySchema}.Sanitize()
 	backup := pgx.Identifier{cfg.BackupSchema}.Sanitize()
@@ -296,6 +455,9 @@ func swapSchemas(ctx context.Context, tx pgx.Tx, cfg Config) error {
 	return nil
 }
 
+// verifyLegacy rejects a source that does not look like a legacy TelDrive
+// production database, so an operator pointing the migrator at the wrong
+// database gets an error instead of an empty migration.
 func verifyLegacy(ctx context.Context, conn *pgx.Conn) error {
 	var legacy bool
 	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.goose_db_version') IS NOT NULL`).Scan(&legacy); err != nil {
@@ -307,6 +469,18 @@ func verifyLegacy(ctx context.Context, conn *pgx.Conn) error {
 	return nil
 }
 
+// inspect reads the whole legacy file tree and returns the counters for Report
+// together with the files in parent-first order.
+//
+// It validates as it scans: a non-folder with a missing or negative size, a file
+// with no usable parts, or an encrypted file whose part has no salt all abort the
+// migration, because silently dropping or guessing such a row would lose data.
+// The one tolerated exception is a zero-byte file with no parts, which is counted
+// in SkippedZero and migrated as an empty file.
+//
+// Files are read in created_at order so a rerun produces the same ordering, and
+// the result is passed through flattenSyntheticRoots before being topologically
+// sorted.
 func inspect(ctx context.Context, source legacyReader) (Report, []legacyFile, error) {
 	var report Report
 	if err := source.QueryRow(ctx, `SELECT
@@ -373,6 +547,14 @@ ORDER BY created_at, id`)
 	return report, ordered, nil
 }
 
+// flattenSyntheticRoots removes the per-user "root" folders the v1 server created
+// and re-parents their children to nil, which is how v2 represents a top-level
+// entry. It returns the rewritten slice and how many folders were removed, so
+// Report.Folders does not count rows that no longer exist.
+//
+// A legacy row only qualifies as synthetic when it is a top-level folder named
+// "root" with the drive/folder MIME type, so a user-created folder of that name
+// nested elsewhere is left alone.
 func flattenSyntheticRoots(files []legacyFile) ([]legacyFile, int) {
 	rootIDs := make(map[uuid.UUID]struct{})
 	for _, file := range files {
@@ -399,6 +581,13 @@ func flattenSyntheticRoots(files []legacyFile) ([]legacyFile, int) {
 	return flattened, len(rootIDs)
 }
 
+// orderFilesParentFirst sorts the tree so every folder precedes its children,
+// which the v2 foreign key on parent_id requires for a single streaming copy.
+//
+// The traversal doubles as validation: it rejects a parent that is missing, that
+// is not a folder, or that belongs to another user, and it rejects a cycle. The
+// third error is what prevents a corrupt legacy tree from being copied into a
+// schema whose constraints would fail later, mid-copy.
 func orderFilesParentFirst(files []legacyFile) ([]legacyFile, error) {
 	byID := make(map[uuid.UUID]legacyFile, len(files))
 	for _, file := range files {
@@ -440,6 +629,10 @@ func orderFilesParentFirst(files []legacyFile) ([]legacyFile, error) {
 	return ordered, nil
 }
 
+// ensureEmpty fails unless the users, channels, bots, files, and file_parts
+// tables in schema are still empty. Combined with the missing-schema check this
+// keeps the copy from merging into rows a previous attempt left behind in those
+// tables.
 func ensureEmpty(ctx context.Context, tx pgx.Tx, schema string) error {
 	var users, channels, bots, files, parts int64
 	prefix := pgx.Identifier{schema}.Sanitize()
@@ -460,6 +653,13 @@ func ensureEmpty(ctx context.Context, tx pgx.Tx, schema string) error {
 	return nil
 }
 
+// setCopyEventTriggers enables or disables the user-event triggers on the copied
+// tables for the duration of the bulk copy.
+//
+// Without this, every inserted row would publish a notification that no client
+// is listening for yet, at a cost proportional to the size of the legacy drive.
+// The triggers are re-enabled before the transaction commits, so the promoted
+// schema behaves normally once it is live.
 func setCopyEventTriggers(ctx context.Context, tx pgx.Tx, schema string, enabled bool) error {
 	action := "DISABLE"
 	if enabled {
@@ -479,6 +679,15 @@ func setCopyEventTriggers(ctx context.Context, tx pgx.Tx, schema string, enabled
 	return nil
 }
 
+// migrateUsers copies the legacy users and assigns the v2 roles.
+//
+// The v1 schema had no roles, so the migration promotes exactly one account: the
+// oldest user, by created_at then user_id, becomes "owner" and everyone else
+// becomes "user". The ordering is total, so a rerun on the same data always
+// picks the same owner.
+//
+// Rows are streamed straight from the source cursor into a COPY, so no table is
+// materialised in memory.
 func migrateUsers(ctx context.Context, source legacyReader, tx pgx.Tx, schema string) error {
 	rows, err := source.Query(ctx, `
 SELECT user_id, name, user_name, is_premium, created_at, updated_at,
@@ -509,6 +718,12 @@ ORDER BY user_id`)
 	return nil
 }
 
+// migrateChannels copies the legacy channels.
+//
+// A legacy channel may have no created_at, in which case the current time is
+// substituted; v2 also has an updated_at column the legacy schema lacked, so it
+// is initialised to the same value as created_at. The "selected" flag is carried
+// over as-is, which preserves each user's active channel.
 func migrateChannels(ctx context.Context, source legacyReader, tx pgx.Tx, schema string) error {
 	rows, err := source.Query(ctx, `SELECT channel_id,user_id,channel_name,COALESCE(selected,false),COALESCE(created_at,now()) FROM teldrive.channels ORDER BY user_id,channel_id`)
 	if err != nil {
@@ -534,6 +749,18 @@ func migrateChannels(ctx context.Context, source legacyReader, tx pgx.Tx, schema
 	return nil
 }
 
+// migrateBots copies the legacy bot tokens, encrypting each one with the
+// configured data key before it reaches the target table.
+//
+// The legacy data allows several tokens for the same (user, bot) pair, while v2
+// allows one row. Duplicates are therefore resolved against Telegram: the
+// candidates are verified in order and the first token whose Telegram identity
+// matches the stored bot ID wins. If none matches, or if no verifier was
+// supplied, the migration aborts rather than guessing, because picking the wrong
+// token would silently break uploads for that user.
+//
+// The plaintext token never leaves this function: it is only ever passed to the
+// verifier and to the cipher.
 func migrateBots(ctx context.Context, source legacyReader, tx pgx.Tx, cipher *secureblob.Cipher, verifier bots.Verifier, schema string) error {
 	rows, err := source.Query(ctx, `SELECT user_id,token,bot_id FROM teldrive.bots ORDER BY user_id,bot_id,token`)
 	if err != nil {
@@ -607,6 +834,22 @@ func migrateBots(ctx context.Context, source legacyReader, tx pgx.Tx, cipher *se
 	return nil
 }
 
+// migrateFiles rewrites the legacy tree into the v2 files and file_parts tables.
+//
+// The mapping is deliberately lossless where it can be. Status is narrowed to v2's
+// vocabulary: anything other than "active" becomes "deletion_pending" with the
+// legacy updated_at reused as deleted_at, so a v1 trash entry stays in the trash.
+// Size is recorded only for files, leaving folders NULL. A legacy hash becomes a
+// blake3-tree hash value, and encrypted files record the configured key version
+// so their parts remain decryptable. New rows start at generation 1.
+//
+// Parts are numbered from 1 in slice order, which is the order the v1 server
+// wrote them in and therefore the order the file must be reassembled in.
+// Plain-text and stored sizes are left NULL: the legacy schema never recorded
+// them, and the v2 code treats NULL as "not yet measured".
+//
+// Both tables are written with COPY in the caller's transaction, so a failure
+// rolls back the whole copy rather than leaving a partially migrated tree.
 func migrateFiles(ctx context.Context, tx pgx.Tx, files []legacyFile, cfg Config) error {
 	fileRows := make([][]any, 0, len(files))
 	partRows := make([][]any, 0)

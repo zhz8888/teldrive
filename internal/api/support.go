@@ -32,25 +32,56 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
 )
 
+// Problem is an error carrying the HTTP status, stable error code and public
+// message that should be returned to the client. Handlers build it with problem
+// or mapServiceError and the generated router renders it through ErrorHandler,
+// while Cause keeps the internal error available for logging and errors.Is.
 type Problem struct {
-	Status  int
-	Code    string
+	// Status is the HTTP status code to send. ErrorHandler accepts it only when it
+	// falls in the 400-599 range and otherwise keeps its own default.
+	Status int
+	// Code is the machine-readable error code exposed in the response body, for
+	// example "not_found" or "invalid_request".
+	Code string
+	// Message is the human-readable message exposed in the response body; it must
+	// stay free of internal details.
 	Message string
-	Cause   error
+	// Cause is the wrapped internal error. It is never serialized but is returned
+	// by Unwrap so errors.Is and errors.As keep matching the domain error.
+	Cause error
 }
 
+// Error renders the message together with the cause, so logs contain the
+// underlying failure while the response body only carries Message.
 func (p *Problem) Error() string {
 	if p.Cause == nil {
 		return p.Message
 	}
 	return p.Message + ": " + p.Cause.Error()
 }
+
+// Unwrap returns the wrapped cause so errors.Is and errors.As can inspect the
+// original domain error.
 func (p *Problem) Unwrap() error { return p.Cause }
 
+// problem builds a Problem from the given status, code, message and cause.
+// Callers use it directly when an error has no domain sentinel to map.
 func problem(status int, code, message string, cause error) error {
 	return &Problem{Status: status, Code: code, Message: message, Cause: cause}
 }
 
+// mapServiceError converts a domain error into the HTTP Problem that should be
+// returned for it, matching sentinels with errors.Is so wrapped errors still map.
+//
+// It is the single place where status codes are chosen: 401 for authentication
+// and share-password failures, 403 forbidden, 404 missing resources, 409 state
+// conflicts, 410 expired uploads and login flows, 412 stale generations, 416
+// unsatisfiable ranges, 422 for invalid input, an invalid event cursor, or a hash
+// mismatch, 429 too many event streams, 503 unavailable services, 504 for a
+// deadline that expired, and 500 as the fallback with the cause hidden from the
+// client. Nil and context.Canceled pass through unchanged, because a cancelled
+// request has no client left to answer. The original error stays reachable as
+// Cause.
 func mapServiceError(err error) error {
 	if err == nil {
 		return nil
@@ -94,6 +125,13 @@ func mapServiceError(err error) error {
 	}
 }
 
+// ErrorHandler is the ogen error hook: it serializes any error escaping a handler
+// as the JSON error envelope with the matching status code.
+//
+// It derives the status from an *ogenerrors.SecurityError (401) or a request or
+// parameter decoding error (400), then lets a *Problem override status, code and
+// message. Responses of 500 and above are logged with the request ID. A cancelled
+// request returns without writing anything because the client is already gone.
 func ErrorHandler(ctx context.Context, w http.ResponseWriter, _ *http.Request, err error) {
 	if errors.Is(err, context.Canceled) {
 		return
@@ -143,15 +181,27 @@ func ErrorHandler(ctx context.Context, w http.ResponseWriter, _ *http.Request, e
 	})
 }
 
+// NewServer builds the generated ogen server from the JSON handler, the raw
+// handler and the security handler, installing ErrorHandler as the error hook.
+// Extra gen.ServerOption values are applied after that hook, so a caller-supplied
+// option can still replace it.
 func NewServer(handler *Handler, security *Security, opts ...gen.ServerOption) (*gen.Server, error) {
 	opts = append([]gen.ServerOption{gen.WithErrorHandler(ErrorHandler)}, opts...)
 	return gen.NewServer(handler, NewRawHandler(handler), security, opts...)
 }
 
+// generationETag formats a file generation as a strong HTTP entity tag: the
+// generation 7 becomes "7". Clients send the value back in If-Match to make an
+// update conditional on the revision they last saw.
 func generationETag(generation int64) gen.ETag {
 	return gen.ETag(fmt.Sprintf(`"%d"`, generation))
 }
 
+// parseGenerationETag parses an If-Match header into a generation number. It
+// returns a nil generation when the header is absent, meaning the caller did not
+// ask for a conditional update, and an error when the value is not a
+// non-negative integer. A weak validator prefix (W/) plus surrounding quotes and
+// whitespace are tolerated; anything else is rejected.
 func parseGenerationETag(value gen.OptETag) (*int64, error) {
 	etag, ok := value.Get()
 	if !ok {
@@ -167,9 +217,19 @@ func parseGenerationETag(value gen.OptETag) (*int64, error) {
 	return &generation, nil
 }
 
+// googleUUID converts a contract UUID into the google/uuid representation used by
+// the domain services. Both share the same byte layout, so this is a plain cast
+// with no validation; use dbtypes.GoogleUUID for a value that comes from a
+// database column, where the ok result reports a NULL column.
 func googleUUID(value gen.UUID) uuid.UUID { return uuid.UUID(value) }
-func apiUUID(value uuid.UUID) gen.UUID    { return gen.UUID(value) }
 
+// apiUUID is the inverse of googleUUID and converts a domain identifier into the
+// type the generated API exposes.
+func apiUUID(value uuid.UUID) gen.UUID { return gen.UUID(value) }
+
+// optionalAPIUUID converts a nullable database UUID into an optional contract
+// field. The value is unset when the column is NULL, so a row without that
+// column degrades to a missing field instead of failing the request.
 func optionalAPIUUID(value pgtype.UUID) gen.OptUUID {
 	id, ok := dbtypes.GoogleUUID(value)
 	if !ok {
@@ -178,6 +238,9 @@ func optionalAPIUUID(value pgtype.UUID) gen.OptUUID {
 	return gen.NewOptUUID(apiUUID(id))
 }
 
+// optionalGoogleUUID converts an optional contract UUID into a pointer, returning
+// nil when the client did not supply the field. Handlers use that nil case to mean
+// "not given", for example a move with no destination parent.
 func optionalGoogleUUID(value gen.OptUUID) *uuid.UUID {
 	id, ok := value.Get()
 	if !ok {
@@ -187,6 +250,10 @@ func optionalGoogleUUID(value gen.OptUUID) *uuid.UUID {
 	return &converted
 }
 
+// fileEntry maps a database file row to its API representation, filling the
+// optional mime type, size and hash only when the columns are set. It fails when
+// the stored ID is NULL, which indicates a corrupt row rather than a client error
+// and therefore maps to a 500 response.
 func fileEntry(file *sqlcgen.File) (gen.FileEntry, error) {
 	id, ok := dbtypes.GoogleUUID(file.ID)
 	if !ok {
@@ -212,6 +279,9 @@ func fileEntry(file *sqlcgen.File) (gen.FileEntry, error) {
 	return entry, nil
 }
 
+// uploadSession maps a database upload session row to its API representation,
+// exposing the expected hash, mime type and completion time only when they are
+// set. It fails when the stored ID is NULL.
 func uploadSession(session *sqlcgen.UploadSession) (gen.UploadSession, error) {
 	id, ok := dbtypes.GoogleUUID(session.ID)
 	if !ok {
@@ -238,6 +308,9 @@ func uploadSession(session *sqlcgen.UploadSession) (gen.UploadSession, error) {
 	return result, nil
 }
 
+// uploadPart maps a database upload part row to its API representation, exposing
+// the stored size and checksum only once the part has been written to storage. It
+// fails when the stored upload ID is NULL.
 func uploadPart(part *sqlcgen.UploadPart) (gen.UploadPart, error) {
 	uploadID, ok := dbtypes.GoogleUUID(part.UploadID)
 	if !ok {
@@ -256,6 +329,9 @@ func uploadPart(part *sqlcgen.UploadPart) (gen.UploadPart, error) {
 	return result, nil
 }
 
+// encodeCursor serializes an opaque pagination cursor as URL-safe base64 JSON. It
+// returns an unset optional value when the payload cannot be marshalled, which
+// callers treat as "no next page" rather than an error.
 func encodeCursor(value any) gen.OptCursor {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -264,6 +340,11 @@ func encodeCursor(value any) gen.OptCursor {
 	return gen.NewOptCursor(gen.Cursor(base64.RawURLEncoding.EncodeToString(data)))
 }
 
+// decodeCursor decodes a cursor produced by encodeCursor into target. An unset
+// cursor leaves target untouched and reports no error, so the first page needs no
+// special case; malformed base64 or JSON yields a generic "invalid cursor" error,
+// which each caller translates into a domain error of its own, so the response
+// status is decided by mapServiceError for that sentinel rather than here.
 func decodeCursor(value gen.OptCursor, target any) error {
 	cursor, ok := value.Get()
 	if !ok {
@@ -279,23 +360,65 @@ func decodeCursor(value gen.OptCursor, target any) error {
 	return nil
 }
 
+// fileCursor is the decoded form of a file listing cursor. It records the sort key
+// of the last item on the previous page together with the sort mode, so a request
+// that changes sort or order can be rejected instead of silently returning a
+// nonsensical page.
 type fileCursor struct {
-	Name  string    `json:"name,omitempty"`
-	Sort  string    `json:"sort,omitempty"`
-	Order string    `json:"order,omitempty"`
-	Value string    `json:"value,omitempty"`
-	ID    uuid.UUID `json:"id"`
+	// Name is the last item's name, recorded for every sort mode. It supplies the
+	// cursor text only when Sort is "name"; for the other sort modes the key comes
+	// from Value. The tie-breaker for every sort mode is ID.
+	Name string `json:"name,omitempty"`
+	// Sort is the sort column the page was produced with, for example "name",
+	// "size" or "updatedAt".
+	Sort string `json:"sort,omitempty"`
+	// Order is the direction, "asc" or "desc", the page was produced with.
+	Order string `json:"order,omitempty"`
+	// Value is the encoded sort key of the last item — an RFC 3339 timestamp, a
+	// byte size or a UUID string depending on Sort — and repeats Name when the
+	// listing is ordered by name.
+	Value string `json:"value,omitempty"`
+	// ID is the UUID of the last item on the page and is required: the zero UUID
+	// means no usable cursor was supplied.
+	ID uuid.UUID `json:"id"`
 }
+
+// uploadCursor is the decoded form of an upload listing cursor. Both fields come
+// from the last session of the previous page and together form the sort key.
 type uploadCursor struct {
+	// CreatedAt is the creation timestamp of the last session on the page.
 	CreatedAt time.Time `json:"created_at"`
-	ID        uuid.UUID `json:"id"`
+	// ID is the UUID of that session; the zero UUID means no usable cursor was
+	// supplied.
+	ID uuid.UUID `json:"id"`
 }
+
+// partCursor is the decoded form of an upload part listing cursor.
 type partCursor struct {
+	// PartNo is the part number of the last part on the page, so the next page
+	// starts after it; zero means no usable cursor was supplied.
 	PartNo int32 `json:"part_no"`
 }
 
-type byteRange struct{ Offset, Length int64 }
+// byteRange is a resolved byte range of a download: Offset is the first byte to
+// send and Length is the number of bytes, not the inclusive end offset.
+type byteRange struct {
+	// Offset and Length are the zero-based start and the byte count of the range;
+	// a full-file request is Offset 0 with Length equal to the file size.
+	Offset, Length int64
+}
 
+// parseRange resolves an optional Range header against a known file size. It
+// returns the byte range to send, whether the client explicitly asked for a range
+// (and therefore expects 206 or 416 semantics), and transfer.ErrRangeNotSatisfiable
+// for anything it cannot serve.
+//
+// A missing or blank header yields the whole file. Only a single "bytes=" range is
+// accepted: the suffix form ("bytes=-N") and the open-ended form ("bytes=N-") are
+// supported and an end beyond the file size is clamped to the last byte, while
+// multiple ranges, a start at or past the end, or a negative file size are
+// rejected. A negative size also reports the range as requested when the client
+// sent one.
 func parseRange(value gen.OptString, size int64) (byteRange, bool, error) {
 	if size < 0 {
 		return byteRange{}, value.IsSet(), transfer.ErrRangeNotSatisfiable
@@ -338,6 +461,12 @@ func parseRange(value gen.OptString, size int64) (byteRange, bool, error) {
 	return byteRange{Offset: start, Length: end - start + 1}, true, nil
 }
 
+// contentDisposition renders the Content-Disposition header for a file name,
+// choosing attachment when the client asked for a download and inline otherwise.
+// mime.FormatMediaType percent-encodes any name as an RFC 2231 parameter and
+// returns an empty value only for a media type or parameter name that is not a
+// token, so the fallback to the bare disposition is unreachable for the
+// hard-coded disposition and the "filename" parameter used here.
 func contentDisposition(name string, attachment bool) string {
 	disposition := "inline"
 	if attachment {

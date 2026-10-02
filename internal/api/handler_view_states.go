@@ -11,6 +11,8 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 )
 
+// GetFileViewState returns the caller's saved reader state for one file after
+// checking read access. A file without saved state answers 204 rather than 404.
 func (h *Handler) GetFileViewState(ctx context.Context, params gen.GetFileViewStateParams) (gen.GetFileViewStateRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -29,6 +31,9 @@ func (h *Handler) GetFileViewState(ctx context.Context, params gen.GetFileViewSt
 	return fileViewState(state)
 }
 
+// PutFileViewState upserts the caller's reader state for one file: viewer kind,
+// position, preferences and bookmarks, each stored as JSON. Read access to the
+// file is required.
 func (h *Handler) PutFileViewState(ctx context.Context, req *gen.FileViewStateUpdate, params gen.PutFileViewStateParams) (gen.PutFileViewStateRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -56,6 +61,8 @@ func (h *Handler) PutFileViewState(ctx context.Context, req *gen.FileViewStateUp
 	return fileViewState(state)
 }
 
+// DeleteFileViewState removes the caller's saved reader state for one file and
+// answers 204 even when nothing was stored. Read access to the file is required.
 func (h *Handler) DeleteFileViewState(ctx context.Context, params gen.DeleteFileViewStateParams) (gen.DeleteFileViewStateRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -70,6 +77,9 @@ func (h *Handler) DeleteFileViewState(ctx context.Context, params gen.DeleteFile
 	return &gen.DeleteFileViewStateNoContent{}, nil
 }
 
+// fileViewState converts a stored row into the API model, unmarshalling the
+// position, preferences and bookmarks blobs. It fails when the file ID or any of
+// those blobs is invalid.
 func fileViewState(row *sqlcgen.FileViewState) (*gen.FileViewState, error) {
 	fileID, ok := dbtypes.GoogleUUID(row.FileID)
 	if !ok {

@@ -12,16 +12,31 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+// ANSI SGR sequences used to colorize terminal output; the color is dropped
+// when the handler is built without color support.
 const (
-	ansiReset   = "\x1b[0m"
-	ansiGray    = "\x1b[90m"
+	// ansiReset clears all attributes set by a preceding color.
+	ansiReset = "\x1b[0m"
+	// ansiGray dims attribute keys so values stand out.
+	ansiGray = "\x1b[90m"
+	// ansiMagenta colors the DEBUG level.
 	ansiMagenta = "\x1b[35m"
-	ansiGreen   = "\x1b[32m"
-	ansiYellow  = "\x1b[33m"
-	ansiRed     = "\x1b[31m"
-	ansiWhite   = "\x1b[37m"
+	// ansiGreen colors the INFO level.
+	ansiGreen = "\x1b[32m"
+	// ansiYellow colors the WARN level.
+	ansiYellow = "\x1b[33m"
+	// ansiRed colors the ERROR level.
+	ansiRed = "\x1b[31m"
+	// ansiWhite colors any level not covered by the cases above.
+	ansiWhite = "\x1b[37m"
 )
 
+// prettyHandler is the slog.Handler behind the "text" log format: one line per
+// record with a timestamp, level icon, message, and key=value attributes.
+// Methods that derive a handler clone shared state, so Enabled, Handle, and
+// the With* methods may be called from multiple goroutines; Handle assembles a
+// record into one string and holds mu around the single write, so records cannot
+// interleave on a shared out.
 type prettyHandler struct {
 	out    io.Writer
 	level  slog.Leveler
@@ -31,10 +46,16 @@ type prettyHandler struct {
 	mu     *sync.Mutex
 }
 
+// newPrettyHandler returns a handler that writes records at or above level to
+// out and emits ANSI colors only when color is true. The mutex is allocated
+// here and shared by every clone returned from WithAttrs and WithGroup.
 func newPrettyHandler(out io.Writer, level slog.Leveler, color bool) slog.Handler {
 	return &prettyHandler{out: out, level: level, color: color, mu: &sync.Mutex{}}
 }
 
+// supportsColor reports whether out is a terminal that understands ANSI
+// escapes. Writers that expose no file descriptor, such as buffers and pipes
+// used by tests, report false so their output stays free of escape sequences.
 func supportsColor(out io.Writer) bool {
 	fd, ok := out.(interface{ Fd() uintptr })
 	if !ok {
@@ -43,10 +64,15 @@ func supportsColor(out io.Writer) bool {
 	return isatty.IsTerminal(fd.Fd()) || isatty.IsCygwinTerminal(fd.Fd())
 }
 
+// Enabled reports whether a record at level passes the handler's level filter.
 func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
 	return level >= h.level.Level()
 }
 
+// Handle formats record as a single line and writes it to the handler's output.
+// Attributes attached with WithAttrs come first, followed by the record's own
+// attributes; groups are joined with their children using dots. It returns the
+// write error, if any, and never mutates the record.
 func (h *prettyHandler) Handle(_ context.Context, record slog.Record) error {
 	icon, levelText, color := prettyLevel(record.Level)
 	if !h.color {
@@ -84,12 +110,18 @@ func (h *prettyHandler) Handle(_ context.Context, record slog.Record) error {
 	return err
 }
 
+// WithAttrs returns a handler that prints attrs on every subsequent record.
+// The receiver is left untouched: the clone copies the existing attribute
+// slice and the mutex pointer it shares with the original handler.
 func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	clone := *h
 	clone.attrs = append(append([]slog.Attr(nil), h.attrs...), attrs...)
 	return &clone
 }
 
+// WithGroup returns a handler that prefixes the keys of subsequent attributes
+// with name and a dot. An empty name returns the receiver itself, matching the
+// slog.Handler contract.
 func (h *prettyHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
@@ -99,6 +131,12 @@ func (h *prettyHandler) WithGroup(name string) slog.Handler {
 	return &clone
 }
 
+// appendAttr renders one attribute as "  key=value" on line. It resolves
+// LogValuer values first and drops an attribute only when it equals the zero
+// attribute, which requires both an empty key and a zero value; a keyed value
+// such as a nil error is still rendered. Group attributes recurse with the group
+// key pushed onto groups; a group with no key passes its own name down instead of
+// leaving an empty key segment.
 func (h *prettyHandler) appendAttr(line *strings.Builder, groups []string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
@@ -133,6 +171,10 @@ func (h *prettyHandler) appendAttr(line *strings.Builder, groups []string, attr 
 	line.WriteString(formatSlogValue(attr.Value))
 }
 
+// prettyLevel maps a level to the icon, five-character label, and ANSI color
+// used for it. Levels below DEBUG and at or above ERROR saturate to the nearest
+// known level, and the final branch is unreachable because slog levels are
+// integers.
 func prettyLevel(level slog.Level) (icon, text, color string) {
 	switch {
 	case level <= slog.LevelDebug:
@@ -148,6 +190,10 @@ func prettyLevel(level slog.Level) (icon, text, color string) {
 	}
 }
 
+// formatSlogValue renders a slog value for the key=value tail of a log line
+// without quoting it: strings and errors verbatim, numbers in decimal except
+// floats which use %g, durations in Go duration form, and times in RFC 3339.
+// Unknown kinds fall back to their slog string representation.
 func formatSlogValue(value slog.Value) string {
 	switch value.Kind() {
 	case slog.KindString:

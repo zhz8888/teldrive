@@ -19,6 +19,8 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
 )
 
+// requireAdmin rejects the request with a 403 problem unless the caller holds the
+// admin or owner role. It guards every handler under /v1/admin/users.
 func requireAdmin(ctx context.Context) error {
 	if !HasAdminRole(ctx) {
 		return problem(403, "forbidden", "administrator access is required", shares.ErrForbidden)
@@ -26,6 +28,9 @@ func requireAdmin(ctx context.Context) error {
 	return nil
 }
 
+// ListAdminUsers returns the accounts matching an optional search string to an
+// administrator. The admin or owner role is required, and a missing Auth service
+// reports 503 through mapServiceError.
 func (h *Handler) ListAdminUsers(ctx context.Context, params gen.ListAdminUsersParams) (gen.ListAdminUsersRes, error) {
 	if err := requireAdmin(ctx); err != nil {
 		return nil, err
@@ -44,6 +49,9 @@ func (h *Handler) ListAdminUsers(ctx context.Context, params gen.ListAdminUsersP
 	return &out, nil
 }
 
+// UpdateAdminUser applies a role change and/or a disabled flag to one account on
+// behalf of an administrator; disabling also revokes that account's sessions and
+// API keys. An empty body is rejected with 422 and an unknown user maps to 404.
 func (h *Handler) UpdateAdminUser(ctx context.Context, req *gen.UserAdminUpdateRequest, params gen.UpdateAdminUserParams) (gen.UpdateAdminUserRes, error) {
 	if err := requireAdmin(ctx); err != nil {
 		return nil, err
@@ -77,6 +85,9 @@ func (h *Handler) UpdateAdminUser(ctx context.Context, req *gen.UserAdminUpdateR
 	return &out, nil
 }
 
+// RevokeAdminUserAccess revokes every session and API key of one account so it can
+// no longer authenticate. Owner accounts are refused with 422 and unknown accounts
+// map to 404.
 func (h *Handler) RevokeAdminUserAccess(ctx context.Context, params gen.RevokeAdminUserAccessParams) (gen.RevokeAdminUserAccessRes, error) {
 	if err := requireAdmin(ctx); err != nil {
 		return nil, err
@@ -90,6 +101,9 @@ func (h *Handler) RevokeAdminUserAccess(ctx context.Context, params gen.RevokeAd
 	return &gen.RevokeAdminUserAccessNoContent{}, nil
 }
 
+// SearchUsers returns lightweight identities matching the query, which is how a
+// share owner finds a grantee. It requires authentication and excludes the caller
+// from the results.
 func (h *Handler) SearchUsers(ctx context.Context, params gen.SearchUsersParams) (gen.SearchUsersRes, error) {
 	actorID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -116,6 +130,9 @@ func (h *Handler) SearchUsers(ctx context.Context, params gen.SearchUsersParams)
 	return &out, nil
 }
 
+// CreateFileAccessGrant grants another user read or edit access to one of the
+// caller's files, replacing any live grant for the same pair. Unknown or disabled
+// grantees surface as 404 and invalid input as 422.
 func (h *Handler) CreateFileAccessGrant(ctx context.Context, req *gen.FileAccessGrantCreateRequest, params gen.CreateFileAccessGrantParams) (gen.CreateFileAccessGrantRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -143,6 +160,9 @@ func (h *Handler) CreateFileAccessGrant(ctx context.Context, req *gen.FileAccess
 	return &out, nil
 }
 
+// ListFileAccessGrants returns the live grants on one of the caller's files, newest
+// first and including the grantee display name and username. Expired and revoked
+// grants are omitted by the query.
 func (h *Handler) ListFileAccessGrants(ctx context.Context, params gen.ListFileAccessGrantsParams) (gen.ListFileAccessGrantsRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -162,6 +182,9 @@ func (h *Handler) ListFileAccessGrants(ctx context.Context, params gen.ListFileA
 	return &out, nil
 }
 
+// UpdateFileAccessGrant patches a live grant with a new permission, a new expiry,
+// or ClearExpiresAt to drop the expiry. An empty patch is rejected with 422 and
+// unknown grants are reported as 404.
 func (h *Handler) UpdateFileAccessGrant(ctx context.Context, req *gen.FileAccessGrantUpdateRequest, params gen.UpdateFileAccessGrantParams) (gen.UpdateFileAccessGrantRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -190,6 +213,9 @@ func (h *Handler) UpdateFileAccessGrant(ctx context.Context, req *gen.FileAccess
 	return &out, nil
 }
 
+// RevokeFileAccessGrant revokes a grant the caller owns, which removes the
+// grantee's access immediately. Unknown, foreign or already revoked grants are
+// reported as 404.
 func (h *Handler) RevokeFileAccessGrant(ctx context.Context, params gen.RevokeFileAccessGrantParams) (gen.RevokeFileAccessGrantRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -204,6 +230,9 @@ func (h *Handler) RevokeFileAccessGrant(ctx context.Context, params gen.RevokeFi
 	return &gen.RevokeFileAccessGrantNoContent{}, nil
 }
 
+// ListShared lists the caller's own files that are reachable through at least one
+// live share or grant, most recently updated first and capped by the service. It
+// skips rows whose ID cannot be converted instead of failing the whole page.
 func (h *Handler) ListShared(ctx context.Context) (gen.ListSharedRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -227,6 +256,8 @@ func (h *Handler) ListShared(ctx context.Context) (gen.ListSharedRes, error) {
 	return &out, nil
 }
 
+// ListSharedWithMe lists the files other owners granted the caller, each carrying
+// the granted permission, and drops entries whose IDs cannot be converted.
 func (h *Handler) ListSharedWithMe(ctx context.Context) (gen.ListSharedWithMeRes, error) {
 	granteeID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -253,6 +284,9 @@ func (h *Handler) ListSharedWithMe(ctx context.Context) (gen.ListSharedWithMeRes
 	return &out, nil
 }
 
+// CreatePublicShareFolder creates a folder inside an edit-enabled public share,
+// acting as the share owner. The share token and optional X-Share-Password header
+// are the only credentials, and only the fail conflict policy is accepted.
 func (h *Handler) CreatePublicShareFolder(ctx context.Context, req *gen.FolderCreateRequest, params gen.CreatePublicShareFolderParams) (gen.CreatePublicShareFolderRes, error) {
 	if h.Shares == nil || h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -284,6 +318,9 @@ func (h *Handler) CreatePublicShareFolder(ctx context.Context, req *gen.FolderCr
 	return &entry, nil
 }
 
+// UpdatePublicShareFile renames an entry inside an edit-enabled public share on
+// behalf of the share owner. The If-Match generation is enforced, so a stale value
+// maps to 412.
 func (h *Handler) UpdatePublicShareFile(ctx context.Context, req *gen.FileUpdateRequest, params gen.UpdatePublicShareFileParams) (gen.UpdatePublicShareFileRes, error) {
 	if h.Shares == nil || h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -315,6 +352,8 @@ func (h *Handler) UpdatePublicShareFile(ctx context.Context, req *gen.FileUpdate
 	return &entry, nil
 }
 
+// TrashPublicShareFile moves an entry inside an edit-enabled public share to the
+// owner's trash. The share root itself is protected and yields 403.
 func (h *Handler) TrashPublicShareFile(ctx context.Context, params gen.TrashPublicShareFileParams) (gen.TrashPublicShareFileRes, error) {
 	if h.Shares == nil || h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -334,6 +373,9 @@ func (h *Handler) TrashPublicShareFile(ctx context.Context, params gen.TrashPubl
 	return &gen.TrashPublicShareFileNoContent{}, nil
 }
 
+// CreatePublicShareUpload opens an upload session inside an edit-enabled public
+// share and credits it to the share owner, so anyone holding the token and password
+// can contribute files.
 func (h *Handler) CreatePublicShareUpload(ctx context.Context, req *gen.UploadCreateRequest, params gen.CreatePublicShareUploadParams) (gen.CreatePublicShareUploadRes, error) {
 	if h.Shares == nil || h.Uploads == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -358,6 +400,9 @@ func (h *Handler) CreatePublicShareUpload(ctx context.Context, req *gen.UploadCr
 	return &response, nil
 }
 
+// PutPublicShareUploadPart streams one part of a public-share upload after
+// verifying that the session belongs to the share owner. It answers 200 for an
+// already stored part and 201 for a new one.
 func (h *Handler) PutPublicShareUploadPart(ctx context.Context, req gen.PutPublicShareUploadPartReq, params gen.PutPublicShareUploadPartParams) (gen.PutPublicShareUploadPartRes, error) {
 	if h.Shares == nil || h.Uploads == nil || h.UploadPipeline == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -390,6 +435,8 @@ func (h *Handler) PutPublicShareUploadPart(ctx context.Context, req gen.PutPubli
 	return &response, nil
 }
 
+// CompletePublicShareUpload finalizes a public-share upload session into a file
+// owned by the share owner and returns 201 with ETag and Location headers.
 func (h *Handler) CompletePublicShareUpload(ctx context.Context, params gen.CompletePublicShareUploadParams) (gen.CompletePublicShareUploadRes, error) {
 	if h.Shares == nil || h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -412,6 +459,8 @@ func (h *Handler) CompletePublicShareUpload(ctx context.Context, params gen.Comp
 	return &response, nil
 }
 
+// AbortPublicShareUpload discards a public-share upload session and its parts
+// after the same ownership check and returns 204.
 func (h *Handler) AbortPublicShareUpload(ctx context.Context, params gen.AbortPublicShareUploadParams) (gen.AbortPublicShareUploadRes, error) {
 	if h.Shares == nil || h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -426,6 +475,10 @@ func (h *Handler) AbortPublicShareUpload(ctx context.Context, params gen.AbortPu
 	return &gen.AbortPublicShareUploadNoContent{}, nil
 }
 
+// resolveAuthenticatedFileAccess returns the caller's effective access to a file,
+// either as owner or through a grant, and demands edit permission when requireEdit
+// is set. Without a share service it degrades to a plain catalog lookup that only
+// succeeds for the caller's own files.
 func (h *Handler) resolveAuthenticatedFileAccess(ctx context.Context, fileID uuid.UUID, requireEdit bool) (*shares.Access, error) {
 	actorID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -443,6 +496,10 @@ func (h *Handler) resolveAuthenticatedFileAccess(ctx context.Context, fileID uui
 	return h.Shares.ResolveAccess(ctx, actorID, fileID, requireEdit)
 }
 
+// resolveAuthenticatedUploadOwner finds the owner of an upload session so the
+// caller can act on it: the caller is either that owner or holds access to the
+// session's parent with matching ownership. Any mismatch yields ErrForbidden,
+// which maps to 403.
 func (h *Handler) resolveAuthenticatedUploadOwner(ctx context.Context, uploadID uuid.UUID, requireEdit bool) (int64, error) {
 	actorID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -475,6 +532,9 @@ func (h *Handler) resolveAuthenticatedUploadOwner(ctx context.Context, uploadID 
 	return session.UserID, nil
 }
 
+// resolvePublicUploadOwner resolves an upload session for the public share flow,
+// requiring the token to expose the session's parent as an editable target and the
+// session to belong to the share owner.
 func (h *Handler) resolvePublicUploadOwner(ctx context.Context, token, password string, uploadID uuid.UUID) (int64, error) {
 	session, err := h.Uploads.GetAnyOwner(ctx, uploadID)
 	if err != nil {
@@ -494,6 +554,10 @@ func (h *Handler) resolvePublicUploadOwner(ctx context.Context, token, password 
 	return session.UserID, nil
 }
 
+// createUploadForOwner builds and submits the upload session for ownerID,
+// defaulting the conflict policy to fail and honoring the requested encryption.
+// Encrypted uploads need a positive active key version, otherwise the request
+// fails with transfer.ErrEncryptionKey.
 func (h *Handler) createUploadForOwner(ctx context.Context, ownerID int64, parentID *uuid.UUID, req *gen.UploadCreateRequest) (*sqlcgen.UploadSession, error) {
 	input := uploads.CreateInput{
 		UserID: ownerID, ParentID: parentID, Name: req.Name, ExpectedSize: req.Size,
@@ -527,6 +591,8 @@ func (h *Handler) createUploadForOwner(ctx context.Context, ownerID int64, paren
 	return session, nil
 }
 
+// adminUserSummary converts a user row into the administrative view, deriving the
+// disabled flag from the disabled-at timestamp.
 func adminUserSummary(row *sqlcgen.User) gen.AdminUserSummary {
 	out := gen.AdminUserSummary{
 		UserId: row.UserID, Premium: row.Premium, Role: gen.UserRole(row.Role), Disabled: row.DisabledAt.Valid,
@@ -541,6 +607,9 @@ func adminUserSummary(row *sqlcgen.User) gen.AdminUserSummary {
 	return out
 }
 
+// fileAccessGrantSummary converts a grant row into its API model; the optional
+// grantee display name and username are set only when the caller supplies them
+// from a joined query.
 func fileAccessGrantSummary(row *sqlcgen.FileAccessGrant, displayName, username *string) gen.FileAccessGrantSummary {
 	id, _ := dbtypes.GoogleUUID(row.ID)
 	fileID, _ := dbtypes.GoogleUUID(row.FileID)
@@ -560,6 +629,8 @@ func fileAccessGrantSummary(row *sqlcgen.FileAccessGrant, displayName, username 
 	return out
 }
 
+// fileAccessGrantSummaryRow adapts a list query row, which already joins the
+// grantee profile, to fileAccessGrantSummary.
 func fileAccessGrantSummaryRow(row *sqlcgen.ListFileAccessGrantsForOwnerRow) gen.FileAccessGrantSummary {
 	base := &sqlcgen.FileAccessGrant{
 		ID: row.ID, FileID: row.FileID, OwnerID: row.OwnerID, GranteeID: row.GranteeID, Permission: row.Permission,

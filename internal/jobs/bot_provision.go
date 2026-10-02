@@ -17,36 +17,75 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 )
 
+// BotProvisionKind is the River job kind that verifies pending Telegram bots and
+// promotes them to administrators of the user's channels.
 const BotProvisionKind = "teldrive_provision_bots"
 
+// ErrBotProvisionNotConfigured reports that the worker cannot run because it is
+// missing its queries, bot service or Telegram inviter, or because the job
+// carries no positive user ID. Callers must test it with errors.Is.
 var ErrBotProvisionNotConfigured = errors.New("bot provisioning worker is not configured")
 
+// BotProvisionArgs is the persisted payload of one bot provisioning job. Its
+// JSON field names are stored in river_job, so they must stay stable while older
+// jobs may still be queued.
 type BotProvisionArgs struct {
-	UserID int64   `json:"user_id"`
+	// UserID is the TelDrive user that owns the bots and channels.
+	UserID int64 `json:"user_id"`
+	// BotIDs lists the Telegram bot IDs to verify and promote; the worker ignores
+	// non-positive values and duplicates.
 	BotIDs []int64 `json:"bot_ids"`
 }
 
+// Kind reports the River job kind handled by BotProvisionWorker.
 func (BotProvisionArgs) Kind() string { return BotProvisionKind }
 
+// InsertOpts pins provisioning jobs to the maintenance queue, gives them three
+// attempts and deduplicates them by arguments, so requesting the same user and
+// bot set twice joins the pending job instead of provisioning the bots twice.
 func (BotProvisionArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: CleanupQueue, MaxAttempts: 3, Priority: 2, UniqueOpts: river.UniqueOpts{ByArgs: true}}
 }
 
+// BotProvisionWorker verifies pending Telegram bots and promotes each of them to
+// administrator in every channel the user owns. It is registered only when the
+// storage backend implements telegramstore.BotInviter; otherwise the runtime
+// leaves bot provisioning disabled.
 type BotProvisionWorker struct {
+	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
+	// does not override.
 	river.WorkerDefaults[BotProvisionArgs]
+	// queries reads the user's channels.
 	queries *sqlcgen.Queries
-	bots    *bots.Service
+	// bots verifies pending bot tokens and records provisioning failures.
+	bots *bots.Service
+	// inviter performs the actual Telegram membership calls.
 	inviter telegramstore.BotInviter
 }
 
+// NewBotProvisionWorker returns a worker backed by pool, botService and inviter.
+// All three are required: Work fails with ErrBotProvisionNotConfigured when one
+// is missing.
 func NewBotProvisionWorker(pool *pgxpool.Pool, botService *bots.Service, inviter telegramstore.BotInviter) *BotProvisionWorker {
 	return &BotProvisionWorker{queries: sqlcgen.New(pool), bots: botService, inviter: inviter}
 }
 
+// Timeout allows 30 minutes per run, since the worker verifies each requested
+// bot against Telegram and then promotes it in all of the user's channels with
+// three promotions in flight.
 func (w *BotProvisionWorker) Timeout(*river.Job[BotProvisionArgs]) time.Duration {
 	return 30 * time.Minute
 }
 
+// Work verifies the requested bots and promotes each of them to administrator in
+// the user's channels, using at most the 200 most recently created channels.
+//
+// Bots are handled one after another. The promotions for a single bot run
+// concurrently, at most three at a time; the first error is remembered, and once
+// all in-flight promotions finish the bot is marked as failed and that error is
+// returned, so River retries the whole job. Retries re-verify and re-promote the
+// bots that already succeeded, which the idempotent activation path tolerates. A
+// job whose BotIDs contain no positive value succeeds without doing anything.
 func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisionArgs]) error {
 	if w == nil || w.queries == nil || w.bots == nil || w.inviter == nil || job.Args.UserID <= 0 {
 		return ErrBotProvisionNotConfigured
@@ -95,6 +134,9 @@ func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisi
 	return nil
 }
 
+// normalizedBotIDs removes non-positive IDs and keeps only the first occurrence
+// of each remaining ID. It always returns a newly allocated, non-nil slice, so
+// callers may store or reorder the result without affecting the input.
 func normalizedBotIDs(values []int64) []int64 {
 	seen := make(map[int64]struct{}, len(values))
 	result := make([]int64, 0, len(values))

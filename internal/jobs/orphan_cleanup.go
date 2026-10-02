@@ -17,6 +17,8 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 )
 
+// OrphanCleanupKind is the River job kind of the periodic sweep that deletes
+// Telegram documents no active file references any more.
 const OrphanCleanupKind = "teldrive_cleanup_orphaned_telegram_parts"
 
 // maxOrphanOutputBytes bounds the recorded job output well below River's
@@ -24,9 +26,16 @@ const OrphanCleanupKind = "teldrive_cleanup_orphaned_telegram_parts"
 // failing the sweep.
 const maxOrphanOutputBytes = 16 << 20
 
+// OrphanCleanupArgs is the empty payload of an orphan sweep: the age threshold
+// comes from the worker configuration, not from the job.
 type OrphanCleanupArgs struct{}
 
+// Kind reports the River job kind handled by OrphanedTelegramPartsCleanupWorker.
 func (OrphanCleanupArgs) Kind() string { return OrphanCleanupKind }
+
+// InsertOpts pins the sweep to the maintenance queue with three attempts and
+// priority 3, so within that queue it is ordered after the priority-1 purges and
+// trash cleanups as well as the priority-2 upload and event sweeps.
 func (OrphanCleanupArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: CleanupQueue, MaxAttempts: 3, Priority: 3}
 }
@@ -34,27 +43,43 @@ func (OrphanCleanupArgs) InsertOpts() river.InsertOpts {
 // OrphanCleanupOutput is recorded as the River job output when the sweep
 // completes, so operators can inspect per-run counters without log access.
 type OrphanCleanupOutput struct {
-	Channels    int       `json:"channels"`
-	Scanned     int       `json:"scanned"`
-	Deleted     int       `json:"deleted"`
-	Cutoff      time.Time `json:"cutoff"`
+	// Channels is the number of storage channels that were inspected.
+	Channels int `json:"channels"`
+	// Scanned is the number of Telegram documents listed across those channels.
+	Scanned int `json:"scanned"`
+	// Deleted is the number of unreferenced documents that were deleted.
+	Deleted int `json:"deleted"`
+	// Cutoff is the age threshold of the run: only documents created before it
+	// were deletion candidates.
+	Cutoff time.Time `json:"cutoff"`
+	// CompletedAt is the UTC time the run finished collecting its counters.
 	CompletedAt time.Time `json:"completedAt"`
 	// BrokenFiles lists active files with DB-referenced messages missing from
 	// Telegram, so owners know what to re-upload. The list is uncapped;
 	// limitBrokenFilesSize degrades to counters when it would exceed the
 	// job-output size budget.
-	BrokenFiles     []BrokenFile `json:"brokenFiles"`
-	BrokenTotal     int          `json:"brokenTotal"`
-	BrokenTruncated bool         `json:"brokenTruncated"`
+	BrokenFiles []BrokenFile `json:"brokenFiles"`
+	// BrokenTotal counts active files with at least one missing part, including
+	// those omitted from BrokenFiles, so it stays exact when the list is dropped.
+	BrokenTotal int `json:"brokenTotal"`
+	// BrokenTruncated reports that BrokenFiles was dropped to stay inside the
+	// job-output budget; BrokenTotal is still complete.
+	BrokenTruncated bool `json:"brokenTruncated"`
 }
 
 // BrokenFile is one active file with at least one referenced part message
 // absent from its Telegram channel.
 type BrokenFile struct {
-	FileID            string  `json:"fileId"`
-	Name              string  `json:"name"`
-	Size              int64   `json:"size"`
-	ChannelID         int64   `json:"channelId"`
+	// FileID is the file UUID as a string, so the output stays readable JSON.
+	FileID string `json:"fileId"`
+	// Name is the file name its owner sees.
+	Name string `json:"name"`
+	// Size is the file size in bytes.
+	Size int64 `json:"size"`
+	// ChannelID is the Telegram channel that should still hold the file's parts.
+	ChannelID int64 `json:"channelId"`
+	// MissingMessageIDs lists the referenced message IDs that the channel no
+	// longer returns, sorted ascending.
 	MissingMessageIDs []int64 `json:"missingMessageIds"`
 }
 
@@ -116,22 +141,52 @@ func limitBrokenFilesSize(output OrphanCleanupOutput, maxBytes int) OrphanCleanu
 	return output
 }
 
+// OrphanedTelegramPartsCleanupWorker deletes Telegram documents that no active
+// file references any more and reports the active files whose referenced parts
+// have gone missing. Documents younger than minimumAge are never candidates, so
+// an upload that is still running cannot be mistaken for an orphan.
 type OrphanedTelegramPartsCleanupWorker struct {
+	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
+	// does not override.
 	river.WorkerDefaults[OrphanCleanupArgs]
-	queries    *sqlcgen.Queries
-	lister     telegramstore.DocumentMessageLister
-	storage    telegramstore.Storage
+	// queries lists the channels to inspect and the message IDs they reference.
+	queries *sqlcgen.Queries
+	// lister paginates the documents stored in a channel.
+	lister telegramstore.DocumentMessageLister
+	// storage deletes the orphaned documents.
+	storage telegramstore.Storage
+	// minimumAge is the grace period that keeps recently created documents from
+	// being treated as orphans; zero makes every unreferenced document a
+	// candidate.
 	minimumAge time.Duration
 }
 
+// NewOrphanedTelegramPartsCleanupWorker returns a sweep worker that ignores
+// documents younger than minimumAge. pool, storage and lister must all be
+// non-nil; the worker has no configuration guard, so a missing dependency fails
+// inside the first query rather than with a sentinel error.
 func NewOrphanedTelegramPartsCleanupWorker(pool *pgxpool.Pool, storage telegramstore.Storage, lister telegramstore.DocumentMessageLister, minimumAge time.Duration) *OrphanedTelegramPartsCleanupWorker {
 	return &OrphanedTelegramPartsCleanupWorker{queries: sqlcgen.New(pool), storage: storage, lister: lister, minimumAge: minimumAge}
 }
 
+// Timeout allows four hours: the sweep lists every page of every channel,
+// resolving references as it goes, before it can record its output.
 func (w *OrphanedTelegramPartsCleanupWorker) Timeout(*river.Job[OrphanCleanupArgs]) time.Duration {
 	return 4 * time.Hour
 }
 
+// Work deletes the Telegram documents that no active file references any more and
+// records both the cleanup counters and the active files whose parts are missing.
+//
+// Every channel that stores upload parts is paged through in requests of at most
+// 100 documents. Only documents created before now-minimumAge are deletion
+// candidates, which keeps the part a concurrent upload has just written, but not
+// yet recorded, from being deleted. Each page is checked against the message IDs
+// the database still references, and a page whose cursor does not advance aborts
+// the run instead of looping forever. Messages are deleted page by page, so a run
+// that fails halfway leaves the earlier pages deleted; the retry lists whatever is
+// still there and converges. Once a channel has been fully listed, the referenced
+// parts that never appeared in it are reported as broken files.
 func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *river.Job[OrphanCleanupArgs]) error {
 	channels, err := w.queries.ListChannelsForOrphanCleanup(ctx)
 	if err != nil {

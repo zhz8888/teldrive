@@ -1,3 +1,6 @@
+// Package main implements the teldrive CLI: the "run" command that starts the
+// server, the "check" command that validates configuration and initializes the
+// dependencies once, and the "version" command that prints build metadata.
 package main
 
 import (
@@ -18,11 +21,20 @@ import (
 )
 
 var (
+	// version is the release version, overridden at build time via
+	// -ldflags "-X main.version=...".
 	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
+	// commit is the source revision reported by the version command, likewise
+	// set through -ldflags and left as "unknown" for plain go build.
+	commit = "unknown"
+	// date is the build timestamp reported by the version command, likewise set
+	// through -ldflags and left as "unknown" for plain go build.
+	date = "unknown"
 )
 
+// main runs the command tree with a context that is canceled on SIGINT or
+// SIGTERM, so subcommands propagate shutdown to the running server. Command
+// errors are printed to stderr, and any failure exits with status 1.
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -32,6 +44,8 @@ func main() {
 	}
 }
 
+// newRootCommand assembles the command tree. Usage and error output are
+// silenced on the root so that main prints each failure exactly once.
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "teldrive",
@@ -43,6 +57,11 @@ func newRootCommand() *cobra.Command {
 	return root
 }
 
+// newRunCommand builds the "run" command (aliased as "serve"). It loads the
+// configuration from the registered flags, creates the logger, installs it as
+// the slog default, and runs the application until the command context is
+// canceled. A context.Canceled error from a signal-triggered shutdown is
+// treated as a clean exit; every other error is returned to main.
 func newRunCommand() *cobra.Command {
 	loader := config.NewLoader()
 	cmd := &cobra.Command{
@@ -77,6 +96,11 @@ func newRunCommand() *cobra.Command {
 	return cmd
 }
 
+// newCheckCommand builds the "check" command, which validates the configuration
+// and initializes every dependency exactly as run would, then closes the
+// application before any traffic is served. It is meant for deployments and
+// pre-flight checks: success reports that configuration, migrations, and
+// dependency connections all work.
 func newCheckCommand() *cobra.Command {
 	loader := config.NewLoader()
 	cmd := &cobra.Command{
@@ -108,6 +132,9 @@ func newCheckCommand() *cobra.Command {
 	return cmd
 }
 
+// newVersionCommand builds the "version" command, which prints the values
+// resolved by buildVersion together with the build-injected commit and date.
+// It writes to stdout and never returns an error.
 func newVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -119,6 +146,11 @@ func newVersionCommand() *cobra.Command {
 	}
 }
 
+// buildVersion resolves the version reported to users and passed to the
+// application. It prefers the linker-injected version and otherwise falls back
+// to the module version recorded in the build info, which makes
+// `go install`ed binaries report their released tag; "dev" is returned when
+// neither is available, as with a plain `go build`.
 func buildVersion() string {
 	if version != "" && version != "dev" {
 		return version

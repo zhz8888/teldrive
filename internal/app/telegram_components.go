@@ -20,14 +20,33 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 )
 
+// telegramComponents groups the Telegram-facing gateways that one configured
+// backend provides. The fields are always set together by buildTelegramComponents;
+// only downloadClients may be nil, because the pool exists just for the remote
+// backend with DownloadClientPool enabled and without an injected storage.
 type telegramComponents struct {
-	login           authn.TelegramLogin
-	verifier        bots.Verifier
-	account         telegramstore.Account
-	storage         telegramstore.Storage
+	// login drives interactive Telegram authorization and is localTelegramLogin
+	// when the filesystem backend is selected.
+	login authn.TelegramLogin
+	// verifier turns Telegram init data into a bot identity; it rejects every
+	// credential on the filesystem backend.
+	verifier bots.Verifier
+	// account exposes the caller's own Telegram account data, namely the channels
+	// they may store files in and their profile photo.
+	account telegramstore.Account
+	// storage is the storage boundary used by uploads, downloads and purge.
+	storage telegramstore.Storage
+	// downloadClients pools warm Telegram clients for reads. It is nil unless the
+	// remote backend built its own storage with pooling enabled, and the owner
+	// must close it; injected storage leaves pooling to the injector.
 	downloadClients *telegramstore.DownloadClientPool
 }
 
+// buildLegacyBotVerifier builds only the bot verifier, without the pool, cipher or
+// storage the full component set needs. The legacy database migration runs before
+// the connection pool exists yet still has to authenticate bot rows through the
+// Telegram API, so it needs this narrow dependency. Unsupported backends are
+// rejected with an error naming the configured value.
 func buildLegacyBotVerifier(cfg config.Config, logger *slog.Logger) (bots.Verifier, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Telegram.Backend)) {
 	case "filesystem":
@@ -47,6 +66,11 @@ func buildLegacyBotVerifier(cfg config.Config, logger *slog.Logger) (bots.Verifi
 	}
 }
 
+// newRemoteTelegramFactory builds the gotd client factory that every remote
+// backend component shares, so AppID/AppHash, device identity, timeouts, rate
+// limits and proxy settings are applied once. gotd's own request logging is wired
+// to logger only when Telegram.ClientLogging is enabled; otherwise the factory
+// runs with a nil logger to keep protocol traces out of the application log.
 func newRemoteTelegramFactory(cfg config.Config, logger *slog.Logger) (*telegramstore.Factory, error) {
 	gotdLogger := logslog.New(logger)
 	if !cfg.Telegram.ClientLogging {
@@ -72,6 +96,14 @@ func newRemoteTelegramFactory(cfg config.Config, logger *slog.Logger) (*telegram
 	return factory, nil
 }
 
+// buildTelegramComponents assembles the Telegram gateways for the configured
+// backend. The filesystem backend opens the local emulator under
+// Telegram.LocalRoot and never touches pool or cipher; the remote backend builds
+// the session provider on pool, which is why the caller must migrate the database
+// and open the pool first. An injected storage short-circuits storage
+// construction, and with it the download client pool, so tests and alternate
+// backends keep ownership of both. Every failure is returned with the component
+// that could not be built wrapped into the error.
 func buildTelegramComponents(cfg config.Config, pool *pgxpool.Pool, cipher *secureblob.Cipher, logger *slog.Logger, injected telegramstore.Storage, globalCache cache.Cacher) (telegramComponents, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Telegram.Backend)) {
 	case "filesystem":
