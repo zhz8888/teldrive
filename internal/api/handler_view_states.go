@@ -32,15 +32,21 @@ func (h *Handler) GetFileViewState(ctx context.Context, params gen.GetFileViewSt
 }
 
 // PutFileViewState upserts the caller's reader state for one file: viewer kind,
-// position, preferences and bookmarks, each stored as JSON. Read access to the
-// file is required.
+// position, preferences and bookmarks, each stored as JSON. The caller must own
+// the file: the stored row is keyed by (file_id, user_id) with a composite foreign
+// key to files, so only the owner can have one, and a grantee is answered with 404
+// like the read path rather than failing that foreign key.
 func (h *Handler) PutFileViewState(ctx context.Context, req *gen.FileViewStateUpdate, params gen.PutFileViewStateParams) (gen.PutFileViewStateRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	if _, accessErr := h.resolveAuthenticatedFileAccess(ctx, googleUUID(params.FileId), false); accessErr != nil {
+	access, accessErr := h.resolveAuthenticatedFileAccess(ctx, googleUUID(params.FileId), false)
+	if accessErr != nil {
 		return nil, mapServiceError(accessErr)
+	}
+	if !access.Owned {
+		return nil, mapServiceError(catalog.ErrNotFound)
 	}
 	position, err := json.Marshal(req.Position.Or(gen.FileViewStateUpdatePosition{}))
 	if err != nil {
@@ -50,7 +56,14 @@ func (h *Handler) PutFileViewState(ctx context.Context, req *gen.FileViewStateUp
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	bookmarks, err := json.Marshal(req.Bookmarks)
+	// The contract leaves bookmarks optional, and the column rejects a JSON null
+	// with jsonb_typeof(bookmarks) = 'array', so an omitted list is stored as an
+	// empty one instead of marshalling a nil slice to null.
+	bookmarksInput := req.Bookmarks
+	if bookmarksInput == nil {
+		bookmarksInput = []gen.FileViewStateUpdateBookmarksItem{}
+	}
+	bookmarks, err := json.Marshal(bookmarksInput)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
