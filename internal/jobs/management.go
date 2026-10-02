@@ -510,17 +510,25 @@ func (r *Runtime) CreatePeriodicJob(ctx context.Context, input PeriodicJobInput)
 // returns the updated row. It reads the current definition first and sends only
 // the fields that actually differ, so an unchanged update issues no write at
 // all; a pause or resume is a separate RiverPro call issued only when the stored
-// state differs from input.Paused. It returns river.ErrNotFound for an unknown
-// ID and ErrRuntimeNotConfigured when the runtime has no client.
+// state differs from input.Paused. The kind must name a cleanup sweep this
+// runtime registered a worker for, the same set Create accepts, so an existing
+// schedule can never be rewritten to a job that would fail with an unknown job
+// kind on every run; like Create, the check happens before anything is read or
+// written. It returns river.ErrNotFound for an unknown ID and
+// ErrRuntimeNotConfigured when the runtime has no client.
 func (r *Runtime) UpdatePeriodicJob(ctx context.Context, id string, input PeriodicJobInput) (PeriodicJob, error) {
 	if r == nil || r.client == nil {
 		return PeriodicJob{}, ErrRuntimeNotConfigured
+	}
+	kind := strings.TrimSpace(input.Kind)
+	if err := r.validateCleanupJobKind(kind); err != nil {
+		return PeriodicJob{}, err
 	}
 	current, err := r.client.PeriodicJobGet(ctx, id)
 	if err != nil {
 		return PeriodicJob{}, err
 	}
-	args, encodedArgs, err := rawPeriodicJobArgsAndJSON(input.Kind, input.Args)
+	args, encodedArgs, err := rawPeriodicJobArgsAndJSON(kind, input.Args)
 	if err != nil {
 		return PeriodicJob{}, err
 	}
@@ -530,7 +538,7 @@ func (r *Runtime) UpdatePeriodicJob(ctx context.Context, id string, input Period
 	tags := append([]string(nil), input.Tags...)
 	timezone := defaultTimezone(input.Schedule.CronTimezone)
 	opts := &riverpro.PeriodicJobUpdateOpts{}
-	if current.Kind != input.Kind || !jsonBytesEqual(current.Args, encodedArgs) {
+	if current.Kind != kind || !jsonBytesEqual(current.Args, encodedArgs) {
 		opts.JobArgs = args
 	}
 	if current.Queue != queue {
