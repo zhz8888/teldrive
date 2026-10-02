@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -20,6 +21,12 @@ import (
 // BotProvisionKind is the River job kind that verifies pending Telegram bots and
 // promotes them to administrators of the user's channels.
 const BotProvisionKind = "teldrive_provision_bots"
+
+// botChannelPageSize is how many of a user's channels one ListChannels page
+// holds. The worker walks the (created_at, channel_id) cursor until a page comes
+// back short, so an account with more channels than this is still provisioned
+// completely.
+const botChannelPageSize = 200
 
 // ErrBotProvisionNotConfigured reports that the worker cannot run because it is
 // missing its queries, bot service or Telegram inviter, or because the job
@@ -78,14 +85,17 @@ func (w *BotProvisionWorker) Timeout(*river.Job[BotProvisionArgs]) time.Duration
 }
 
 // Work verifies the requested bots and promotes each of them to administrator in
-// the user's channels, using at most the 200 most recently created channels.
+// every channel the user owns, paging through the channel list until it is
+// exhausted.
 //
 // Bots are handled one after another. The promotions for a single bot run
-// concurrently, at most three at a time; the first error is remembered, and once
-// all in-flight promotions finish the bot is marked as failed and that error is
-// returned, so River retries the whole job. Retries re-verify and re-promote the
-// bots that already succeeded, which the idempotent activation path tolerates. A
-// job whose BotIDs contain no positive value succeeds without doing anything.
+// concurrently, at most three at a time. A channel whose promotion fails does not
+// stop the remaining channels: every channel is attempted, the failures are
+// logged, and the bot is marked as failed with all of them. Promotion is
+// idempotent, so a channel that already carries the bot is left untouched, and
+// the aggregated error the job returns makes River retry only the channels that
+// are still missing the bot as administrator. A job whose BotIDs contain no
+// positive value succeeds without doing anything.
 func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisionArgs]) error {
 	if w == nil || w.queries == nil || w.bots == nil || w.inviter == nil || job.Args.UserID <= 0 {
 		return ErrBotProvisionNotConfigured
@@ -95,10 +105,11 @@ func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisi
 		return nil
 	}
 	slog.InfoContext(ctx, "Starting bot provisioning job", "job_id", job.ID, "user_id", job.Args.UserID, "bot_count", len(botIDs))
-	channels, err := w.queries.ListChannels(ctx, sqlcgen.ListChannelsParams{UserID: job.Args.UserID, PageSize: 200})
+	channels, err := w.userChannels(ctx, job.Args.UserID)
 	if err != nil {
-		return fmt.Errorf("list channels for bot provisioning: %w", err)
+		return err
 	}
+	botErrors := make([]error, 0, len(botIDs))
 	for _, botID := range botIDs {
 		row, verifyErr := w.bots.VerifyPending(ctx, job.Args.UserID, botID)
 		if verifyErr != nil {
@@ -106,32 +117,75 @@ func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisi
 			return fmt.Errorf("verify pending bot %d: %w", botID, verifyErr)
 		}
 		username := strings.TrimSpace(row.Username.String)
-		var wg sync.WaitGroup
-		var inviteErr error
-		var inviteMu sync.Mutex
-		sem := make(chan struct{}, 3)
-		for _, channel := range channels {
-			wg.Go(func() {
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				if err := w.inviter.InviteBot(ctx, job.Args.UserID, channel.ChannelID, username); err != nil {
-					inviteMu.Lock()
-					if inviteErr == nil {
-						inviteErr = err
-					}
-					inviteMu.Unlock()
-				}
-			})
-		}
-		wg.Wait()
-		if inviteErr != nil {
-			_ = w.bots.MarkProvisionFailure(ctx, job.Args.UserID, botID, inviteErr)
-			return fmt.Errorf("provision bot %d: %w", botID, inviteErr)
+		inviteErrors := w.promoteBot(ctx, job.Args.UserID, username, channels)
+		if len(inviteErrors) > 0 {
+			slog.WarnContext(ctx, "Telegram bot was not promoted in every channel", "job_id", job.ID, "user_id", job.Args.UserID, "bot_id", botID, "channel_count", len(channels), "failed_channel_count", len(inviteErrors), "error", errors.Join(inviteErrors...))
+			botErr := fmt.Errorf("provision bot %d: %w", botID, errors.Join(inviteErrors...))
+			_ = w.bots.MarkProvisionFailure(ctx, job.Args.UserID, botID, botErr)
+			botErrors = append(botErrors, botErr)
+			continue
 		}
 		slog.InfoContext(ctx, "Telegram bot provisioned", "job_id", job.ID, "user_id", job.Args.UserID, "bot_id", botID, "bot_username", username, "channel_count", len(channels))
 	}
+	if len(botErrors) > 0 {
+		return fmt.Errorf("provision Telegram bots for user %d: %w", job.Args.UserID, errors.Join(botErrors...))
+	}
 	return nil
+}
+
+// userChannels returns every channel owned by userID, newest first. It follows
+// the (created_at, channel_id) cursor of ListChannels until a page is shorter
+// than botChannelPageSize, so a user with more channels than one page is
+// provisioned completely instead of only in the most recent page.
+func (w *BotProvisionWorker) userChannels(ctx context.Context, userID int64) ([]*sqlcgen.Channel, error) {
+	channels := make([]*sqlcgen.Channel, 0, botChannelPageSize)
+	for {
+		var afterCreatedAt pgtype.Timestamptz
+		var afterChannelID pgtype.Int8
+		if len(channels) > 0 {
+			last := channels[len(channels)-1]
+			afterCreatedAt = last.CreatedAt
+			afterChannelID = pgtype.Int8{Int64: last.ChannelID, Valid: true}
+		}
+		page, err := w.queries.ListChannels(ctx, sqlcgen.ListChannelsParams{
+			UserID: userID, AfterCreatedAt: afterCreatedAt, AfterChannelID: afterChannelID, PageSize: botChannelPageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list channels for bot provisioning: %w", err)
+		}
+		channels = append(channels, page...)
+		if len(page) < botChannelPageSize {
+			return channels, nil
+		}
+	}
+}
+
+// promoteBot invites username into every channel, at most three at a time, and
+// returns one error per channel that failed, in completion order. Every channel
+// is attempted exactly once and a failure never cancels the remaining ones, so
+// the caller can retry the job and only the failed channels still need the
+// promotion.
+func (w *BotProvisionWorker) promoteBot(ctx context.Context, userID int64, username string, channels []*sqlcgen.Channel) []error {
+	var (
+		inviteMu   sync.Mutex
+		inviteErrs []error
+	)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
+	for _, channel := range channels {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			if err := w.inviter.InviteBot(ctx, userID, channel.ChannelID, username); err != nil {
+				inviteMu.Lock()
+				inviteErrs = append(inviteErrs, fmt.Errorf("channel %d: %w", channel.ChannelID, err))
+				inviteMu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	return inviteErrs
 }
 
 // normalizedBotIDs removes non-positive IDs and keeps only the first occurrence

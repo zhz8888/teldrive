@@ -94,11 +94,10 @@ type UploadSource struct {
 	// DestinationPath overrides the file or directory name inside the batch
 	// destination; it is a slash-separated relative path.
 	DestinationPath string `json:"destination_path,omitempty"`
-	// Exclude lists glob patterns, relative to the source, that skip matching
-	// files and directories of a local source. The patterns are honoured by the
-	// local branch of expand only: the HTTP branch probes the URL and applies the
-	// batch-level filter alone, so Exclude is silently ignored for a remote
-	// source.
+	// Exclude lists glob patterns that skip matching files of this source. The
+	// local branch of expand matches them against each file's path relative to the
+	// source, the HTTP branch against the resolved destination path; the
+	// batch-level Exclude and the size bounds apply on top of them.
 	Exclude []string `json:"exclude,omitempty"`
 }
 
@@ -371,10 +370,13 @@ func (w *UploadBatchWorker) resolveDestination(ctx context.Context, args UploadB
 //
 // A "local" source is first checked against the import roots and then walked; an
 // "http" source is probed with a HEAD request, falling back to a ranged GET, so its
-// size, name and validator are known before any byte is transferred. Files rejected
-// by the batch filter are dropped silently, and an unsupported source type fails
-// with errInvalidUploadSource. The returned entries become the arguments of the
-// per-file jobs; a source that expands to nothing yields no jobs.
+// size, name and validator are known before any byte is transferred. Both branches
+// apply the per-source Exclude patterns, the local one against each file's path
+// relative to the source and the HTTP one against the resolved destination path,
+// on top of the batch filter; files rejected by either are dropped silently. An
+// unsupported source type fails with errInvalidUploadSource. The returned entries
+// become the arguments of the per-file jobs; a source that expands to nothing
+// yields no jobs.
 func (w *UploadBatchWorker) expand(ctx context.Context, source UploadSource, defaults map[string]string, batchFilter uploadFilter) ([]UploadFileSource, error) {
 	switch source.Type {
 	case "local":
@@ -387,7 +389,11 @@ func (w *UploadBatchWorker) expand(ctx context.Context, source UploadSource, def
 		if err != nil {
 			return nil, err
 		}
-		if batchFilter.skipReason(file.DestinationPath, file.Size) != "" {
+		sourceFilter, err := newUploadFilter(source.Exclude, "", "")
+		if err != nil {
+			return nil, err
+		}
+		if uploadSkipReason(batchFilter, sourceFilter, file.DestinationPath, file.Size) != "" {
 			return nil, nil
 		}
 		return []UploadFileSource{file}, nil
@@ -522,6 +528,8 @@ func (w *UploadSourceWorker) Work(ctx context.Context, job *river.Job[UploadSour
 		return err
 	}
 	if session.State == sqlcgen.UploadStateCompleted {
+		// Defensive only: findResumableUpload returns open sessions and Create
+		// inserts an open one, so a completed session has nothing left to transfer.
 		return nil
 	}
 	uploadID, ok := dbtypes.GoogleUUID(session.ID)
@@ -1246,9 +1254,8 @@ func expandLocalSource(source UploadSource, batchFilter uploadFilter) ([]UploadF
 		}
 		relative = filepath.ToSlash(relative)
 		if entry.Type()&os.ModeSymlink != 0 {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
+			// WalkDir does not follow symlinks, so a symlinked directory is only
+			// reported as this entry and skipped here without being descended into.
 			return nil
 		}
 		if entry.IsDir() {
@@ -1278,16 +1285,16 @@ func expandLocalSource(source UploadSource, batchFilter uploadFilter) ([]UploadF
 //
 // The URL must use http or https and carry a host. The probe is a HEAD request; when
 // the server rejects HEAD with 405 or 501 it retries with a one-byte ranged GET. The
-// size comes from Content-Length, or from the total of a Content-Range for a ranged
-// response. That total is parsed with the parse error discarded, so an unparsable
-// total such as the "bytes 0-0/*" a server may send for a ranged response yields a
-// size of zero, overriding the Content-Length that was already read, and the source
-// is accepted as empty; only a negative size is rejected as errInvalidUploadSource.
-// The file name comes from the destination path, then from Content-Disposition, then
-// from the last URL segment. The ETag, or otherwise Last-Modified, becomes the
-// If-Range validator that stops a resumed upload from splicing two versions of the
-// file together. The merged headers are stored on the entry so the part requests
-// reuse them.
+// size comes from the total of a Content-Range that parses, and from Content-Length
+// otherwise, so an unparsable or absent total never downgrades a length that was
+// already known. A partial response whose total is missing, as in the "bytes 0-0/*"
+// a server may send for a ranged request, has no usable size at all: its
+// Content-Length measures only the returned range, so the source is rejected as
+// errInvalidUploadSource instead of being uploaded truncated. The file name comes
+// from the destination path, then from Content-Disposition, then from the last URL
+// segment. The ETag, or otherwise Last-Modified, becomes the If-Range validator that
+// stops a resumed upload from splicing two versions of the file together. The merged
+// headers are stored on the entry so the part requests reuse them.
 func inspectHTTPSource(ctx context.Context, client *http.Client, source UploadSource, defaults map[string]string) (UploadFileSource, error) {
 	if client == nil {
 		client = http.DefaultClient
@@ -1326,7 +1333,18 @@ func inspectHTTPSource(ctx context.Context, client *http.Client, source UploadSo
 	size := response.ContentLength
 	if contentRange := response.Header.Get("Content-Range"); contentRange != "" {
 		if slash := strings.LastIndex(contentRange, "/"); slash >= 0 {
-			size, _ = strconv.ParseInt(contentRange[slash+1:], 10, 64)
+			total, parseErr := strconv.ParseInt(strings.TrimSpace(contentRange[slash+1:]), 10, 64)
+			switch {
+			case parseErr == nil:
+				size = total
+			case response.StatusCode == http.StatusPartialContent:
+				// A partial response covers one range only, so its Content-Length
+				// measures that range and the missing ("bytes 0-0/*") or unparsable
+				// total leaves the file size unknown.
+				size = -1
+			}
+			// For a full response the Content-Length read above is the whole entity
+			// length, so it is kept instead of being replaced by zero.
 		}
 	}
 	if size < 0 {

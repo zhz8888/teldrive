@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -149,5 +150,69 @@ func TestUploadFilterUsesRcloneStyleExclusionsAndInclusiveSizes(t *testing.T) {
 		if got := filter.skipReason(test.path, test.size); got != test.want {
 			t.Errorf("skipReason(%q, %d) = %q, want %q", test.path, test.size, got, test.want)
 		}
+	}
+}
+
+func TestInspectHTTPSourceKeepsKnownLengthWhenContentRangeTotalIsMissing(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Length", "42")
+		response.Header().Set("Content-Range", "bytes 0-41/*")
+		_, _ = response.Write(make([]byte, 42))
+	}))
+	defer server.Close()
+	file, err := inspectHTTPSource(context.Background(), server.Client(), UploadSource{Type: "http", URL: server.URL + "/remote.bin"}, nil)
+	if err != nil {
+		t.Fatalf("inspectHTTPSource() error = %v", err)
+	}
+	if file.Size != 42 {
+		t.Fatalf("size = %d, want the known Content-Length 42", file.Size)
+	}
+}
+
+func TestInspectHTTPSourceRejectsPartialResponseWithoutTotal(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodHead {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		response.Header().Set("Content-Length", "1")
+		response.Header().Set("Content-Range", "bytes 0-0/*")
+		response.WriteHeader(http.StatusPartialContent)
+		_, _ = response.Write([]byte("x"))
+	}))
+	defer server.Close()
+	_, err := inspectHTTPSource(context.Background(), server.Client(), UploadSource{Type: "http", URL: server.URL + "/remote.bin"}, nil)
+	if !errors.Is(err, errInvalidUploadSource) {
+		t.Fatalf("inspectHTTPSource() error = %v, want errInvalidUploadSource", err)
+	}
+}
+
+func TestExpandAppliesPerSourceExcludeToHTTPSources(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Length", "4")
+		_, _ = response.Write([]byte("data"))
+	}))
+	defer server.Close()
+	worker := NewUploadBatchWorker(server.Client(), nil)
+	batchFilter, err := newUploadFilter(nil, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	excluded, err := worker.expand(context.Background(), UploadSource{Type: "http", URL: server.URL + "/archive.tmp", Exclude: []string{"*.tmp"}}, nil, batchFilter)
+	if err != nil {
+		t.Fatalf("expand() error = %v", err)
+	}
+	if len(excluded) != 0 {
+		t.Fatalf("excluded HTTP source expanded to %#v", excluded)
+	}
+	kept, err := worker.expand(context.Background(), UploadSource{Type: "http", URL: server.URL + "/archive.bin", Exclude: []string{"*.tmp"}}, nil, batchFilter)
+	if err != nil {
+		t.Fatalf("expand() error = %v", err)
+	}
+	if len(kept) != 1 || kept[0].DestinationPath != "archive.bin" || kept[0].Size != 4 {
+		t.Fatalf("HTTP source = %#v", kept)
 	}
 }

@@ -4,6 +4,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestRuntimeRetryClearsCancellationMarker(t *testing.T) {
 	}
 }
 
-func TestRuntimeRetryPreservesRunningCancellationMarker(t *testing.T) {
+func TestRuntimeRetryRejectsRunningJob(t *testing.T) {
 	db := testpostgres.New(t)
 	runtime, err := NewRuntime(db.Pool, defaultsStorage{})
 	if err != nil {
@@ -74,14 +75,17 @@ func TestRuntimeRetryPreservesRunningCancellationMarker(t *testing.T) {
 		t.Fatalf("Cancel() error = %v", err)
 	}
 
-	retried, err := runtime.Retry(ctx, inserted.Job.ID)
+	if _, err := runtime.Retry(ctx, inserted.Job.ID); !errors.Is(err, ErrInvalidJobState) {
+		t.Fatalf("Retry() error = %v, want ErrInvalidJobState", err)
+	}
+	persisted, err := runtime.Get(ctx, inserted.Job.ID)
 	if err != nil {
-		t.Fatalf("Retry() error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
-	if retried.State != string(rivertype.JobStateRunning) {
-		t.Fatalf("retry state = %q, want running", retried.State)
+	if persisted.State != string(rivertype.JobStateRunning) {
+		t.Fatalf("state = %q, want running", persisted.State)
 	}
-	if _, ok := retried.Metadata["cancel_attempted_at"]; !ok {
-		t.Fatal("retry removed active cancel_attempted_at metadata from running job")
+	if _, ok := persisted.Metadata["cancel_attempted_at"]; !ok {
+		t.Fatal("rejected retry removed active cancel_attempted_at metadata from running job")
 	}
 }

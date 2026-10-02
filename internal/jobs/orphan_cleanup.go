@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -20,6 +21,11 @@ import (
 // OrphanCleanupKind is the River job kind of the periodic sweep that deletes
 // Telegram documents no active file references any more.
 const OrphanCleanupKind = "teldrive_cleanup_orphaned_telegram_parts"
+
+// ErrOrphanCleanupNotConfigured is returned by Work when the worker was built
+// without its pool, document lister or Telegram storage, which means the runtime
+// did not wire it up. Callers must test it with errors.Is.
+var ErrOrphanCleanupNotConfigured = errors.New("orphan cleanup worker is not configured")
 
 // maxOrphanOutputBytes bounds the recorded job output well below River's
 // 32MB limit, so a badly damaged channel degrades to counters instead of
@@ -149,6 +155,9 @@ type OrphanedTelegramPartsCleanupWorker struct {
 	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
 	// does not override.
 	river.WorkerDefaults[OrphanCleanupArgs]
+	// pool is only checked for nil: Work rejects a worker that has no pool rather
+	// than panicking inside a query.
+	pool *pgxpool.Pool
 	// queries lists the channels to inspect and the message IDs they reference.
 	queries *sqlcgen.Queries
 	// lister paginates the documents stored in a channel.
@@ -162,11 +171,11 @@ type OrphanedTelegramPartsCleanupWorker struct {
 }
 
 // NewOrphanedTelegramPartsCleanupWorker returns a sweep worker that ignores
-// documents younger than minimumAge. pool, storage and lister must all be
-// non-nil; the worker has no configuration guard, so a missing dependency fails
-// inside the first query rather than with a sentinel error.
+// documents younger than minimumAge. pool, storage and lister are all required:
+// Work returns ErrOrphanCleanupNotConfigured when one of them is missing, rather
+// than panicking inside the first query or delete.
 func NewOrphanedTelegramPartsCleanupWorker(pool *pgxpool.Pool, storage telegramstore.Storage, lister telegramstore.DocumentMessageLister, minimumAge time.Duration) *OrphanedTelegramPartsCleanupWorker {
-	return &OrphanedTelegramPartsCleanupWorker{queries: sqlcgen.New(pool), storage: storage, lister: lister, minimumAge: minimumAge}
+	return &OrphanedTelegramPartsCleanupWorker{pool: pool, queries: sqlcgen.New(pool), storage: storage, lister: lister, minimumAge: minimumAge}
 }
 
 // Timeout allows four hours: the sweep lists every page of every channel,
@@ -187,7 +196,14 @@ func (w *OrphanedTelegramPartsCleanupWorker) Timeout(*river.Job[OrphanCleanupArg
 // that fails halfway leaves the earlier pages deleted; the retry lists whatever is
 // still there and converges. Once a channel has been fully listed, the referenced
 // parts that never appeared in it are reported as broken files.
+//
+// It returns ErrOrphanCleanupNotConfigured when the worker is missing its pool,
+// lister or Telegram storage, so a misconfigured runtime fails with a sentinel
+// error instead of panicking inside the sweep.
 func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *river.Job[OrphanCleanupArgs]) error {
+	if w == nil || w.pool == nil || w.queries == nil || w.lister == nil || w.storage == nil {
+		return ErrOrphanCleanupNotConfigured
+	}
 	channels, err := w.queries.ListChannelsForOrphanCleanup(ctx)
 	if err != nil {
 		return fmt.Errorf("list channels for orphan cleanup: %w", err)

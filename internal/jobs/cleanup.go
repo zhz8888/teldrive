@@ -223,7 +223,7 @@ func (w *UploadCleanupWorker) cleanupUploads(ctx context.Context, sessions []*sq
 			return fmt.Errorf("delete upload parts after Telegram cleanup: %w", err)
 		}
 		if deleted != int64(len(records)) {
-			return fmt.Errorf("%d upload parts changed during cleanup", int64(len(records))-deleted)
+			return fmt.Errorf("upload cleanup deleted %d of %d parts; %d parts changed during cleanup", deleted, len(records), int64(len(records))-deleted)
 		}
 	}
 	return nil

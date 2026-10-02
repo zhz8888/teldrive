@@ -394,14 +394,15 @@ func (r *Runtime) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop cancels the workers' context and stops the RiverPro client, which stops
-// handing out jobs and waits for the in-flight ones, cancelling whatever is
-// still running once the 30 second soft stop timeout expires. It returns nil
-// when the runtime was never started or is already stopped, so it is safe to
-// call during shutdown unconditionally.
+// Stop stops the RiverPro client, which stops handing out jobs and waits for the
+// in-flight ones, cancelling whatever is still running once the 30 second soft
+// stop timeout expires; the workers' context is cancelled afterwards, once the
+// client has actually stopped. It returns nil when the runtime was never started
+// or is already stopped, so it is safe to call during shutdown unconditionally.
 //
 // If ctx is cancelled before the client has drained, Stop returns the context
-// error and leaves the runtime marked as started, so a later call can retry.
+// error and leaves the runtime marked as started with its cancellation still in
+// place, so a later call can retry the shutdown.
 func (r *Runtime) Stop(ctx context.Context) error {
 	if r == nil || r.client == nil {
 		return ErrRuntimeNotConfigured
@@ -411,12 +412,12 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	if !r.started {
 		return nil
 	}
+	if err := r.client.Stop(ctx); err != nil {
+		return fmt.Errorf("stop RiverPro client: %w", err)
+	}
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
-	}
-	if err := r.client.Stop(ctx); err != nil {
-		return fmt.Errorf("stop RiverPro client: %w", err)
 	}
 	r.started = false
 	return nil

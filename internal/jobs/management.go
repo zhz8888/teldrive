@@ -17,11 +17,11 @@ import (
 	"github.com/riverqueue/river/riverdriver"
 )
 
-// ErrInvalidJobState reports that a purge was requested for a state that can
-// never be purged. Only the finalized states cancelled, completed and discarded
-// are accepted, because deleting a job that is still going to run would lose
-// work silently. Callers must test it with errors.Is and answer with a client
-// error rather than a server failure.
+// ErrInvalidJobState reports that an operation was refused because of the state
+// the target job is in, so nothing would change: a purge of a state that is not
+// finalized (cancelled, completed or discarded), or a retry of a job River leaves
+// untouched because it is running or already queued. Callers must test it with
+// errors.Is and answer with a client conflict error rather than a server failure.
 var ErrInvalidJobState = errors.New("invalid job state")
 
 // CreateInput describes a one-off job inserted by an administrator. Only the
@@ -29,7 +29,7 @@ var ErrInvalidJobState = errors.New("invalid job state")
 // MaxAttempts at their zero values takes the River defaults.
 type CreateInput struct {
 	// Kind is the worker kind to run. It must be one of the cleanup sweep kinds
-	// listed by Runtime.Create.
+	// this runtime registered a worker for, as checked by Runtime.Create.
 	Kind string
 	// Args holds the job arguments as raw JSON keyed by JSON field name; nil is
 	// stored as an empty object.
@@ -120,7 +120,8 @@ type PeriodicJob struct {
 type PeriodicJobInput struct {
 	// ID is the identifier of the definition to create or update.
 	ID string
-	// Kind is the worker kind that each run uses.
+	// Kind is the worker kind that each run uses; it must be one of the cleanup
+	// sweep kinds this runtime registered a worker for.
 	Kind string
 	// Args holds the arguments inserted with every run, as raw JSON keyed by JSON
 	// field name; nil is stored as an empty object.
@@ -473,13 +474,20 @@ func (r *Runtime) PeriodicJobCatalog() []PeriodicTemplate {
 // must not be in use yet; RiverPro reports a duplicate as
 // riverpro.ErrPeriodicJobAlreadyExists, which the console maps to a conflict.
 // Blank queue, non-positive priority or attempt budget and a blank timezone fall
-// back to defaults, and a blank kind is rejected before any write. It returns
-// ErrRuntimeNotConfigured when the runtime has no client.
+// back to defaults. The kind must name a cleanup sweep this runtime registered a
+// worker for, the same set Create accepts, so a schedule can never be stored for
+// a job that would fail with an unknown job kind on every run; the check happens
+// before any write. It returns ErrRuntimeNotConfigured when the runtime has no
+// client.
 func (r *Runtime) CreatePeriodicJob(ctx context.Context, input PeriodicJobInput) (PeriodicJob, error) {
 	if r == nil || r.client == nil {
 		return PeriodicJob{}, ErrRuntimeNotConfigured
 	}
-	args, err := newRawPeriodicJobArgs(input.Kind, input.Args)
+	kind := strings.TrimSpace(input.Kind)
+	if err := r.validateCleanupJobKind(kind); err != nil {
+		return PeriodicJob{}, err
+	}
+	args, err := newRawPeriodicJobArgs(kind, input.Args)
 	if err != nil {
 		return PeriodicJob{}, err
 	}
@@ -702,18 +710,18 @@ func (a rawJobArgs) MarshalJSON() ([]byte, error) { return append([]byte(nil), a
 // sweep kinds are accepted (upload cleanup, user event cleanup, trash cleanup,
 // pending deletion purge and orphaned Telegram part cleanup) because those are
 // the sweeps that are safe to trigger by hand; any other kind is rejected with
-// an error naming it. River separately refuses a kind whose worker is not
-// registered on this runtime, so a sweep belonging to a disabled feature fails
-// immediately instead of being queued. Blank queue, non-positive priority or
-// attempt budget fall back to the River defaults. It returns
-// ErrRuntimeNotConfigured when the runtime has no client.
+// an error naming it. A sweep that belongs to a feature this runtime was not
+// configured with, such as the trash cleanup without a purge service, is refused
+// the same way before River can fail the insert with an unknown job kind. Blank
+// queue, non-positive priority or attempt budget fall back to the River defaults.
+// It returns ErrRuntimeNotConfigured when the runtime has no client.
 func (r *Runtime) Create(ctx context.Context, input CreateInput) (Job, error) {
 	if r == nil || r.client == nil {
 		return Job{}, ErrRuntimeNotConfigured
 	}
 	kind := strings.TrimSpace(input.Kind)
-	if kind != UploadCleanupSweepKind && kind != EventCleanupKind && kind != TrashCleanupSweepKind && kind != PurgeSweepKind && kind != OrphanCleanupKind {
-		return Job{}, fmt.Errorf("unsupported job kind %q", kind)
+	if err := r.validateCleanupJobKind(kind); err != nil {
+		return Job{}, err
 	}
 	encoded, err := json.Marshal(input.Args)
 	if err != nil {
@@ -727,6 +735,32 @@ func (r *Runtime) Create(ctx context.Context, input CreateInput) (Job, error) {
 		return Job{}, fmt.Errorf("create job: %w", err)
 	}
 	return jobFromRiver(result.Job), nil
+}
+
+// validateCleanupJobKind reports whether kind names a cleanup sweep this runtime
+// registered a worker for, and otherwise the reason it cannot be used. The upload
+// cleanup and user event cleanup workers are always registered; the trash cleanup
+// and pending deletion purge need a purge service, and the orphaned Telegram part
+// cleanup needs a storage backend that can list documents. Create and
+// CreatePeriodicJob share it, so neither can store a definition for a job this
+// runtime would only fail on later with an unknown job kind.
+func (r *Runtime) validateCleanupJobKind(kind string) error {
+	switch kind {
+	case UploadCleanupSweepKind, EventCleanupKind:
+		return nil
+	case TrashCleanupSweepKind, PurgeSweepKind:
+		if r.purgeEnabled {
+			return nil
+		}
+		return fmt.Errorf("job kind %q is unavailable: this runtime was built without a purge service", kind)
+	case OrphanCleanupKind:
+		if r.orphanCleanupEnabled {
+			return nil
+		}
+		return fmt.Errorf("job kind %q is unavailable: this runtime's storage backend cannot list documents", kind)
+	default:
+		return fmt.Errorf("unsupported job kind %q", kind)
+	}
 }
 
 // rawArgs renders a built-in argument value as the raw JSON object stored in

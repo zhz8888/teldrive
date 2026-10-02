@@ -348,7 +348,13 @@ func (r *Runtime) Cancel(ctx context.Context, id int64) (Job, error) {
 // Retry puts a job back on its queue and returns the updated row: it sets the
 // state back to available, schedules the job for immediate execution, clears the
 // finalization time and grants one extra attempt when the budget was already
-// exhausted, so a discarded job can run again. Running jobs are left untouched.
+// exhausted, so a discarded job can run again.
+//
+// River's retry statement leaves a running job untouched, because its worker still
+// owns it, and leaves an available job whose scheduled time has passed untouched,
+// because it is already waiting to be worked. Retry reads the job first and
+// reports those two states with ErrInvalidJobState instead of returning a success
+// that changed nothing.
 //
 // The same transaction removes the "cancel_attempted_at" marker River stores
 // when a running job is cancelled, so a retried job is not cancelled later by
@@ -359,12 +365,25 @@ func (r *Runtime) Retry(ctx context.Context, id int64) (Job, error) {
 	if r == nil || r.client == nil || r.pool == nil {
 		return Job{}, ErrRuntimeNotConfigured
 	}
+	current, err := r.client.JobGet(ctx, id)
+	if err != nil {
+		return Job{}, err
+	}
+	if !retryRequeuesJob(current) {
+		return Job{}, fmt.Errorf("%w: job %d is %s and retry would leave it unchanged", ErrInvalidJobState, id, current.State)
+	}
 	var row *rivertype.JobRow
-	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		var err error
 		row, err = r.client.JobRetryTx(ctx, tx, id)
-		if err != nil || row.State == rivertype.JobStateRunning {
+		if err != nil {
 			return err
+		}
+		if row.State == rivertype.JobStateRunning {
+			// The job started running between the read above and this
+			// transaction, so the retry statement left it untouched and its
+			// cancel_attempted_at marker must stay.
+			return fmt.Errorf("%w: job %d is %s and retry would leave it unchanged", ErrInvalidJobState, id, row.State)
 		}
 
 		jobTable := pgx.Identifier{r.schema, "river_job"}.Sanitize()
@@ -377,6 +396,24 @@ func (r *Runtime) Retry(ctx context.Context, id int64) (Job, error) {
 		return Job{}, err
 	}
 	return jobFromRiver(row), nil
+}
+
+// retryRequeuesJob reports whether River's retry statement would actually move the
+// job back to the available state. It mirrors the conditions of that statement: a
+// running job is owned by its worker, and an available job whose scheduled time
+// has already passed is queued for immediate execution, so both are skipped. It
+// compares the scheduled time with the local clock, which is close enough to the
+// database's for a pre-check; a job that changes state in between is caught by the
+// running-state check inside the retry transaction.
+func retryRequeuesJob(row *rivertype.JobRow) bool {
+	switch row.State {
+	case rivertype.JobStateRunning:
+		return false
+	case rivertype.JobStateAvailable:
+		return row.ScheduledAt.After(time.Now())
+	default:
+		return true
+	}
 }
 
 // Delete removes the job row permanently. River refuses to delete a job in the

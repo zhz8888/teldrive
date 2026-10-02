@@ -1,12 +1,15 @@
 package jobs
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/riverqueue/river"
 
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
@@ -81,5 +84,14 @@ func TestLimitBrokenFilesSize(t *testing.T) {
 	empty := OrphanCleanupOutput{BrokenFiles: []BrokenFile{}, BrokenTotal: 0}
 	if got := limitBrokenFilesSize(empty, 10); got.BrokenTruncated {
 		t.Fatalf("empty list must never truncate")
+	}
+}
+
+func TestOrphanCleanupWorkerRejectsMissingDependencies(t *testing.T) {
+	t.Parallel()
+	worker := NewOrphanedTelegramPartsCleanupWorker(nil, nil, nil, 0)
+	err := worker.Work(context.Background(), &river.Job[OrphanCleanupArgs]{})
+	if !errors.Is(err, ErrOrphanCleanupNotConfigured) {
+		t.Fatalf("Work() error = %v, want ErrOrphanCleanupNotConfigured", err)
 	}
 }

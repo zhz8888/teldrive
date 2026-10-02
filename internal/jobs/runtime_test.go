@@ -98,3 +98,24 @@ func TestRuntimeRejectsMissingDependencies(t *testing.T) {
 		t.Fatalf("InsertCleanup() error = %v", err)
 	}
 }
+
+func TestValidateCleanupJobKind(t *testing.T) {
+	t.Parallel()
+	disabled := &Runtime{}
+	for _, kind := range []string{UploadCleanupSweepKind, EventCleanupKind} {
+		if err := disabled.validateCleanupJobKind(kind); err != nil {
+			t.Fatalf("validateCleanupJobKind(%q) = %v", kind, err)
+		}
+	}
+	for _, kind := range []string{TrashCleanupSweepKind, PurgeSweepKind, OrphanCleanupKind, "unknown_kind", ""} {
+		if err := disabled.validateCleanupJobKind(kind); err == nil {
+			t.Fatalf("validateCleanupJobKind(%q) succeeded, want an error", kind)
+		}
+	}
+	enabled := &Runtime{purgeEnabled: true, orphanCleanupEnabled: true}
+	for _, kind := range []string{TrashCleanupSweepKind, PurgeSweepKind, OrphanCleanupKind} {
+		if err := enabled.validateCleanupJobKind(kind); err != nil {
+			t.Fatalf("validateCleanupJobKind(%q) = %v", kind, err)
+		}
+	}
+}

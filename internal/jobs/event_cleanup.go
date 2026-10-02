@@ -18,7 +18,7 @@ import (
 const EventCleanupKind = "teldrive_cleanup_user_events"
 
 // ErrEventCleanupNotConfigured is returned by Work when the worker was built
-// without its queries or clock, which means the runtime did not wire it up.
+// without its pool, queries or clock, which means the runtime did not wire it up.
 var ErrEventCleanupNotConfigured = errors.New("event cleanup worker is not configured")
 
 // EventCleanupArgs carries the retention window of one user-event sweep. It is
@@ -47,6 +47,9 @@ type EventCleanupWorker struct {
 	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
 	// does not override.
 	river.WorkerDefaults[EventCleanupArgs]
+	// pool is only checked for nil: Work rejects a worker that has no pool rather
+	// than panicking inside a query.
+	pool *pgxpool.Pool
 	// queries performs the retention delete.
 	queries *sqlcgen.Queries
 	// now returns the current time; tests replace it to pin the cutoff.
@@ -54,10 +57,11 @@ type EventCleanupWorker struct {
 }
 
 // NewEventCleanupWorker returns a worker backed by pool and using the system
-// clock for the cutoff. The pool must be non-nil; the worker keeps no reference
-// to it, so it cannot detect a missing pool the way the other workers do.
+// clock for the cutoff. The pool is required: Work returns
+// ErrEventCleanupNotConfigured when it is missing, rather than failing inside the
+// first query.
 func NewEventCleanupWorker(pool *pgxpool.Pool) *EventCleanupWorker {
-	return &EventCleanupWorker{queries: sqlcgen.New(pool), now: time.Now}
+	return &EventCleanupWorker{pool: pool, queries: sqlcgen.New(pool), now: time.Now}
 }
 
 // Timeout allows 30 minutes for the retention DELETE, which can touch every row
@@ -74,7 +78,7 @@ func (w *EventCleanupWorker) Timeout(*river.Job[EventCleanupArgs]) time.Duration
 // rejects a retention that does not parse or is not positive. The delete is
 // idempotent, so a retry after a partial failure is safe.
 func (w *EventCleanupWorker) Work(ctx context.Context, job *river.Job[EventCleanupArgs]) error {
-	if w == nil || w.queries == nil || w.now == nil {
+	if w == nil || w.pool == nil || w.queries == nil || w.now == nil {
 		return ErrEventCleanupNotConfigured
 	}
 	retention, err := time.ParseDuration(job.Args.Retention)
