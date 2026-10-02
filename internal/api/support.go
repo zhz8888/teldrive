@@ -80,14 +80,16 @@ func problem(status int, code, message string, cause error) error {
 //
 // It is the single place where status codes are chosen: 401 for authentication
 // and share-password failures, 403 forbidden, 404 missing resources, 409 state
-// conflicts, 410 for an expired upload session, Telegram login flow or share, 412
-// stale generations, 413 an oversized Telegram profile photo, 416 unsatisfiable
-// ranges, 422 for invalid input, an invalid event cursor, or a hash mismatch, 429
-// too many event streams, 503 an unavailable service or a missing encryption
-// key, 504 for a deadline that expired, and 500 as the fallback with the cause
-// hidden from the client. Each expired resource keeps its own code, so clients
-// can tell an expired upload session from an expired login flow or share. Nil
-// and context.Canceled pass through unchanged, because a cancelled request has
+// conflicts (including an upload completed before its parts are all stored), 410
+// for an expired upload session, Telegram login flow or share, 412 stale
+// generations, 413 an oversized Telegram profile photo, 416 unsatisfiable ranges,
+// 422 for invalid input, an invalid event cursor, a requested file operation on a
+// non-file, an upload body that does not match its declared length, or a hash
+// mismatch, 429 too many event streams, 503 an unavailable service or a missing
+// encryption key, 504 for a deadline that expired, and 500 as the fallback with
+// the cause hidden from the client. Each expired resource keeps its own code, so
+// clients can tell an expired upload session from an expired login flow or share.
+// Nil and context.Canceled pass through unchanged, because a cancelled request has
 // no client left to answer. The original error stays reachable as Cause.
 func mapServiceError(err error) error {
 	if err == nil {
@@ -121,7 +123,7 @@ func mapServiceError(err error) error {
 		return problem(http.StatusGone, "login_flow_expired", "Telegram login flow has expired", err)
 	case errors.Is(err, shares.ErrExpired):
 		return problem(http.StatusGone, "share_expired", "share has expired", err)
-	case errors.Is(err, catalog.ErrConflict), errors.Is(err, catalog.ErrCycle), errors.Is(err, uploads.ErrNameConflict), errors.Is(err, uploads.ErrInvalidState), errors.Is(err, uploads.ErrPartBusy), errors.Is(err, uploads.ErrPartConflict), errors.Is(err, uploads.ErrLeaseLost), errors.Is(err, channels.ErrSelectedChannel), errors.Is(err, channels.ErrChannelInUse), errors.Is(err, channels.ErrChannelUnhealthy), errors.Is(err, channels.ErrChannelFull), errors.Is(err, channels.ErrAutoCreateOff), errors.Is(err, channels.ErrNoSelected), errors.Is(err, jobs.ErrInvalidJobState), errors.Is(err, fileops.ErrNotTrashed):
+	case errors.Is(err, catalog.ErrConflict), errors.Is(err, catalog.ErrCycle), errors.Is(err, uploads.ErrNameConflict), errors.Is(err, uploads.ErrInvalidState), errors.Is(err, uploads.ErrPartBusy), errors.Is(err, uploads.ErrPartConflict), errors.Is(err, uploads.ErrLeaseLost), errors.Is(err, uploads.ErrIncomplete), errors.Is(err, channels.ErrSelectedChannel), errors.Is(err, channels.ErrChannelInUse), errors.Is(err, channels.ErrChannelUnhealthy), errors.Is(err, channels.ErrChannelFull), errors.Is(err, channels.ErrAutoCreateOff), errors.Is(err, channels.ErrNoSelected), errors.Is(err, jobs.ErrInvalidJobState), errors.Is(err, fileops.ErrNotTrashed):
 		return problem(http.StatusConflict, "conflict", "operation conflicts with current state", err)
 	case errors.Is(err, catalog.ErrPrecondition):
 		return problem(http.StatusPreconditionFailed, "precondition_failed", "resource generation does not match", err)
@@ -131,7 +133,7 @@ func mapServiceError(err error) error {
 		return problem(http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "requested byte range is not satisfiable", err)
 	case errors.Is(err, uploads.ErrHashMismatch), errors.Is(err, transfer.ErrChecksumMismatch):
 		return problem(http.StatusUnprocessableEntity, "hash_mismatch", "content hash does not match", err)
-	case errors.Is(err, catalog.ErrInvalidName), errors.Is(err, catalog.ErrInvalidParent), errors.Is(err, catalog.ErrInvalidOwner), errors.Is(err, catalog.ErrInvalidFilter), errors.Is(err, catalog.ErrUnsupportedConflictPolicy), errors.Is(err, uploads.ErrInvalidInput), errors.Is(err, uploads.ErrInvalidParent), errors.Is(err, uploads.ErrInvalidChannel), errors.Is(err, uploads.ErrUnsupportedConflictPolicy), errors.Is(err, transfer.ErrInvalidUpload), errors.Is(err, transfer.ErrInvalidDownload), errors.Is(err, authn.ErrInvalidInput), errors.Is(err, authn.ErrCodeInvalid), errors.Is(err, authn.ErrLoginStateInvalid), errors.Is(err, authn.ErrPasswordRequired), errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrNotBot), errors.Is(err, shares.ErrInvalidInput), errors.Is(err, fileops.ErrInvalidInput):
+	case errors.Is(err, catalog.ErrInvalidName), errors.Is(err, catalog.ErrNotAFile), errors.Is(err, catalog.ErrInvalidParent), errors.Is(err, catalog.ErrInvalidOwner), errors.Is(err, catalog.ErrInvalidFilter), errors.Is(err, catalog.ErrUnsupportedConflictPolicy), errors.Is(err, uploads.ErrInvalidInput), errors.Is(err, uploads.ErrInvalidParent), errors.Is(err, uploads.ErrInvalidChannel), errors.Is(err, uploads.ErrUnsupportedConflictPolicy), errors.Is(err, transfer.ErrInvalidUpload), errors.Is(err, transfer.ErrInvalidDownload), errors.Is(err, transfer.ErrBodyTooShort), errors.Is(err, transfer.ErrBodyTooLong), errors.Is(err, authn.ErrInvalidInput), errors.Is(err, authn.ErrCodeInvalid), errors.Is(err, authn.ErrLoginStateInvalid), errors.Is(err, authn.ErrPasswordRequired), errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrNotBot), errors.Is(err, shares.ErrInvalidInput), errors.Is(err, fileops.ErrInvalidInput):
 		return problem(http.StatusUnprocessableEntity, "invalid_request", "request is invalid", err)
 	default:
 		return problem(http.StatusInternalServerError, "internal_error", "request failed", err)
