@@ -248,6 +248,58 @@ func TestDecryptSeekRejectsUnsupportedWhence(t *testing.T) {
 	}
 }
 
+// TestDecryptSeekRejectsNegativeOffset pins that a negative offset is reported as
+// ErrorBadSeek by both entry points instead of panicking on the negative buffer
+// index it used to produce, and that a rejected seek leaves the reader where it
+// was rather than poisoning it.
+func TestDecryptSeekRejectsNegativeOffset(t *testing.T) {
+	t.Parallel()
+	plain := []byte("negative-offset")
+	cipher, err := NewCipherWithRand("negative-password", "negative-salt", bytes.NewReader(bytes.Repeat([]byte{9}, fileNonceSize)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedReader, err := cipher.EncryptData(bytes.NewReader(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := io.ReadAll(encryptedReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decryptCipher, err := NewCipher("negative-password", "negative-salt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func(_ context.Context, offset, limit int64) (io.ReadCloser, error) {
+		end := int64(len(encrypted))
+		if limit >= 0 && offset+limit < end {
+			end = offset + limit
+		}
+		return io.NopCloser(bytes.NewReader(encrypted[offset:end])), nil
+	}
+	if _, err := decryptCipher.DecryptDataSeek(context.Background(), open, -1, -1); !errors.Is(err, ErrorBadSeek) {
+		t.Fatalf("DecryptDataSeek() with a negative offset error = %v, want ErrorBadSeek", err)
+	}
+	reader, err := decryptCipher.DecryptDataSeek(context.Background(), open, 0, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.Seek(-1, io.SeekStart); !errors.Is(err, ErrorBadSeek) {
+		t.Fatalf("Seek() with a negative offset error = %v, want ErrorBadSeek", err)
+	}
+	got, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll() after a rejected seek error = %v", err)
+	}
+	if !bytes.Equal(got, plain) {
+		t.Fatalf("content after a rejected seek = %q, want %q", got, plain)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
 // closeCountingReader counts Close calls so a test can tell whether the
 // decrypter released a range it replaced.
 type closeCountingReader struct {

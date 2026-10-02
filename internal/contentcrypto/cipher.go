@@ -495,8 +495,12 @@ func (c *Cipher) newDecrypter(rc io.ReadCloser) (*decrypter, error) {
 // the target block. ctx is retained and reused by later Seek calls. On success
 // the returned reader owns every range it opens, so callers close the reader
 // rather than the individual ranges; if any step fails, the ranges opened so far
-// are closed.
+// are closed. A negative offset is rejected with ErrorBadSeek before anything is
+// opened or mutated.
 func (c *Cipher) newDecrypterSeek(ctx context.Context, open OpenRangeSeek, offset, limit int64) (fh *decrypter, err error) {
+	if offset < 0 {
+		return nil, ErrorBadSeek
+	}
 	var rc io.ReadCloser
 	doRangeSeek := false
 	setLimit := false
@@ -645,9 +649,11 @@ func calculateUnderlying(offset, limit int64) (underlyingOffset, underlyingLimit
 // initialNonce plus the block index so that no earlier block has to be
 // decrypted, and discards the bytes preceding the offset inside the first block.
 // A reader that already ended at io.EOF is revived, while any other stored error
-// stays permanent. It returns ErrorBadSeek when the reopened range ends before
-// the requested block, and it refuses to run at all unless the reader came from
-// newDecrypterSeek.
+// stays permanent. A negative offset is rejected with ErrorBadSeek before any
+// reader state changes, so it neither walks the nonce backwards nor leaves a
+// negative buffer index behind. It returns ErrorBadSeek as well when the reopened
+// range ends before the requested block, and it refuses to run at all unless the
+// reader came from newDecrypterSeek.
 func (fh *decrypter) RangeSeek(ctx context.Context, offset int64, whence int, limit int64) (int64, error) {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
@@ -657,6 +663,9 @@ func (fh *decrypter) RangeSeek(ctx context.Context, offset int64, whence int, li
 	}
 	if whence != io.SeekStart {
 		return 0, fh.finish(errors.New("can only seek from the start"))
+	}
+	if offset < 0 {
+		return 0, ErrorBadSeek
 	}
 
 	if fh.err == io.EOF {
@@ -793,7 +802,9 @@ func (c *Cipher) DecryptData(rc io.ReadCloser) (io.ReadCloser, error) {
 // the stored ranges needed for that window are fetched through open, and later
 // Seek calls reuse ctx to reopen the content. Header errors match DecryptData;
 // when the source cannot supply the block holding offset, the call fails instead
-// of returning a short reader.
+// of returning a short reader, and a negative offset fails with ErrorBadSeek
+// before open is called. The same error comes back from a later Seek to a
+// negative offset, which leaves the reader where it was.
 func (c *Cipher) DecryptDataSeek(ctx context.Context, open OpenRangeSeek, offset, limit int64) (ReadSeekCloser, error) {
 	out, err := c.newDecrypterSeek(ctx, open, offset, limit)
 	if err != nil {
