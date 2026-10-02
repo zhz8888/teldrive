@@ -18,7 +18,6 @@ import { AppDialog } from "@/components/dialogs/app-dialog";
 import { Page, PageContent } from "@/components/page";
 import { FileBrowser, formatFileBytes, type FileBrowserView } from "@/features/files/file-browser";
 import { copyText } from "@/features/files/download";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/share/$token")({
@@ -297,7 +296,6 @@ function PublicSharePage() {
           method: "POST",
           headers: {
             ...jsonShareHeaders(activePassword),
-            "Idempotency-Key": newIdempotencyKey(),
           },
           body: JSON.stringify({
             parentId: currentParentId,
@@ -330,7 +328,6 @@ function PublicSharePage() {
           method: "POST",
           headers: {
             ...(shareHeaders(activePassword) ?? {}),
-            "Idempotency-Key": newIdempotencyKey(),
           },
         },
       );

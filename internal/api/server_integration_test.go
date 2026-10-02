@@ -61,9 +61,8 @@ func TestGeneratedServerUploadCompleteAndRangeDownload(t *testing.T) {
 
 	createBody := []byte(`{"name":"api.bin","size":10,"modTime":"2026-07-01T00:00:00Z","preferredPartSize":1048576}`)
 	createHeaders := map[string]string{
-		"Authorization":   "Bearer test-token",
-		"Content-Type":    "application/json",
-		"Idempotency-Key": uuid.NewString(),
+		"Authorization": "Bearer test-token",
+		"Content-Type":  "application/json",
 	}
 	created := performRequest(t, server, http.MethodPost, "/v1/uploads", createBody, createHeaders)
 	if created.Code != http.StatusCreated {
@@ -86,8 +85,7 @@ func TestGeneratedServerUploadCompleteAndRangeDownload(t *testing.T) {
 
 	completePath := "/v1/uploads/" + uuid.UUID(session.ID).String() + "/complete"
 	completed := performRequest(t, server, http.MethodPost, completePath, nil, map[string]string{
-		"Authorization":   "Bearer test-token",
-		"Idempotency-Key": uuid.NewString(),
+		"Authorization": "Bearer test-token",
 	})
 	if completed.Code != http.StatusCreated {
 		t.Fatalf("complete status = %d, body=%s", completed.Code, completed.Body.String())

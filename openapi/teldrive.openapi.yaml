@@ -70,8 +70,7 @@ paths:
     post:
       operationId: telegramLoginStart
       description: Begin Telegram authentication and send a login code.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -118,8 +117,7 @@ paths:
     post:
       operationId: telegramQRLoginStart
       description: Begin a resumable Telegram QR login flow.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -161,8 +159,7 @@ paths:
       operationId: telegramQRLoginPoll
       description: Poll a Telegram QR login flow. Any API replica can resume the
         encrypted flow state.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -221,8 +218,7 @@ paths:
     post:
       operationId: telegramLoginVerifyCode
       description: Verify the Telegram login code.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -281,8 +277,7 @@ paths:
     post:
       operationId: telegramLoginVerifyPassword
       description: Complete Telegram two-step verification.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -369,8 +364,7 @@ paths:
       operationId: cookieTelegramLoginVerifyCode
       description: Complete Telegram code verification and establish an HttpOnly
         cookie session.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -437,8 +431,7 @@ paths:
       operationId: cookieTelegramLoginVerifyPassword
       description: Complete Telegram password verification and establish an HttpOnly
         cookie session.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -498,8 +491,7 @@ paths:
       operationId: cookieTelegramQRLoginPoll
       description: Poll Telegram QR login and establish an HttpOnly cookie session
         when authorized.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -923,8 +915,7 @@ paths:
         - CookieAuth: []
     post:
       operationId: createApiKey
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -1094,8 +1085,7 @@ paths:
         - ExternalApiKeyAuth: []
     post:
       operationId: createChannel
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -1178,8 +1168,7 @@ paths:
       operationId: syncChannels
       description: Discover and upsert manageable Telegram channels without deleting
         missing rows.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -1327,8 +1316,7 @@ paths:
         - CookieAuth: []
     post:
       operationId: createBots
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -1716,7 +1704,6 @@ paths:
       operationId: moveFile
       description: Move a file or folder using metadata only.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - $ref: "#/components/parameters/OptionalIfMatchHeader"
         - name: fileId
           in: path
@@ -1782,7 +1769,6 @@ paths:
       operationId: copyFile
       description: Copy a file or folder to another destination.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: fileId
           in: path
           required: true
@@ -1846,7 +1832,6 @@ paths:
       operationId: restoreFile
       description: Restore a trashed file or folder.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: fileId
           in: path
           required: true
@@ -2428,8 +2413,7 @@ paths:
     post:
       operationId: bulkMoveFiles
       description: Transactionally move multiple files or folders.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -2477,8 +2461,7 @@ paths:
     post:
       operationId: bulkTrashFiles
       description: Transactionally move multiple files or folders to trash.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "200":
           description: The request has succeeded.
@@ -2575,8 +2558,7 @@ paths:
   /v1/folders:
     post:
       operationId: createFolder
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -2680,8 +2662,7 @@ paths:
     post:
       operationId: createUpload
       description: Create a durable upload session.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
+      parameters: []
       responses:
         "201":
           description: The request has succeeded and a new resource has been created as a
@@ -3073,7 +3054,6 @@ paths:
 
         guarantees immediate read-after-write visibility.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: uploadId
           in: path
           required: true
@@ -3151,7 +3131,6 @@ paths:
     post:
       operationId: createShare
       parameters:
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: fileId
           in: path
           required: true
@@ -4659,7 +4638,6 @@ paths:
       operationId: createPublicShareUpload
       parameters:
         - $ref: "#/components/parameters/SharePasswordHeader"
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: token
           in: path
           required: true
@@ -4821,7 +4799,6 @@ paths:
       operationId: completePublicShareUpload
       parameters:
         - $ref: "#/components/parameters/SharePasswordHeader"
-        - $ref: "#/components/parameters/IdempotencyHeader"
         - name: token
           in: path
           required: true
@@ -5594,13 +5571,6 @@ paths:
         - ExternalApiKeyAuth: []
 components:
   parameters:
-    IdempotencyHeader:
-      name: Idempotency-Key
-      in: header
-      required: true
-      description: Stable UUID generated by the caller for safe request retries.
-      schema:
-        $ref: "#/components/schemas/Uuid"
     RefreshCookie:
       name: teldrive_refresh
       in: cookie

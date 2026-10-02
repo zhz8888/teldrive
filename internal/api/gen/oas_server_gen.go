@@ -24,13 +24,13 @@ type Handler interface {
 	// Transactionally move multiple files or folders.
 	//
 	// POST /v1/files/bulk/move
-	BulkMoveFiles(ctx context.Context, req *FileBulkMoveRequest, params BulkMoveFilesParams) (BulkMoveFilesRes, error)
+	BulkMoveFiles(ctx context.Context, req *FileBulkMoveRequest) (BulkMoveFilesRes, error)
 	// BulkTrashFiles implements bulkTrashFiles operation.
 	//
 	// Transactionally move multiple files or folders to trash.
 	//
 	// POST /v1/files/bulk/trash
-	BulkTrashFiles(ctx context.Context, req *FileBulkTrashRequest, params BulkTrashFilesParams) (BulkTrashFilesRes, error)
+	BulkTrashFiles(ctx context.Context, req *FileBulkTrashRequest) (BulkTrashFilesRes, error)
 	// CancelJob implements cancelJob operation.
 	//
 	// POST /v1/jobs/{jobId}/cancel
@@ -57,19 +57,19 @@ type Handler interface {
 	// Complete Telegram code verification and establish an HttpOnly cookie session.
 	//
 	// POST /v1/auth/cookie/telegram/verify-code
-	CookieTelegramLoginVerifyCode(ctx context.Context, req *TelegramCodeVerifyRequest, params CookieTelegramLoginVerifyCodeParams) (CookieTelegramLoginVerifyCodeRes, error)
+	CookieTelegramLoginVerifyCode(ctx context.Context, req *TelegramCodeVerifyRequest) (CookieTelegramLoginVerifyCodeRes, error)
 	// CookieTelegramLoginVerifyPassword implements cookieTelegramLoginVerifyPassword operation.
 	//
 	// Complete Telegram password verification and establish an HttpOnly cookie session.
 	//
 	// POST /v1/auth/cookie/telegram/verify-password
-	CookieTelegramLoginVerifyPassword(ctx context.Context, req *TelegramPasswordVerifyRequest, params CookieTelegramLoginVerifyPasswordParams) (CookieTelegramLoginVerifyPasswordRes, error)
+	CookieTelegramLoginVerifyPassword(ctx context.Context, req *TelegramPasswordVerifyRequest) (CookieTelegramLoginVerifyPasswordRes, error)
 	// CookieTelegramQRLoginPoll implements cookieTelegramQRLoginPoll operation.
 	//
 	// Poll Telegram QR login and establish an HttpOnly cookie session when authorized.
 	//
 	// POST /v1/auth/cookie/telegram/qr/poll
-	CookieTelegramQRLoginPoll(ctx context.Context, req *TelegramQRLoginPollRequest, params CookieTelegramQRLoginPollParams) (CookieTelegramQRLoginPollRes, error)
+	CookieTelegramQRLoginPoll(ctx context.Context, req *TelegramQRLoginPollRequest) (CookieTelegramQRLoginPollRes, error)
 	// CopyFile implements copyFile operation.
 	//
 	// Copy a file or folder to another destination.
@@ -79,15 +79,15 @@ type Handler interface {
 	// CreateApiKey implements createApiKey operation.
 	//
 	// POST /v1/api-keys
-	CreateApiKey(ctx context.Context, req *ApiKeyCreateRequest, params CreateApiKeyParams) (CreateApiKeyRes, error)
+	CreateApiKey(ctx context.Context, req *ApiKeyCreateRequest) (CreateApiKeyRes, error)
 	// CreateBots implements createBots operation.
 	//
 	// POST /v1/bots
-	CreateBots(ctx context.Context, req *BotCreateRequest, params CreateBotsParams) (CreateBotsRes, error)
+	CreateBots(ctx context.Context, req *BotCreateRequest) (CreateBotsRes, error)
 	// CreateChannel implements createChannel operation.
 	//
 	// POST /v1/channels
-	CreateChannel(ctx context.Context, req *ChannelCreateRequest, params CreateChannelParams) (CreateChannelRes, error)
+	CreateChannel(ctx context.Context, req *ChannelCreateRequest) (CreateChannelRes, error)
 	// CreateEventStreamTicket implements createEventStreamTicket operation.
 	//
 	// Create a short-lived browser-compatible event stream credential.
@@ -101,7 +101,7 @@ type Handler interface {
 	// CreateFolder implements createFolder operation.
 	//
 	// POST /v1/folders
-	CreateFolder(ctx context.Context, req *FolderCreateRequest, params CreateFolderParams) (CreateFolderRes, error)
+	CreateFolder(ctx context.Context, req *FolderCreateRequest) (CreateFolderRes, error)
 	// CreateJob implements createJob operation.
 	//
 	// POST /v1/jobs
@@ -127,7 +127,7 @@ type Handler interface {
 	// Create a durable upload session.
 	//
 	// POST /v1/uploads
-	CreateUpload(ctx context.Context, req *UploadCreateRequest, params CreateUploadParams) (CreateUploadRes, error)
+	CreateUpload(ctx context.Context, req *UploadCreateRequest) (CreateUploadRes, error)
 	// CreateUploadImport implements createUploadImport operation.
 	//
 	// Queue local paths, recursive folders, and HTTP URLs for server-side upload.
@@ -468,37 +468,37 @@ type Handler interface {
 	// Discover and upsert manageable Telegram channels without deleting missing rows.
 	//
 	// POST /v1/channels/sync
-	SyncChannels(ctx context.Context, params SyncChannelsParams) (SyncChannelsRes, error)
+	SyncChannels(ctx context.Context) (SyncChannelsRes, error)
 	// TelegramLoginStart implements telegramLoginStart operation.
 	//
 	// Begin Telegram authentication and send a login code.
 	//
 	// POST /v1/auth/telegram/start
-	TelegramLoginStart(ctx context.Context, req *TelegramLoginStartRequest, params TelegramLoginStartParams) (TelegramLoginStartRes, error)
+	TelegramLoginStart(ctx context.Context, req *TelegramLoginStartRequest) (TelegramLoginStartRes, error)
 	// TelegramLoginVerifyCode implements telegramLoginVerifyCode operation.
 	//
 	// Verify the Telegram login code.
 	//
 	// POST /v1/auth/telegram/verify-code
-	TelegramLoginVerifyCode(ctx context.Context, req *TelegramCodeVerifyRequest, params TelegramLoginVerifyCodeParams) (TelegramLoginVerifyCodeRes, error)
+	TelegramLoginVerifyCode(ctx context.Context, req *TelegramCodeVerifyRequest) (TelegramLoginVerifyCodeRes, error)
 	// TelegramLoginVerifyPassword implements telegramLoginVerifyPassword operation.
 	//
 	// Complete Telegram two-step verification.
 	//
 	// POST /v1/auth/telegram/verify-password
-	TelegramLoginVerifyPassword(ctx context.Context, req *TelegramPasswordVerifyRequest, params TelegramLoginVerifyPasswordParams) (TelegramLoginVerifyPasswordRes, error)
+	TelegramLoginVerifyPassword(ctx context.Context, req *TelegramPasswordVerifyRequest) (TelegramLoginVerifyPasswordRes, error)
 	// TelegramQRLoginPoll implements telegramQRLoginPoll operation.
 	//
 	// Poll a Telegram QR login flow. Any API replica can resume the encrypted flow state.
 	//
 	// POST /v1/auth/telegram/qr/poll
-	TelegramQRLoginPoll(ctx context.Context, req *TelegramQRLoginPollRequest, params TelegramQRLoginPollParams) (TelegramQRLoginPollRes, error)
+	TelegramQRLoginPoll(ctx context.Context, req *TelegramQRLoginPollRequest) (TelegramQRLoginPollRes, error)
 	// TelegramQRLoginStart implements telegramQRLoginStart operation.
 	//
 	// Begin a resumable Telegram QR login flow.
 	//
 	// POST /v1/auth/telegram/qr/start
-	TelegramQRLoginStart(ctx context.Context, params TelegramQRLoginStartParams) (TelegramQRLoginStartRes, error)
+	TelegramQRLoginStart(ctx context.Context) (TelegramQRLoginStartRes, error)
 	// TrashFile implements trashFile operation.
 	//
 	// Move a file or folder to trash.

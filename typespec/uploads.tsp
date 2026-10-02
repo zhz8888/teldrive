@@ -186,7 +186,7 @@ namespace Uploads {
   /** Create a durable upload session. */
   @post
   @operationId("createUpload")
-  op create(...IdempotencyHeader, @body body: UploadCreateRequest):
+  op create(@body body: UploadCreateRequest):
     | JsonResponse<201, UploadSession>
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -246,7 +246,7 @@ namespace Uploads {
   @post
   @route("/{uploadId}/complete")
   @operationId("completeUpload")
-  op complete(...IdempotencyHeader, @path uploadId: Uuid):
+  op complete(@path uploadId: Uuid):
     | UploadCompletedResponse
     | ErrorResponse<401>
     | ErrorResponse<404>

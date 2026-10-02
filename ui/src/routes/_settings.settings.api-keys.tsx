@@ -7,7 +7,6 @@ import { userMessage } from "@/api/errors";
 import type { ApiKeyCreated } from "@/api/types";
 import { ConfirmDialog } from "@/components/dialogs/confirm-dialog";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import CopyIcon from "~icons/gravity-ui/copy";
@@ -79,7 +78,6 @@ function ApiKeysSettings() {
                 if (!name.trim()) return;
                 try {
                   const result = await create.mutateAsync({
-                    params: { header: { "Idempotency-Key": newIdempotencyKey() } },
                     body: { name: name.trim() },
                   });
                   setCreated(result);

@@ -6,7 +6,6 @@ import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { ConfirmDialog } from "@/components/dialogs/confirm-dialog";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
@@ -59,7 +58,6 @@ function BotsSettings() {
 
     try {
       const result = await create.mutateAsync({
-        params: { header: { "Idempotency-Key": newIdempotencyKey() } },
         body: { tokens },
       });
       const failed = new Set(result.failedIndexes);

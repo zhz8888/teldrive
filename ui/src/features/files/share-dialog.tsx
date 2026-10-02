@@ -17,7 +17,6 @@ import { userMessage } from "@/api/errors";
 import type { FileEntry } from "@/api/types";
 import { AppDialog } from "@/components/dialogs/app-dialog";
 import { copyText } from "@/features/files/download";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { type MessageKey, useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 
@@ -142,7 +141,6 @@ export function ShareDialog({
       const result = await createLink.mutateAsync({
         params: {
           path: { fileId: file.id },
-          header: { "Idempotency-Key": newIdempotencyKey() },
         },
         body: {
           password: linkPassword.trim() || undefined,

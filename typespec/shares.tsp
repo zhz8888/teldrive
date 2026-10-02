@@ -123,11 +123,7 @@ namespace Shares {
   @post
   @route("/files/{fileId}/shares")
   @operationId("createShare")
-  op create(
-    ...IdempotencyHeader,
-    @path fileId: Uuid,
-    @body body: ShareCreateRequest,
-  ):
+  op create(@path fileId: Uuid, @body body: ShareCreateRequest):
     | JsonResponse<201, ShareCreated>
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -422,7 +418,6 @@ namespace PublicShares {
   @operationId("createPublicShareUpload")
   op createUpload(
     ...SharePasswordHeader,
-    ...IdempotencyHeader,
     @path token: string,
     @body body: UploadCreateRequest,
   ):
@@ -460,7 +455,6 @@ namespace PublicShares {
   @operationId("completePublicShareUpload")
   op completeUpload(
     ...SharePasswordHeader,
-    ...IdempotencyHeader,
     @path token: string,
     @path uploadId: Uuid,
   ):

@@ -45,7 +45,7 @@ func cookieSecure(ctx context.Context) bool {
 // password is still required, or issues the cookie session. The endpoint is
 // unauthenticated, and unusable flows surface as 4xx responses through
 // mapServiceError.
-func (h *Handler) CookieTelegramLoginVerifyCode(ctx context.Context, req *gen.TelegramCodeVerifyRequest, _ gen.CookieTelegramLoginVerifyCodeParams) (gen.CookieTelegramLoginVerifyCodeRes, error) {
+func (h *Handler) CookieTelegramLoginVerifyCode(ctx context.Context, req *gen.TelegramCodeVerifyRequest) (gen.CookieTelegramLoginVerifyCodeRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -63,7 +63,7 @@ func (h *Handler) CookieTelegramLoginVerifyCode(ctx context.Context, req *gen.Te
 // CookieTelegramLoginVerifyPassword completes a login flow that required the
 // Telegram two-step password and returns the issued cookie session. A wrong
 // password maps to 401 telegram_password_invalid through mapServiceError.
-func (h *Handler) CookieTelegramLoginVerifyPassword(ctx context.Context, req *gen.TelegramPasswordVerifyRequest, _ gen.CookieTelegramLoginVerifyPasswordParams) (gen.CookieTelegramLoginVerifyPasswordRes, error) {
+func (h *Handler) CookieTelegramLoginVerifyPassword(ctx context.Context, req *gen.TelegramPasswordVerifyRequest) (gen.CookieTelegramLoginVerifyPasswordRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -77,7 +77,7 @@ func (h *Handler) CookieTelegramLoginVerifyPassword(ctx context.Context, req *ge
 // CookieTelegramQRLoginPoll advances a QR login flow: while the QR code has not
 // been approved it returns the flow so the client can poll again, and once the
 // phone approves it issues the cookie session. The endpoint is unauthenticated.
-func (h *Handler) CookieTelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLoginPollRequest, _ gen.CookieTelegramQRLoginPollParams) (gen.CookieTelegramQRLoginPollRes, error) {
+func (h *Handler) CookieTelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLoginPollRequest) (gen.CookieTelegramQRLoginPollRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}

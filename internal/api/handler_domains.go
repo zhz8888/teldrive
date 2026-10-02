@@ -26,7 +26,7 @@ import (
 // TelegramLoginStart begins an unauthenticated Telegram login flow and sends a
 // login code to the requested phone number. It delegates to h.Auth and reports
 // flow errors through mapServiceError; a missing auth service yields 503.
-func (h *Handler) TelegramLoginStart(ctx context.Context, req *gen.TelegramLoginStartRequest, params gen.TelegramLoginStartParams) (gen.TelegramLoginStartRes, error) {
+func (h *Handler) TelegramLoginStart(ctx context.Context, req *gen.TelegramLoginStartRequest) (gen.TelegramLoginStartRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -41,7 +41,7 @@ func (h *Handler) TelegramLoginStart(ctx context.Context, req *gen.TelegramLogin
 // TelegramQRLoginStart begins an unauthenticated QR login flow and returns the
 // QR URL the user must approve in Telegram. Delegates to h.Auth.StartQR, so a
 // missing service or an upstream failure surfaces through mapServiceError.
-func (h *Handler) TelegramQRLoginStart(ctx context.Context, params gen.TelegramQRLoginStartParams) (gen.TelegramQRLoginStartRes, error) {
+func (h *Handler) TelegramQRLoginStart(ctx context.Context) (gen.TelegramQRLoginStartRes, error) {
 	if h.Auth == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -56,7 +56,7 @@ func (h *Handler) TelegramQRLoginStart(ctx context.Context, params gen.TelegramQ
 // TelegramQRLoginPoll advances a QR login flow and returns either the refreshed
 // QR challenge or, once the account is authorized, a token pair. It is
 // unauthenticated and maps expired flows to 410 through mapServiceError.
-func (h *Handler) TelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLoginPollRequest, params gen.TelegramQRLoginPollParams) (gen.TelegramQRLoginPollRes, error) {
+func (h *Handler) TelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLoginPollRequest) (gen.TelegramQRLoginPollRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -75,7 +75,7 @@ func (h *Handler) TelegramQRLoginPoll(ctx context.Context, req *gen.TelegramQRLo
 // TelegramLoginVerifyCode submits the login code for a flow and returns a token
 // pair, or the flow again with passwordRequired set when two-step verification
 // is enabled. Unauthenticated; invalid codes map to 422 and expired flows to 410.
-func (h *Handler) TelegramLoginVerifyCode(ctx context.Context, req *gen.TelegramCodeVerifyRequest, params gen.TelegramLoginVerifyCodeParams) (gen.TelegramLoginVerifyCodeRes, error) {
+func (h *Handler) TelegramLoginVerifyCode(ctx context.Context, req *gen.TelegramCodeVerifyRequest) (gen.TelegramLoginVerifyCodeRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -94,7 +94,7 @@ func (h *Handler) TelegramLoginVerifyCode(ctx context.Context, req *gen.Telegram
 // TelegramLoginVerifyPassword completes two-step verification for a pending flow
 // and returns the token pair. Unauthenticated; a wrong password maps to 401 via
 // authn.ErrPasswordInvalid.
-func (h *Handler) TelegramLoginVerifyPassword(ctx context.Context, req *gen.TelegramPasswordVerifyRequest, params gen.TelegramLoginVerifyPasswordParams) (gen.TelegramLoginVerifyPasswordRes, error) {
+func (h *Handler) TelegramLoginVerifyPassword(ctx context.Context, req *gen.TelegramPasswordVerifyRequest) (gen.TelegramLoginVerifyPasswordRes, error) {
 	if h.Auth == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -187,7 +187,7 @@ func (h *Handler) GetProfilePhoto(ctx context.Context) (gen.GetProfilePhotoRes, 
 // CreateApiKey mints an API key for the authenticated user and returns the
 // plaintext secret exactly once, since only its hash is stored. The generated
 // security layer accepts bearer tokens and browser cookies here, not API keys.
-func (h *Handler) CreateApiKey(ctx context.Context, req *gen.ApiKeyCreateRequest, params gen.CreateApiKeyParams) (gen.CreateApiKeyRes, error) {
+func (h *Handler) CreateApiKey(ctx context.Context, req *gen.ApiKeyCreateRequest) (gen.CreateApiKeyRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -336,7 +336,7 @@ func (h *Handler) RevokeSession(ctx context.Context, params gen.RevokeSessionPar
 // CreateBots registers Telegram bot tokens for the authenticated user: malformed
 // or duplicate tokens are reported by index in failedIndexes, the valid ones are
 // stored as pending, and provisioning is queued through h.Jobs.InsertBotProvision.
-func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest, params gen.CreateBotsParams) (gen.CreateBotsRes, error) {
+func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest) (gen.CreateBotsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -465,7 +465,7 @@ func (h *Handler) DiscoverChannels(ctx context.Context) (gen.DiscoverChannelsRes
 // SyncChannels discovers manageable Telegram channels and upserts them through
 // h.Channels.Sync. Rows that are missing remotely are deliberately kept, so the
 // operation never deletes a channel that still holds stored parts.
-func (h *Handler) SyncChannels(ctx context.Context, params gen.SyncChannelsParams) (gen.SyncChannelsRes, error) {
+func (h *Handler) SyncChannels(ctx context.Context) (gen.SyncChannelsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -496,7 +496,7 @@ func (h *Handler) SyncChannels(ctx context.Context, params gen.SyncChannelsParam
 // CreateChannel creates a real Telegram channel for the authenticated user and
 // records it. A blank name is generated from the configured prefix and timestamp,
 // and selecting the new channel clears the previous selection.
-func (h *Handler) CreateChannel(ctx context.Context, req *gen.ChannelCreateRequest, params gen.CreateChannelParams) (gen.CreateChannelRes, error) {
+func (h *Handler) CreateChannel(ctx context.Context, req *gen.ChannelCreateRequest) (gen.CreateChannelRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)

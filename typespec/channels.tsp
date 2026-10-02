@@ -75,14 +75,14 @@ namespace Channels {
   @post
   @route("/sync")
   @operationId("syncChannels")
-  op sync(...IdempotencyHeader):
+  op sync():
     | JsonResponse<200, ChannelSummary[]>
     | ErrorResponse<401>
     | ErrorResponse<422>
     | ErrorResponse<429>;
   @post
   @operationId("createChannel")
-  op create(...IdempotencyHeader, @body body: ChannelCreateRequest):
+  op create(@body body: ChannelCreateRequest):
     | JsonResponse<201, ChannelSummary>
     | ErrorResponse<401>
     | ErrorResponse<409>
@@ -120,7 +120,7 @@ namespace Bots {
 
   @post
   @operationId("createBots")
-  op create(...IdempotencyHeader, @body body: BotCreateRequest):
+  op create(@body body: BotCreateRequest):
     | JsonResponse<200, BotCreateResponse>
     | ErrorResponse<400>
     | ErrorResponse<401>

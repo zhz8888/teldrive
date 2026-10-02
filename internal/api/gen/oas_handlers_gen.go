@@ -561,16 +561,6 @@ func (s *Server) handleBulkMoveFilesRequest(args [0]string, argsEscaped bool, w 
 			return
 		}
 	}
-	params, err := decodeBulkMoveFilesParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeBulkMoveFilesRequest(r)
@@ -598,18 +588,13 @@ func (s *Server) handleBulkMoveFilesRequest(args [0]string, argsEscaped bool, w 
 			OperationID:      "bulkMoveFiles",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *FileBulkMoveRequest
-			Params   = BulkMoveFilesParams
+			Params   = struct{}
 			Response = BulkMoveFilesRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -619,14 +604,14 @@ func (s *Server) handleBulkMoveFilesRequest(args [0]string, argsEscaped bool, w 
 		](
 			m,
 			mreq,
-			unpackBulkMoveFilesParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.BulkMoveFiles(ctx, request, params)
+				response, err = s.h.BulkMoveFiles(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.BulkMoveFiles(ctx, request, params)
+		response, err = s.h.BulkMoveFiles(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -799,16 +784,6 @@ func (s *Server) handleBulkTrashFilesRequest(args [0]string, argsEscaped bool, w
 			return
 		}
 	}
-	params, err := decodeBulkTrashFilesParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeBulkTrashFilesRequest(r)
@@ -836,18 +811,13 @@ func (s *Server) handleBulkTrashFilesRequest(args [0]string, argsEscaped bool, w
 			OperationID:      "bulkTrashFiles",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *FileBulkTrashRequest
-			Params   = BulkTrashFilesParams
+			Params   = struct{}
 			Response = BulkTrashFilesRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -857,14 +827,14 @@ func (s *Server) handleBulkTrashFilesRequest(args [0]string, argsEscaped bool, w
 		](
 			m,
 			mreq,
-			unpackBulkTrashFilesParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.BulkTrashFiles(ctx, request, params)
+				response, err = s.h.BulkTrashFiles(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.BulkTrashFiles(ctx, request, params)
+		response, err = s.h.BulkTrashFiles(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -1412,10 +1382,6 @@ func (s *Server) handleCompletePublicShareUploadRequest(args [2]string, argsEsca
 					In:   "header",
 				}: params.XSharePassword,
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "token",
 					In:   "path",
 				}: params.Token,
@@ -1644,10 +1610,6 @@ func (s *Server) handleCompleteUploadRequest(args [1]string, argsEscaped bool, w
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "uploadId",
 					In:   "path",
 				}: params.UploadId,
@@ -1767,16 +1729,6 @@ func (s *Server) handleCookieTelegramLoginVerifyCodeRequest(args [0]string, args
 			ID:   "cookieTelegramLoginVerifyCode",
 		}
 	)
-	params, err := decodeCookieTelegramLoginVerifyCodeParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCookieTelegramLoginVerifyCodeRequest(r)
@@ -1804,18 +1756,13 @@ func (s *Server) handleCookieTelegramLoginVerifyCodeRequest(args [0]string, args
 			OperationID:      "cookieTelegramLoginVerifyCode",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramCodeVerifyRequest
-			Params   = CookieTelegramLoginVerifyCodeParams
+			Params   = struct{}
 			Response = CookieTelegramLoginVerifyCodeRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -1825,14 +1772,14 @@ func (s *Server) handleCookieTelegramLoginVerifyCodeRequest(args [0]string, args
 		](
 			m,
 			mreq,
-			unpackCookieTelegramLoginVerifyCodeParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CookieTelegramLoginVerifyCode(ctx, request, params)
+				response, err = s.h.CookieTelegramLoginVerifyCode(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CookieTelegramLoginVerifyCode(ctx, request, params)
+		response, err = s.h.CookieTelegramLoginVerifyCode(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -1925,16 +1872,6 @@ func (s *Server) handleCookieTelegramLoginVerifyPasswordRequest(args [0]string, 
 			ID:   "cookieTelegramLoginVerifyPassword",
 		}
 	)
-	params, err := decodeCookieTelegramLoginVerifyPasswordParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCookieTelegramLoginVerifyPasswordRequest(r)
@@ -1962,18 +1899,13 @@ func (s *Server) handleCookieTelegramLoginVerifyPasswordRequest(args [0]string, 
 			OperationID:      "cookieTelegramLoginVerifyPassword",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramPasswordVerifyRequest
-			Params   = CookieTelegramLoginVerifyPasswordParams
+			Params   = struct{}
 			Response = CookieTelegramLoginVerifyPasswordRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -1983,14 +1915,14 @@ func (s *Server) handleCookieTelegramLoginVerifyPasswordRequest(args [0]string, 
 		](
 			m,
 			mreq,
-			unpackCookieTelegramLoginVerifyPasswordParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CookieTelegramLoginVerifyPassword(ctx, request, params)
+				response, err = s.h.CookieTelegramLoginVerifyPassword(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CookieTelegramLoginVerifyPassword(ctx, request, params)
+		response, err = s.h.CookieTelegramLoginVerifyPassword(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -2083,16 +2015,6 @@ func (s *Server) handleCookieTelegramQRLoginPollRequest(args [0]string, argsEsca
 			ID:   "cookieTelegramQRLoginPoll",
 		}
 	)
-	params, err := decodeCookieTelegramQRLoginPollParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCookieTelegramQRLoginPollRequest(r)
@@ -2120,18 +2042,13 @@ func (s *Server) handleCookieTelegramQRLoginPollRequest(args [0]string, argsEsca
 			OperationID:      "cookieTelegramQRLoginPoll",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramQRLoginPollRequest
-			Params   = CookieTelegramQRLoginPollParams
+			Params   = struct{}
 			Response = CookieTelegramQRLoginPollRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -2141,14 +2058,14 @@ func (s *Server) handleCookieTelegramQRLoginPollRequest(args [0]string, argsEsca
 		](
 			m,
 			mreq,
-			unpackCookieTelegramQRLoginPollParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CookieTelegramQRLoginPoll(ctx, request, params)
+				response, err = s.h.CookieTelegramQRLoginPoll(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CookieTelegramQRLoginPoll(ctx, request, params)
+		response, err = s.h.CookieTelegramQRLoginPoll(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -2360,10 +2277,6 @@ func (s *Server) handleCopyFileRequest(args [1]string, argsEscaped bool, w http.
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "fileId",
 					In:   "path",
 				}: params.FileId,
@@ -2543,16 +2456,6 @@ func (s *Server) handleCreateApiKeyRequest(args [0]string, argsEscaped bool, w h
 			return
 		}
 	}
-	params, err := decodeCreateApiKeyParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCreateApiKeyRequest(r)
@@ -2580,18 +2483,13 @@ func (s *Server) handleCreateApiKeyRequest(args [0]string, argsEscaped bool, w h
 			OperationID:      "createApiKey",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *ApiKeyCreateRequest
-			Params   = CreateApiKeyParams
+			Params   = struct{}
 			Response = CreateApiKeyRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -2601,14 +2499,14 @@ func (s *Server) handleCreateApiKeyRequest(args [0]string, argsEscaped bool, w h
 		](
 			m,
 			mreq,
-			unpackCreateApiKeyParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CreateApiKey(ctx, request, params)
+				response, err = s.h.CreateApiKey(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CreateApiKey(ctx, request, params)
+		response, err = s.h.CreateApiKey(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -2761,16 +2659,6 @@ func (s *Server) handleCreateBotsRequest(args [0]string, argsEscaped bool, w htt
 			return
 		}
 	}
-	params, err := decodeCreateBotsParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCreateBotsRequest(r)
@@ -2798,18 +2686,13 @@ func (s *Server) handleCreateBotsRequest(args [0]string, argsEscaped bool, w htt
 			OperationID:      "createBots",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *BotCreateRequest
-			Params   = CreateBotsParams
+			Params   = struct{}
 			Response = CreateBotsRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -2819,14 +2702,14 @@ func (s *Server) handleCreateBotsRequest(args [0]string, argsEscaped bool, w htt
 		](
 			m,
 			mreq,
-			unpackCreateBotsParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CreateBots(ctx, request, params)
+				response, err = s.h.CreateBots(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CreateBots(ctx, request, params)
+		response, err = s.h.CreateBots(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -2997,16 +2880,6 @@ func (s *Server) handleCreateChannelRequest(args [0]string, argsEscaped bool, w 
 			return
 		}
 	}
-	params, err := decodeCreateChannelParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCreateChannelRequest(r)
@@ -3034,18 +2907,13 @@ func (s *Server) handleCreateChannelRequest(args [0]string, argsEscaped bool, w 
 			OperationID:      "createChannel",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *ChannelCreateRequest
-			Params   = CreateChannelParams
+			Params   = struct{}
 			Response = CreateChannelRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -3055,14 +2923,14 @@ func (s *Server) handleCreateChannelRequest(args [0]string, argsEscaped bool, w 
 		](
 			m,
 			mreq,
-			unpackCreateChannelParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CreateChannel(ctx, request, params)
+				response, err = s.h.CreateChannel(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CreateChannel(ctx, request, params)
+		response, err = s.h.CreateChannel(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -3677,16 +3545,6 @@ func (s *Server) handleCreateFolderRequest(args [0]string, argsEscaped bool, w h
 			return
 		}
 	}
-	params, err := decodeCreateFolderParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCreateFolderRequest(r)
@@ -3714,18 +3572,13 @@ func (s *Server) handleCreateFolderRequest(args [0]string, argsEscaped bool, w h
 			OperationID:      "createFolder",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *FolderCreateRequest
-			Params   = CreateFolderParams
+			Params   = struct{}
 			Response = CreateFolderRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -3735,14 +3588,14 @@ func (s *Server) handleCreateFolderRequest(args [0]string, argsEscaped bool, w h
 		](
 			m,
 			mreq,
-			unpackCreateFolderParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CreateFolder(ctx, request, params)
+				response, err = s.h.CreateFolder(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CreateFolder(ctx, request, params)
+		response, err = s.h.CreateFolder(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -4478,10 +4331,6 @@ func (s *Server) handleCreatePublicShareUploadRequest(args [1]string, argsEscape
 					In:   "header",
 				}: params.XSharePassword,
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "token",
 					In:   "path",
 				}: params.Token,
@@ -4718,10 +4567,6 @@ func (s *Server) handleCreateShareRequest(args [1]string, argsEscaped bool, w ht
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "fileId",
 					In:   "path",
 				}: params.FileId,
@@ -4921,16 +4766,6 @@ func (s *Server) handleCreateUploadRequest(args [0]string, argsEscaped bool, w h
 			return
 		}
 	}
-	params, err := decodeCreateUploadParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeCreateUploadRequest(r)
@@ -4958,18 +4793,13 @@ func (s *Server) handleCreateUploadRequest(args [0]string, argsEscaped bool, w h
 			OperationID:      "createUpload",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *UploadCreateRequest
-			Params   = CreateUploadParams
+			Params   = struct{}
 			Response = CreateUploadRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -4979,14 +4809,14 @@ func (s *Server) handleCreateUploadRequest(args [0]string, argsEscaped bool, w h
 		](
 			m,
 			mreq,
-			unpackCreateUploadParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.CreateUpload(ctx, request, params)
+				response, err = s.h.CreateUpload(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.CreateUpload(ctx, request, params)
+		response, err = s.h.CreateUpload(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -15637,10 +15467,6 @@ func (s *Server) handleMoveFileRequest(args [1]string, argsEscaped bool, w http.
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
 				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-				{
 					Name: "If-Match",
 					In:   "header",
 				}: params.IfMatch,
@@ -17910,10 +17736,6 @@ func (s *Server) handleRestoreFileRequest(args [1]string, argsEscaped bool, w ht
 			Body:             nil,
 			RawBody:          rawBody,
 			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
 				{
 					Name: "fileId",
 					In:   "path",
@@ -20511,16 +20333,6 @@ func (s *Server) handleSyncChannelsRequest(args [0]string, argsEscaped bool, w h
 			return
 		}
 	}
-	params, err := decodeSyncChannelsParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 
@@ -20533,18 +20345,13 @@ func (s *Server) handleSyncChannelsRequest(args [0]string, argsEscaped bool, w h
 			OperationID:      "syncChannels",
 			Body:             nil,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = struct{}
-			Params   = SyncChannelsParams
+			Params   = struct{}
 			Response = SyncChannelsRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -20554,14 +20361,14 @@ func (s *Server) handleSyncChannelsRequest(args [0]string, argsEscaped bool, w h
 		](
 			m,
 			mreq,
-			unpackSyncChannelsParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.SyncChannels(ctx, params)
+				response, err = s.h.SyncChannels(ctx)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.SyncChannels(ctx, params)
+		response, err = s.h.SyncChannels(ctx)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -20654,16 +20461,6 @@ func (s *Server) handleTelegramLoginStartRequest(args [0]string, argsEscaped boo
 			ID:   "telegramLoginStart",
 		}
 	)
-	params, err := decodeTelegramLoginStartParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeTelegramLoginStartRequest(r)
@@ -20691,18 +20488,13 @@ func (s *Server) handleTelegramLoginStartRequest(args [0]string, argsEscaped boo
 			OperationID:      "telegramLoginStart",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramLoginStartRequest
-			Params   = TelegramLoginStartParams
+			Params   = struct{}
 			Response = TelegramLoginStartRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -20712,14 +20504,14 @@ func (s *Server) handleTelegramLoginStartRequest(args [0]string, argsEscaped boo
 		](
 			m,
 			mreq,
-			unpackTelegramLoginStartParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.TelegramLoginStart(ctx, request, params)
+				response, err = s.h.TelegramLoginStart(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.TelegramLoginStart(ctx, request, params)
+		response, err = s.h.TelegramLoginStart(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -20812,16 +20604,6 @@ func (s *Server) handleTelegramLoginVerifyCodeRequest(args [0]string, argsEscape
 			ID:   "telegramLoginVerifyCode",
 		}
 	)
-	params, err := decodeTelegramLoginVerifyCodeParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeTelegramLoginVerifyCodeRequest(r)
@@ -20849,18 +20631,13 @@ func (s *Server) handleTelegramLoginVerifyCodeRequest(args [0]string, argsEscape
 			OperationID:      "telegramLoginVerifyCode",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramCodeVerifyRequest
-			Params   = TelegramLoginVerifyCodeParams
+			Params   = struct{}
 			Response = TelegramLoginVerifyCodeRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -20870,14 +20647,14 @@ func (s *Server) handleTelegramLoginVerifyCodeRequest(args [0]string, argsEscape
 		](
 			m,
 			mreq,
-			unpackTelegramLoginVerifyCodeParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.TelegramLoginVerifyCode(ctx, request, params)
+				response, err = s.h.TelegramLoginVerifyCode(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.TelegramLoginVerifyCode(ctx, request, params)
+		response, err = s.h.TelegramLoginVerifyCode(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -20970,16 +20747,6 @@ func (s *Server) handleTelegramLoginVerifyPasswordRequest(args [0]string, argsEs
 			ID:   "telegramLoginVerifyPassword",
 		}
 	)
-	params, err := decodeTelegramLoginVerifyPasswordParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeTelegramLoginVerifyPasswordRequest(r)
@@ -21007,18 +20774,13 @@ func (s *Server) handleTelegramLoginVerifyPasswordRequest(args [0]string, argsEs
 			OperationID:      "telegramLoginVerifyPassword",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramPasswordVerifyRequest
-			Params   = TelegramLoginVerifyPasswordParams
+			Params   = struct{}
 			Response = TelegramLoginVerifyPasswordRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -21028,14 +20790,14 @@ func (s *Server) handleTelegramLoginVerifyPasswordRequest(args [0]string, argsEs
 		](
 			m,
 			mreq,
-			unpackTelegramLoginVerifyPasswordParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.TelegramLoginVerifyPassword(ctx, request, params)
+				response, err = s.h.TelegramLoginVerifyPassword(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.TelegramLoginVerifyPassword(ctx, request, params)
+		response, err = s.h.TelegramLoginVerifyPassword(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -21128,16 +20890,6 @@ func (s *Server) handleTelegramQRLoginPollRequest(args [0]string, argsEscaped bo
 			ID:   "telegramQRLoginPoll",
 		}
 	)
-	params, err := decodeTelegramQRLoginPollParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 	request, rawBody, close, err := s.decodeTelegramQRLoginPollRequest(r)
@@ -21165,18 +20917,13 @@ func (s *Server) handleTelegramQRLoginPollRequest(args [0]string, argsEscaped bo
 			OperationID:      "telegramQRLoginPoll",
 			Body:             request,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = *TelegramQRLoginPollRequest
-			Params   = TelegramQRLoginPollParams
+			Params   = struct{}
 			Response = TelegramQRLoginPollRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -21186,14 +20933,14 @@ func (s *Server) handleTelegramQRLoginPollRequest(args [0]string, argsEscaped bo
 		](
 			m,
 			mreq,
-			unpackTelegramQRLoginPollParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.TelegramQRLoginPoll(ctx, request, params)
+				response, err = s.h.TelegramQRLoginPoll(ctx, request)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.TelegramQRLoginPoll(ctx, request, params)
+		response, err = s.h.TelegramQRLoginPoll(ctx, request)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -21280,22 +21027,8 @@ func (s *Server) handleTelegramQRLoginStartRequest(args [0]string, argsEscaped b
 
 			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
 		}
-		err          error
-		opErrContext = ogenerrors.OperationContext{
-			Name: TelegramQRLoginStartOperation,
-			ID:   "telegramQRLoginStart",
-		}
+		err error
 	)
-	params, err := decodeTelegramQRLoginStartParams(args, argsEscaped, r)
-	if err != nil {
-		err = &ogenerrors.DecodeParamsError{
-			OperationContext: opErrContext,
-			Err:              err,
-		}
-		defer recordError("DecodeParams", err)
-		s.cfg.ErrorHandler(ctx, w, r, err)
-		return
-	}
 
 	var rawBody []byte
 
@@ -21308,18 +21041,13 @@ func (s *Server) handleTelegramQRLoginStartRequest(args [0]string, argsEscaped b
 			OperationID:      "telegramQRLoginStart",
 			Body:             nil,
 			RawBody:          rawBody,
-			Params: middleware.Parameters{
-				{
-					Name: "Idempotency-Key",
-					In:   "header",
-				}: params.IdempotencyKey,
-			},
-			Raw: r,
+			Params:           middleware.Parameters{},
+			Raw:              r,
 		}
 
 		type (
 			Request  = struct{}
-			Params   = TelegramQRLoginStartParams
+			Params   = struct{}
 			Response = TelegramQRLoginStartRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -21329,14 +21057,14 @@ func (s *Server) handleTelegramQRLoginStartRequest(args [0]string, argsEscaped b
 		](
 			m,
 			mreq,
-			unpackTelegramQRLoginStartParams,
+			nil,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.TelegramQRLoginStart(ctx, params)
+				response, err = s.h.TelegramQRLoginStart(ctx)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.TelegramQRLoginStart(ctx, params)
+		response, err = s.h.TelegramQRLoginStart(ctx)
 	}
 	if err != nil {
 		defer recordError("Internal", err)

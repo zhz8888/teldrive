@@ -350,7 +350,6 @@ namespace Files {
   @route("/{fileId}/move")
   @operationId("moveFile")
   op move(
-    ...IdempotencyHeader,
     ...OptionalIfMatchHeader,
     @path fileId: Uuid,
     @body body: FileMoveRequest,
@@ -366,11 +365,7 @@ namespace Files {
   @post
   @route("/{fileId}/copy")
   @operationId("copyFile")
-  op copy(
-    ...IdempotencyHeader,
-    @path fileId: Uuid,
-    @body body: FileCopyRequest,
-  ):
+  op copy(@path fileId: Uuid, @body body: FileCopyRequest):
     | FileCreatedResponse
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -391,7 +386,7 @@ namespace Files {
   @post
   @route("/{fileId}/restore")
   @operationId("restoreFile")
-  op restore(...IdempotencyHeader, @path fileId: Uuid):
+  op restore(@path fileId: Uuid):
     | FileMutationResponse
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -495,7 +490,7 @@ namespace Files {
   @post
   @route("/bulk/move")
   @operationId("bulkMoveFiles")
-  op bulkMove(...IdempotencyHeader, @body body: FileBulkMoveRequest):
+  op bulkMove(@body body: FileBulkMoveRequest):
     | JsonResponse<200, FileBulkResult>
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -506,7 +501,7 @@ namespace Files {
   @post
   @route("/bulk/trash")
   @operationId("bulkTrashFiles")
-  op bulkTrash(...IdempotencyHeader, @body body: FileBulkTrashRequest):
+  op bulkTrash(@body body: FileBulkTrashRequest):
     | JsonResponse<200, FileBulkResult>
     | ErrorResponse<401>
     | ErrorResponse<404>
@@ -534,7 +529,7 @@ namespace Files {
 namespace Folders {
   @post
   @operationId("createFolder")
-  op create(...IdempotencyHeader, @body body: FolderCreateRequest):
+  op create(@body body: FolderCreateRequest):
     | FileCreatedResponse
     | ErrorResponse<401>
     | ErrorResponse<404>

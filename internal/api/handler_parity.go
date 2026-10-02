@@ -16,7 +16,7 @@ import (
 // moving to the drive root (no parent) is only allowed for files the caller
 // owns. The conflict policy defaults to "fail" and the response lists the moved
 // entries.
-func (h *Handler) BulkMoveFiles(ctx context.Context, req *gen.FileBulkMoveRequest, params gen.BulkMoveFilesParams) (gen.BulkMoveFilesRes, error) {
+func (h *Handler) BulkMoveFiles(ctx context.Context, req *gen.FileBulkMoveRequest) (gen.BulkMoveFilesRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
@@ -62,7 +62,7 @@ func (h *Handler) BulkMoveFiles(ctx context.Context, req *gen.FileBulkMoveReques
 // the caller reaches only through a share may be trashed, except the share root
 // itself, because trashing it would remove the whole shared subtree for every
 // visitor.
-func (h *Handler) BulkTrashFiles(ctx context.Context, req *gen.FileBulkTrashRequest, params gen.BulkTrashFilesParams) (gen.BulkTrashFilesRes, error) {
+func (h *Handler) BulkTrashFiles(ctx context.Context, req *gen.FileBulkTrashRequest) (gen.BulkTrashFilesRes, error) {
 	if h.Catalog == nil || req == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}

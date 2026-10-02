@@ -45,13 +45,13 @@ type Invoker interface {
 	// Transactionally move multiple files or folders.
 	//
 	// POST /v1/files/bulk/move
-	BulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest, params BulkMoveFilesParams) (BulkMoveFilesRes, error)
+	BulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest) (BulkMoveFilesRes, error)
 	// BulkTrashFiles invokes bulkTrashFiles operation.
 	//
 	// Transactionally move multiple files or folders to trash.
 	//
 	// POST /v1/files/bulk/trash
-	BulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest, params BulkTrashFilesParams) (BulkTrashFilesRes, error)
+	BulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest) (BulkTrashFilesRes, error)
 	// CancelJob invokes cancelJob operation.
 	//
 	// POST /v1/jobs/{jobId}/cancel
@@ -78,19 +78,19 @@ type Invoker interface {
 	// Complete Telegram code verification and establish an HttpOnly cookie session.
 	//
 	// POST /v1/auth/cookie/telegram/verify-code
-	CookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params CookieTelegramLoginVerifyCodeParams) (CookieTelegramLoginVerifyCodeRes, error)
+	CookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (CookieTelegramLoginVerifyCodeRes, error)
 	// CookieTelegramLoginVerifyPassword invokes cookieTelegramLoginVerifyPassword operation.
 	//
 	// Complete Telegram password verification and establish an HttpOnly cookie session.
 	//
 	// POST /v1/auth/cookie/telegram/verify-password
-	CookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params CookieTelegramLoginVerifyPasswordParams) (CookieTelegramLoginVerifyPasswordRes, error)
+	CookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (CookieTelegramLoginVerifyPasswordRes, error)
 	// CookieTelegramQRLoginPoll invokes cookieTelegramQRLoginPoll operation.
 	//
 	// Poll Telegram QR login and establish an HttpOnly cookie session when authorized.
 	//
 	// POST /v1/auth/cookie/telegram/qr/poll
-	CookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params CookieTelegramQRLoginPollParams) (CookieTelegramQRLoginPollRes, error)
+	CookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (CookieTelegramQRLoginPollRes, error)
 	// CopyFile invokes copyFile operation.
 	//
 	// Copy a file or folder to another destination.
@@ -100,15 +100,15 @@ type Invoker interface {
 	// CreateApiKey invokes createApiKey operation.
 	//
 	// POST /v1/api-keys
-	CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest, params CreateApiKeyParams) (CreateApiKeyRes, error)
+	CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest) (CreateApiKeyRes, error)
 	// CreateBots invokes createBots operation.
 	//
 	// POST /v1/bots
-	CreateBots(ctx context.Context, request *BotCreateRequest, params CreateBotsParams) (CreateBotsRes, error)
+	CreateBots(ctx context.Context, request *BotCreateRequest) (CreateBotsRes, error)
 	// CreateChannel invokes createChannel operation.
 	//
 	// POST /v1/channels
-	CreateChannel(ctx context.Context, request *ChannelCreateRequest, params CreateChannelParams) (CreateChannelRes, error)
+	CreateChannel(ctx context.Context, request *ChannelCreateRequest) (CreateChannelRes, error)
 	// CreateEventStreamTicket invokes createEventStreamTicket operation.
 	//
 	// Create a short-lived browser-compatible event stream credential.
@@ -122,7 +122,7 @@ type Invoker interface {
 	// CreateFolder invokes createFolder operation.
 	//
 	// POST /v1/folders
-	CreateFolder(ctx context.Context, request *FolderCreateRequest, params CreateFolderParams) (CreateFolderRes, error)
+	CreateFolder(ctx context.Context, request *FolderCreateRequest) (CreateFolderRes, error)
 	// CreateJob invokes createJob operation.
 	//
 	// POST /v1/jobs
@@ -148,7 +148,7 @@ type Invoker interface {
 	// Create a durable upload session.
 	//
 	// POST /v1/uploads
-	CreateUpload(ctx context.Context, request *UploadCreateRequest, params CreateUploadParams) (CreateUploadRes, error)
+	CreateUpload(ctx context.Context, request *UploadCreateRequest) (CreateUploadRes, error)
 	// CreateUploadImport invokes createUploadImport operation.
 	//
 	// Queue local paths, recursive folders, and HTTP URLs for server-side upload.
@@ -524,37 +524,37 @@ type Invoker interface {
 	// Discover and upsert manageable Telegram channels without deleting missing rows.
 	//
 	// POST /v1/channels/sync
-	SyncChannels(ctx context.Context, params SyncChannelsParams) (SyncChannelsRes, error)
+	SyncChannels(ctx context.Context) (SyncChannelsRes, error)
 	// TelegramLoginStart invokes telegramLoginStart operation.
 	//
 	// Begin Telegram authentication and send a login code.
 	//
 	// POST /v1/auth/telegram/start
-	TelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest, params TelegramLoginStartParams) (TelegramLoginStartRes, error)
+	TelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest) (TelegramLoginStartRes, error)
 	// TelegramLoginVerifyCode invokes telegramLoginVerifyCode operation.
 	//
 	// Verify the Telegram login code.
 	//
 	// POST /v1/auth/telegram/verify-code
-	TelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params TelegramLoginVerifyCodeParams) (TelegramLoginVerifyCodeRes, error)
+	TelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (TelegramLoginVerifyCodeRes, error)
 	// TelegramLoginVerifyPassword invokes telegramLoginVerifyPassword operation.
 	//
 	// Complete Telegram two-step verification.
 	//
 	// POST /v1/auth/telegram/verify-password
-	TelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params TelegramLoginVerifyPasswordParams) (TelegramLoginVerifyPasswordRes, error)
+	TelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (TelegramLoginVerifyPasswordRes, error)
 	// TelegramQRLoginPoll invokes telegramQRLoginPoll operation.
 	//
 	// Poll a Telegram QR login flow. Any API replica can resume the encrypted flow state.
 	//
 	// POST /v1/auth/telegram/qr/poll
-	TelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params TelegramQRLoginPollParams) (TelegramQRLoginPollRes, error)
+	TelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (TelegramQRLoginPollRes, error)
 	// TelegramQRLoginStart invokes telegramQRLoginStart operation.
 	//
 	// Begin a resumable Telegram QR login flow.
 	//
 	// POST /v1/auth/telegram/qr/start
-	TelegramQRLoginStart(ctx context.Context, params TelegramQRLoginStartParams) (TelegramQRLoginStartRes, error)
+	TelegramQRLoginStart(ctx context.Context) (TelegramQRLoginStartRes, error)
 	// TrashFile invokes trashFile operation.
 	//
 	// Move a file or folder to trash.
@@ -932,12 +932,12 @@ func (c *Client) sendAbortUpload(ctx context.Context, params AbortUploadParams) 
 // Transactionally move multiple files or folders.
 //
 // POST /v1/files/bulk/move
-func (c *Client) BulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest, params BulkMoveFilesParams) (BulkMoveFilesRes, error) {
-	res, err := c.sendBulkMoveFiles(ctx, request, params)
+func (c *Client) BulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest) (BulkMoveFilesRes, error) {
+	res, err := c.sendBulkMoveFiles(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendBulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest, params BulkMoveFilesParams) (res BulkMoveFilesRes, err error) {
+func (c *Client) sendBulkMoveFiles(ctx context.Context, request *FileBulkMoveRequest) (res BulkMoveFilesRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("bulkMoveFiles"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -985,23 +985,6 @@ func (c *Client) sendBulkMoveFiles(ctx context.Context, request *FileBulkMoveReq
 	}
 	if err := encodeBulkMoveFilesRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -1089,12 +1072,12 @@ func (c *Client) sendBulkMoveFiles(ctx context.Context, request *FileBulkMoveReq
 // Transactionally move multiple files or folders to trash.
 //
 // POST /v1/files/bulk/trash
-func (c *Client) BulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest, params BulkTrashFilesParams) (BulkTrashFilesRes, error) {
-	res, err := c.sendBulkTrashFiles(ctx, request, params)
+func (c *Client) BulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest) (BulkTrashFilesRes, error) {
+	res, err := c.sendBulkTrashFiles(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendBulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest, params BulkTrashFilesParams) (res BulkTrashFilesRes, err error) {
+func (c *Client) sendBulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest) (res BulkTrashFilesRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("bulkTrashFiles"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -1142,23 +1125,6 @@ func (c *Client) sendBulkTrashFiles(ctx context.Context, request *FileBulkTrashR
 	}
 	if err := encodeBulkTrashFilesRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -1644,20 +1610,6 @@ func (c *Client) sendCompletePublicShareUpload(ctx context.Context, params Compl
 			return res, errors.Wrap(err, "encode header")
 		}
 	}
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
 
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
@@ -1762,23 +1714,6 @@ func (c *Client) sendCompleteUpload(ctx context.Context, params CompleteUploadPa
 		return res, errors.Wrap(err, "create request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	{
 		type bitset = [1]uint8
 		var satisfied bitset
@@ -1864,12 +1799,12 @@ func (c *Client) sendCompleteUpload(ctx context.Context, params CompleteUploadPa
 // Complete Telegram code verification and establish an HttpOnly cookie session.
 //
 // POST /v1/auth/cookie/telegram/verify-code
-func (c *Client) CookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params CookieTelegramLoginVerifyCodeParams) (CookieTelegramLoginVerifyCodeRes, error) {
-	res, err := c.sendCookieTelegramLoginVerifyCode(ctx, request, params)
+func (c *Client) CookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (CookieTelegramLoginVerifyCodeRes, error) {
+	res, err := c.sendCookieTelegramLoginVerifyCode(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params CookieTelegramLoginVerifyCodeParams) (res CookieTelegramLoginVerifyCodeRes, err error) {
+func (c *Client) sendCookieTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (res CookieTelegramLoginVerifyCodeRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("cookieTelegramLoginVerifyCode"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -1919,23 +1854,6 @@ func (c *Client) sendCookieTelegramLoginVerifyCode(ctx context.Context, request 
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -1964,12 +1882,12 @@ func (c *Client) sendCookieTelegramLoginVerifyCode(ctx context.Context, request 
 // Complete Telegram password verification and establish an HttpOnly cookie session.
 //
 // POST /v1/auth/cookie/telegram/verify-password
-func (c *Client) CookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params CookieTelegramLoginVerifyPasswordParams) (CookieTelegramLoginVerifyPasswordRes, error) {
-	res, err := c.sendCookieTelegramLoginVerifyPassword(ctx, request, params)
+func (c *Client) CookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (CookieTelegramLoginVerifyPasswordRes, error) {
+	res, err := c.sendCookieTelegramLoginVerifyPassword(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params CookieTelegramLoginVerifyPasswordParams) (res CookieTelegramLoginVerifyPasswordRes, err error) {
+func (c *Client) sendCookieTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (res CookieTelegramLoginVerifyPasswordRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("cookieTelegramLoginVerifyPassword"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -2019,23 +1937,6 @@ func (c *Client) sendCookieTelegramLoginVerifyPassword(ctx context.Context, requ
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -2064,12 +1965,12 @@ func (c *Client) sendCookieTelegramLoginVerifyPassword(ctx context.Context, requ
 // Poll Telegram QR login and establish an HttpOnly cookie session when authorized.
 //
 // POST /v1/auth/cookie/telegram/qr/poll
-func (c *Client) CookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params CookieTelegramQRLoginPollParams) (CookieTelegramQRLoginPollRes, error) {
-	res, err := c.sendCookieTelegramQRLoginPoll(ctx, request, params)
+func (c *Client) CookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (CookieTelegramQRLoginPollRes, error) {
+	res, err := c.sendCookieTelegramQRLoginPoll(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params CookieTelegramQRLoginPollParams) (res CookieTelegramQRLoginPollRes, err error) {
+func (c *Client) sendCookieTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (res CookieTelegramQRLoginPollRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("cookieTelegramQRLoginPoll"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -2117,23 +2018,6 @@ func (c *Client) sendCookieTelegramQRLoginPoll(ctx context.Context, request *Tel
 	}
 	if err := encodeCookieTelegramQRLoginPollRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	stage = "SendRequest"
@@ -2241,23 +2125,6 @@ func (c *Client) sendCopyFile(ctx context.Context, request *FileCopyRequest, par
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	{
 		type bitset = [1]uint8
 		var satisfied bitset
@@ -2341,12 +2208,12 @@ func (c *Client) sendCopyFile(ctx context.Context, request *FileCopyRequest, par
 // CreateApiKey invokes createApiKey operation.
 //
 // POST /v1/api-keys
-func (c *Client) CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest, params CreateApiKeyParams) (CreateApiKeyRes, error) {
-	res, err := c.sendCreateApiKey(ctx, request, params)
+func (c *Client) CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest) (CreateApiKeyRes, error) {
+	res, err := c.sendCreateApiKey(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCreateApiKey(ctx context.Context, request *ApiKeyCreateRequest, params CreateApiKeyParams) (res CreateApiKeyRes, err error) {
+func (c *Client) sendCreateApiKey(ctx context.Context, request *ApiKeyCreateRequest) (res CreateApiKeyRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("createApiKey"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -2394,23 +2261,6 @@ func (c *Client) sendCreateApiKey(ctx context.Context, request *ApiKeyCreateRequ
 	}
 	if err := encodeCreateApiKeyRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -2484,12 +2334,12 @@ func (c *Client) sendCreateApiKey(ctx context.Context, request *ApiKeyCreateRequ
 // CreateBots invokes createBots operation.
 //
 // POST /v1/bots
-func (c *Client) CreateBots(ctx context.Context, request *BotCreateRequest, params CreateBotsParams) (CreateBotsRes, error) {
-	res, err := c.sendCreateBots(ctx, request, params)
+func (c *Client) CreateBots(ctx context.Context, request *BotCreateRequest) (CreateBotsRes, error) {
+	res, err := c.sendCreateBots(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCreateBots(ctx context.Context, request *BotCreateRequest, params CreateBotsParams) (res CreateBotsRes, err error) {
+func (c *Client) sendCreateBots(ctx context.Context, request *BotCreateRequest) (res CreateBotsRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("createBots"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -2537,23 +2387,6 @@ func (c *Client) sendCreateBots(ctx context.Context, request *BotCreateRequest, 
 	}
 	if err := encodeCreateBotsRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -2627,12 +2460,12 @@ func (c *Client) sendCreateBots(ctx context.Context, request *BotCreateRequest, 
 // CreateChannel invokes createChannel operation.
 //
 // POST /v1/channels
-func (c *Client) CreateChannel(ctx context.Context, request *ChannelCreateRequest, params CreateChannelParams) (CreateChannelRes, error) {
-	res, err := c.sendCreateChannel(ctx, request, params)
+func (c *Client) CreateChannel(ctx context.Context, request *ChannelCreateRequest) (CreateChannelRes, error) {
+	res, err := c.sendCreateChannel(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCreateChannel(ctx context.Context, request *ChannelCreateRequest, params CreateChannelParams) (res CreateChannelRes, err error) {
+func (c *Client) sendCreateChannel(ctx context.Context, request *ChannelCreateRequest) (res CreateChannelRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("createChannel"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -2680,23 +2513,6 @@ func (c *Client) sendCreateChannel(ctx context.Context, request *ChannelCreateRe
 	}
 	if err := encodeCreateChannelRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -3079,12 +2895,12 @@ func (c *Client) sendCreateFileAccessGrant(ctx context.Context, request *FileAcc
 // CreateFolder invokes createFolder operation.
 //
 // POST /v1/folders
-func (c *Client) CreateFolder(ctx context.Context, request *FolderCreateRequest, params CreateFolderParams) (CreateFolderRes, error) {
-	res, err := c.sendCreateFolder(ctx, request, params)
+func (c *Client) CreateFolder(ctx context.Context, request *FolderCreateRequest) (CreateFolderRes, error) {
+	res, err := c.sendCreateFolder(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCreateFolder(ctx context.Context, request *FolderCreateRequest, params CreateFolderParams) (res CreateFolderRes, err error) {
+func (c *Client) sendCreateFolder(ctx context.Context, request *FolderCreateRequest) (res CreateFolderRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("createFolder"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -3132,23 +2948,6 @@ func (c *Client) sendCreateFolder(ctx context.Context, request *FolderCreateRequ
 	}
 	if err := encodeCreateFolderRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -3717,20 +3516,6 @@ func (c *Client) sendCreatePublicShareUpload(ctx context.Context, request *Uploa
 			return res, errors.Wrap(err, "encode header")
 		}
 	}
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
 
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
@@ -3835,23 +3620,6 @@ func (c *Client) sendCreateShare(ctx context.Context, request *ShareCreateReques
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	{
 		type bitset = [1]uint8
 		var satisfied bitset
@@ -3937,12 +3705,12 @@ func (c *Client) sendCreateShare(ctx context.Context, request *ShareCreateReques
 // Create a durable upload session.
 //
 // POST /v1/uploads
-func (c *Client) CreateUpload(ctx context.Context, request *UploadCreateRequest, params CreateUploadParams) (CreateUploadRes, error) {
-	res, err := c.sendCreateUpload(ctx, request, params)
+func (c *Client) CreateUpload(ctx context.Context, request *UploadCreateRequest) (CreateUploadRes, error) {
+	res, err := c.sendCreateUpload(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendCreateUpload(ctx context.Context, request *UploadCreateRequest, params CreateUploadParams) (res CreateUploadRes, err error) {
+func (c *Client) sendCreateUpload(ctx context.Context, request *UploadCreateRequest) (res CreateUploadRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("createUpload"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -3990,23 +3758,6 @@ func (c *Client) sendCreateUpload(ctx context.Context, request *UploadCreateRequ
 	}
 	if err := encodeCreateUploadRequest(request, r); err != nil {
 		return res, errors.Wrap(err, "encode request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -12401,20 +12152,6 @@ func (c *Client) sendMoveFile(ctx context.Context, request *FileMoveRequest, par
 	h := uri.NewHeaderEncoder(r.Header)
 	{
 		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
 			Name:    "If-Match",
 			Explode: false,
 		}
@@ -14081,23 +13818,6 @@ func (c *Client) sendRestoreFile(ctx context.Context, params RestoreFileParams) 
 	r, err := ht.NewRequest(ctx, "POST", u)
 	if err != nil {
 		return res, errors.Wrap(err, "create request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -15903,12 +15623,12 @@ func (c *Client) sendStreamEvents(ctx context.Context, params StreamEventsParams
 // Discover and upsert manageable Telegram channels without deleting missing rows.
 //
 // POST /v1/channels/sync
-func (c *Client) SyncChannels(ctx context.Context, params SyncChannelsParams) (SyncChannelsRes, error) {
-	res, err := c.sendSyncChannels(ctx, params)
+func (c *Client) SyncChannels(ctx context.Context) (SyncChannelsRes, error) {
+	res, err := c.sendSyncChannels(ctx)
 	return res, err
 }
 
-func (c *Client) sendSyncChannels(ctx context.Context, params SyncChannelsParams) (res SyncChannelsRes, err error) {
+func (c *Client) sendSyncChannels(ctx context.Context) (res SyncChannelsRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("syncChannels"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -15953,23 +15673,6 @@ func (c *Client) sendSyncChannels(ctx context.Context, params SyncChannelsParams
 	r, err := ht.NewRequest(ctx, "POST", u)
 	if err != nil {
 		return res, errors.Wrap(err, "create request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	{
@@ -16057,12 +15760,12 @@ func (c *Client) sendSyncChannels(ctx context.Context, params SyncChannelsParams
 // Begin Telegram authentication and send a login code.
 //
 // POST /v1/auth/telegram/start
-func (c *Client) TelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest, params TelegramLoginStartParams) (TelegramLoginStartRes, error) {
-	res, err := c.sendTelegramLoginStart(ctx, request, params)
+func (c *Client) TelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest) (TelegramLoginStartRes, error) {
+	res, err := c.sendTelegramLoginStart(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendTelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest, params TelegramLoginStartParams) (res TelegramLoginStartRes, err error) {
+func (c *Client) sendTelegramLoginStart(ctx context.Context, request *TelegramLoginStartRequest) (res TelegramLoginStartRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("telegramLoginStart"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -16112,23 +15815,6 @@ func (c *Client) sendTelegramLoginStart(ctx context.Context, request *TelegramLo
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -16157,12 +15843,12 @@ func (c *Client) sendTelegramLoginStart(ctx context.Context, request *TelegramLo
 // Verify the Telegram login code.
 //
 // POST /v1/auth/telegram/verify-code
-func (c *Client) TelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params TelegramLoginVerifyCodeParams) (TelegramLoginVerifyCodeRes, error) {
-	res, err := c.sendTelegramLoginVerifyCode(ctx, request, params)
+func (c *Client) TelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (TelegramLoginVerifyCodeRes, error) {
+	res, err := c.sendTelegramLoginVerifyCode(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest, params TelegramLoginVerifyCodeParams) (res TelegramLoginVerifyCodeRes, err error) {
+func (c *Client) sendTelegramLoginVerifyCode(ctx context.Context, request *TelegramCodeVerifyRequest) (res TelegramLoginVerifyCodeRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("telegramLoginVerifyCode"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -16212,23 +15898,6 @@ func (c *Client) sendTelegramLoginVerifyCode(ctx context.Context, request *Teleg
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -16257,12 +15926,12 @@ func (c *Client) sendTelegramLoginVerifyCode(ctx context.Context, request *Teleg
 // Complete Telegram two-step verification.
 //
 // POST /v1/auth/telegram/verify-password
-func (c *Client) TelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params TelegramLoginVerifyPasswordParams) (TelegramLoginVerifyPasswordRes, error) {
-	res, err := c.sendTelegramLoginVerifyPassword(ctx, request, params)
+func (c *Client) TelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (TelegramLoginVerifyPasswordRes, error) {
+	res, err := c.sendTelegramLoginVerifyPassword(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest, params TelegramLoginVerifyPasswordParams) (res TelegramLoginVerifyPasswordRes, err error) {
+func (c *Client) sendTelegramLoginVerifyPassword(ctx context.Context, request *TelegramPasswordVerifyRequest) (res TelegramLoginVerifyPasswordRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("telegramLoginVerifyPassword"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -16312,23 +15981,6 @@ func (c *Client) sendTelegramLoginVerifyPassword(ctx context.Context, request *T
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -16357,12 +16009,12 @@ func (c *Client) sendTelegramLoginVerifyPassword(ctx context.Context, request *T
 // Poll a Telegram QR login flow. Any API replica can resume the encrypted flow state.
 //
 // POST /v1/auth/telegram/qr/poll
-func (c *Client) TelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params TelegramQRLoginPollParams) (TelegramQRLoginPollRes, error) {
-	res, err := c.sendTelegramQRLoginPoll(ctx, request, params)
+func (c *Client) TelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (TelegramQRLoginPollRes, error) {
+	res, err := c.sendTelegramQRLoginPoll(ctx, request)
 	return res, err
 }
 
-func (c *Client) sendTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest, params TelegramQRLoginPollParams) (res TelegramQRLoginPollRes, err error) {
+func (c *Client) sendTelegramQRLoginPoll(ctx context.Context, request *TelegramQRLoginPollRequest) (res TelegramQRLoginPollRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("telegramQRLoginPoll"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -16412,23 +16064,6 @@ func (c *Client) sendTelegramQRLoginPoll(ctx context.Context, request *TelegramQ
 		return res, errors.Wrap(err, "encode request")
 	}
 
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
-	}
-
 	stage = "SendRequest"
 	resp, err := c.cfg.Client.Do(r)
 	if err != nil {
@@ -16457,12 +16092,12 @@ func (c *Client) sendTelegramQRLoginPoll(ctx context.Context, request *TelegramQ
 // Begin a resumable Telegram QR login flow.
 //
 // POST /v1/auth/telegram/qr/start
-func (c *Client) TelegramQRLoginStart(ctx context.Context, params TelegramQRLoginStartParams) (TelegramQRLoginStartRes, error) {
-	res, err := c.sendTelegramQRLoginStart(ctx, params)
+func (c *Client) TelegramQRLoginStart(ctx context.Context) (TelegramQRLoginStartRes, error) {
+	res, err := c.sendTelegramQRLoginStart(ctx)
 	return res, err
 }
 
-func (c *Client) sendTelegramQRLoginStart(ctx context.Context, params TelegramQRLoginStartParams) (res TelegramQRLoginStartRes, err error) {
+func (c *Client) sendTelegramQRLoginStart(ctx context.Context) (res TelegramQRLoginStartRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("telegramQRLoginStart"),
 		semconv.HTTPRequestMethodKey.String("POST"),
@@ -16507,23 +16142,6 @@ func (c *Client) sendTelegramQRLoginStart(ctx context.Context, params TelegramQR
 	r, err := ht.NewRequest(ctx, "POST", u)
 	if err != nil {
 		return res, errors.Wrap(err, "create request")
-	}
-
-	stage = "EncodeHeaderParams"
-	h := uri.NewHeaderEncoder(r.Header)
-	{
-		cfg := uri.HeaderParameterEncodingConfig{
-			Name:    "Idempotency-Key",
-			Explode: false,
-		}
-		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-			if unwrapped := uuid.UUID(params.IdempotencyKey); true {
-				return e.EncodeValue(conv.UUIDToString(unwrapped))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode header")
-		}
 	}
 
 	stage = "SendRequest"

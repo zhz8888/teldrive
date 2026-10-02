@@ -8,7 +8,6 @@ import QrIcon from "~icons/gravity-ui/qr-code";
 import ShieldIcon from "~icons/gravity-ui/shield-check";
 import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import { currentUserQueryOptions } from "@/auth/queries";
@@ -72,7 +71,6 @@ function LoginPage() {
     try {
       if (step === "phone") {
         const result = (await startPhone.mutateAsync({
-          params: { header: { "Idempotency-Key": newIdempotencyKey() } },
           body: { phoneNumber: phone.trim() },
         })) as Flow;
         setFlowId(result.flowId);
@@ -81,7 +79,6 @@ function LoginPage() {
       }
       if (step === "code") {
         const result = await verifyCode.mutateAsync({
-          params: { header: { "Idempotency-Key": newIdempotencyKey() } },
           body: { flowId, code: code.trim() },
         });
         if (isSession(result)) await finish();
@@ -89,7 +86,6 @@ function LoginPage() {
         return;
       }
       const result = await verifyPassword.mutateAsync({
-        params: { header: { "Idempotency-Key": newIdempotencyKey() } },
         body: { flowId, password },
       });
       if (isSession(result)) await finish();
@@ -104,7 +100,7 @@ function LoginPage() {
     let timer = 0;
     let polling = false;
     void startQr
-      .mutateAsync({ params: { header: { "Idempotency-Key": newIdempotencyKey() } } })
+      .mutateAsync({})
       .then((result) => {
         if (!active) return;
         const flow = result as Flow;
@@ -119,7 +115,6 @@ function LoginPage() {
           polling = true;
           try {
             const next = await pollQr.mutateAsync({
-              params: { header: { "Idempotency-Key": newIdempotencyKey() } },
               body: { flowId: flow.flowId },
             });
             if (!active) return;

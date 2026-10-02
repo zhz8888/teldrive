@@ -6,7 +6,6 @@ import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { ConfirmDialog } from "@/components/dialogs/confirm-dialog";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
@@ -60,9 +59,7 @@ function ChannelsSettings() {
             variant="secondary"
             onPress={async () => {
               try {
-                await sync.mutateAsync({
-                  params: { header: { "Idempotency-Key": newIdempotencyKey() } },
-                });
+                await sync.mutateAsync({});
                 await refresh();
                 toast.success(t("settings.channels.toast.synced"));
               } catch (error) {
@@ -100,7 +97,6 @@ function ChannelsSettings() {
                 if (!name.trim()) return;
                 try {
                   await create.mutateAsync({
-                    params: { header: { "Idempotency-Key": newIdempotencyKey() } },
                     body: { name: name.trim(), selected: false },
                   });
                   setName("");

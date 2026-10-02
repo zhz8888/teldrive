@@ -4,7 +4,6 @@ import { ApiError, invalidResponse, normalizeApiError, userMessage } from "@/api
 import { queryClient } from "@/api/query-client";
 import type { FileEntry, NameConflictPolicy, UploadPart, UploadSession } from "@/api/types";
 import { newClientId } from "@/features/shared/client-id";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 import { t } from "@/lib/i18n";
 
 export type UploadTaskStatus =
@@ -246,7 +245,6 @@ async function getOrCreateSession(task: UploadTask, signal: AbortSignal): Promis
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Idempotency-Key": newIdempotencyKey(),
     },
     body: JSON.stringify({
       parentId,
@@ -297,7 +295,6 @@ async function createOrMergeFolder(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": newIdempotencyKey(),
       },
       body: JSON.stringify({ parentId, name, conflictPolicy: "fail" }),
       signal,
@@ -541,7 +538,6 @@ async function runTask(taskId: string) {
       `/v1/uploads/${encodeURIComponent(session.id)}/complete`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": newIdempotencyKey() },
         signal: controller.signal,
       },
     );

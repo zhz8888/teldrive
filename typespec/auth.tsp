@@ -188,10 +188,7 @@ namespace Authentication {
   @post
   @route("/telegram/start")
   @operationId("telegramLoginStart")
-  op telegramStart(
-    ...IdempotencyHeader,
-    @body body: TelegramLoginStartRequest,
-  ):
+  op telegramStart(@body body: TelegramLoginStartRequest):
     | JsonResponse<201, TelegramLoginStartResponse>
     | ErrorResponse<400>
     | ErrorResponse<409>
@@ -202,7 +199,7 @@ namespace Authentication {
   @post
   @route("/telegram/qr/start")
   @operationId("telegramQRLoginStart")
-  op qrStart(...IdempotencyHeader):
+  op qrStart():
     | JsonResponse<201, TelegramQRLoginResponse>
     | ErrorResponse<400>
     | ErrorResponse<409>
@@ -213,7 +210,7 @@ namespace Authentication {
   @post
   @route("/telegram/qr/poll")
   @operationId("telegramQRLoginPoll")
-  op qrPoll(...IdempotencyHeader, @body body: TelegramQRLoginPollRequest):
+  op qrPoll(@body body: TelegramQRLoginPollRequest):
     | JsonResponse<200, TokenPair>
     | JsonResponse<202, TelegramQRLoginResponse>
     | ErrorResponse<400>
@@ -225,7 +222,7 @@ namespace Authentication {
   @post
   @route("/telegram/verify-code")
   @operationId("telegramLoginVerifyCode")
-  op verifyCode(...IdempotencyHeader, @body body: TelegramCodeVerifyRequest):
+  op verifyCode(@body body: TelegramCodeVerifyRequest):
     | JsonResponse<200, TokenPair>
     | JsonResponse<202, TelegramLoginStartResponse>
     | ErrorResponse<400>
@@ -238,10 +235,7 @@ namespace Authentication {
   @post
   @route("/telegram/verify-password")
   @operationId("telegramLoginVerifyPassword")
-  op verifyPassword(
-    ...IdempotencyHeader,
-    @body body: TelegramPasswordVerifyRequest,
-  ):
+  op verifyPassword(@body body: TelegramPasswordVerifyRequest):
     | JsonResponse<200, TokenPair>
     | ErrorResponse<400>
     | ErrorResponse<401>
@@ -262,10 +256,7 @@ namespace Authentication {
   @post
   @route("/cookie/telegram/verify-code")
   @operationId("cookieTelegramLoginVerifyCode")
-  op cookieVerifyCode(
-    ...IdempotencyHeader,
-    @body body: TelegramCodeVerifyRequest,
-  ):
+  op cookieVerifyCode(@body body: TelegramCodeVerifyRequest):
     | CookieSessionResponse<200>
     | JsonResponse<202, TelegramLoginStartResponse>
     | ErrorResponse<400>
@@ -278,10 +269,7 @@ namespace Authentication {
   @post
   @route("/cookie/telegram/verify-password")
   @operationId("cookieTelegramLoginVerifyPassword")
-  op cookieVerifyPassword(
-    ...IdempotencyHeader,
-    @body body: TelegramPasswordVerifyRequest,
-  ):
+  op cookieVerifyPassword(@body body: TelegramPasswordVerifyRequest):
     | CookieSessionResponse<200>
     | ErrorResponse<400>
     | ErrorResponse<401>
@@ -293,10 +281,7 @@ namespace Authentication {
   @post
   @route("/cookie/telegram/qr/poll")
   @operationId("cookieTelegramQRLoginPoll")
-  op cookieQrPoll(
-    ...IdempotencyHeader,
-    @body body: TelegramQRLoginPollRequest,
-  ):
+  op cookieQrPoll(@body body: TelegramQRLoginPollRequest):
     | CookieSessionResponse<200>
     | JsonResponse<202, TelegramQRLoginResponse>
     | ErrorResponse<400>
@@ -409,7 +394,7 @@ namespace ApiKeys {
 
   @post
   @operationId("createApiKey")
-  op create(...IdempotencyHeader, @body body: ApiKeyCreateRequest):
+  op create(@body body: ApiKeyCreateRequest):
     | JsonResponse<201, ApiKeyCreated>
     | ErrorResponse<401>
     | ErrorResponse<409>

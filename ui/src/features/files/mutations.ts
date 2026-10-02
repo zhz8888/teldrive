@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/api/client";
 import type { FileEntry, NameConflictPolicy } from "@/api/types";
-import { newIdempotencyKey } from "@/features/shared/idempotency";
 
 export function useFileActions() {
   const queryClient = useQueryClient();
@@ -27,7 +26,6 @@ export function useFileActions() {
 
   async function createFolder(name: string, parentId?: string) {
     const result = await createFolderMutation.mutateAsync({
-      params: { header: { "Idempotency-Key": newIdempotencyKey() } },
       body: { parentId, name, conflictPolicy: "fail" },
     });
     await invalidateFiles();
@@ -55,7 +53,6 @@ export function useFileActions() {
       params: {
         path: { fileId: file.id },
         header: {
-          "Idempotency-Key": newIdempotencyKey(),
           "If-Match": `"${file.generation}"`,
         },
       },
@@ -74,7 +71,6 @@ export function useFileActions() {
     const result = await copyMutation.mutateAsync({
       params: {
         path: { fileId: file.id },
-        header: { "Idempotency-Key": newIdempotencyKey() },
       },
       body: { parentId, name, conflictPolicy },
     });
@@ -92,7 +88,6 @@ export function useFileActions() {
         copyMutation.mutateAsync({
           params: {
             path: { fileId: file.id },
-            header: { "Idempotency-Key": newIdempotencyKey() },
           },
           body: { parentId, conflictPolicy },
         }),
@@ -112,7 +107,6 @@ export function useFileActions() {
     const result = await restoreMutation.mutateAsync({
       params: {
         path: { fileId },
-        header: { "Idempotency-Key": newIdempotencyKey() },
       },
     });
     await invalidateFiles();
@@ -137,7 +131,6 @@ export function useFileActions() {
     conflictPolicy: NameConflictPolicy = "fail",
   ) {
     const result = await bulkMoveMutation.mutateAsync({
-      params: { header: { "Idempotency-Key": newIdempotencyKey() } },
       body: { fileIds, parentId, conflictPolicy },
     });
     await invalidateFiles();
@@ -146,7 +139,6 @@ export function useFileActions() {
 
   async function bulkTrash(fileIds: string[]) {
     const result = await bulkTrashMutation.mutateAsync({
-      params: { header: { "Idempotency-Key": newIdempotencyKey() } },
       body: { fileIds },
     });
     await invalidateFiles();
@@ -159,7 +151,6 @@ export function useFileActions() {
         restoreMutation.mutateAsync({
           params: {
             path: { fileId },
-            header: { "Idempotency-Key": newIdempotencyKey() },
           },
         }),
       ),

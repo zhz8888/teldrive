@@ -53,7 +53,7 @@ func (h *Handler) HealthReady(ctx context.Context) (gen.HealthReadyRes, error) {
 // CreateFolder creates a folder under an editable parent and returns 201 with the
 // new entry, its ETag and a Location header. Only the fail conflict policy is
 // supported; any other value is rejected with 422.
-func (h *Handler) CreateFolder(ctx context.Context, req *gen.FolderCreateRequest, params gen.CreateFolderParams) (gen.CreateFolderRes, error) {
+func (h *Handler) CreateFolder(ctx context.Context, req *gen.FolderCreateRequest) (gen.CreateFolderRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -328,7 +328,7 @@ func (h *Handler) RestoreFile(ctx context.Context, params gen.RestoreFileParams)
 // CreateUpload opens a resumable upload session under an editable parent and
 // returns 201 with the session. The session belongs to the parent's owner, so an
 // upload into a granted folder is credited to that owner.
-func (h *Handler) CreateUpload(ctx context.Context, req *gen.UploadCreateRequest, params gen.CreateUploadParams) (gen.CreateUploadRes, error) {
+func (h *Handler) CreateUpload(ctx context.Context, req *gen.UploadCreateRequest) (gen.CreateUploadRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
