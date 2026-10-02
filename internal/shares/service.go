@@ -284,9 +284,10 @@ func optionalPermission(permission *sqlcgen.SharePermission) sqlcgen.NullSharePe
 // plaintext token exactly once; the row keeps only its hash and a 16-character
 // display prefix. The optional password is trimmed and stored as a bcrypt hash,
 // ExpiresAt must be in the future, and MaxDownloads must be positive. It
-// reports ErrInvalidInput for failed validation, including a file that exists
-// but is not active, the catalog error when the file cannot be read for the
-// owner, and a wrapped error when hashing or the insert fails.
+// reports ErrInvalidInput for failed validation, ErrNotFound when the file is
+// not an active file of the caller — a trashed file is answered like a foreign
+// one so the two cannot be told apart — the catalog error when the file cannot
+// be read for the owner, and a wrapped error when hashing or the insert fails.
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Created, error) {
 	in.Permission = normalizePermission(in.Permission)
 	if in.OwnerID <= 0 || in.FileID == uuid.Nil || !validPermission(in.Permission) || (in.ExpiresAt != nil && !in.ExpiresAt.After(s.now())) || (in.MaxDownloads != nil && *in.MaxDownloads <= 0) {
@@ -297,7 +298,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Created, error) 
 		return nil, err
 	}
 	if file.Status != sqlcgen.FileStatusActive {
-		return nil, ErrInvalidInput
+		return nil, ErrNotFound
 	}
 	secret, hash, err := s.newToken()
 	if err != nil {
@@ -492,11 +493,12 @@ func (s *Service) Resolve(ctx context.Context, token, password string) (*Public,
 }
 
 // ResolveFile resolves a token and then requires fileID to be either the share
-// root or a descendant of it. Descendants are found with a recursive walk over
-// the owner's files and the target must still be active; a non-folder share
-// exposes only its root. Rejections all surface as a not-found error (this
-// package's ErrNotFound, or the catalog's for a file the owner does not have)
-// rather than a distinct error, so that foreign IDs cannot be probed.
+// root or a descendant of it. Descendants are recognised by walking the
+// target's ancestor chain up to the root — that walk ignores the status of the
+// folders in between — and the target itself must still be active; a non-folder
+// share exposes only its root. Rejections all surface as a not-found error
+// (this package's ErrNotFound, or the catalog's for a file the owner does not
+// have) rather than a distinct error, so that foreign IDs cannot be probed.
 func (s *Service) ResolveFile(ctx context.Context, token, password string, fileID uuid.UUID) (*Public, error) {
 	if fileID == uuid.Nil {
 		return nil, ErrNotFound
@@ -515,13 +517,13 @@ func (s *Service) ResolveFile(ctx context.Context, token, password string, fileI
 	if resolved.File.Kind != sqlcgen.FileKindFolder {
 		return nil, ErrNotFound
 	}
-	ids, err := s.queries.ListFileSubtreeIDs(ctx, sqlcgen.ListFileSubtreeIDsParams{FileID: dbtypes.UUID(rootID), UserID: resolved.Share.OwnerID})
+	ids, err := s.queries.ListFileAncestorIDs(ctx, sqlcgen.ListFileAncestorIDsParams{FileID: dbtypes.UUID(fileID), UserID: resolved.Share.OwnerID})
 	if err != nil {
-		return nil, fmt.Errorf("list shared subtree: %w", err)
+		return nil, fmt.Errorf("list target ancestors: %w", err)
 	}
 	allowed := false
 	for _, id := range ids {
-		if value, ok := dbtypes.GoogleUUID(id); ok && value == fileID {
+		if value, ok := dbtypes.GoogleUUID(id); ok && value == rootID {
 			allowed = true
 			break
 		}
@@ -612,16 +614,22 @@ func (s *Service) resolveRow(ctx context.Context, token, password string) (*sqlc
 
 // CreateGrant grants another user read or edit access to one of the caller's
 // files. An existing live grant for the same (file, grantee) pair is replaced
-// rather than duplicated, and a previously revoked one is re-created. GranteeID
-// must name an existing, enabled user other than the owner; unknown or disabled
-// grantees are reported as ErrNotFound.
+// rather than duplicated, and a previously revoked one is re-created. FileID
+// must name an active file of the caller; an unknown, foreign or non-active
+// file is reported as ErrNotFound. GranteeID must name an existing, enabled
+// user other than the owner; unknown or disabled grantees are reported as
+// ErrNotFound.
 func (s *Service) CreateGrant(ctx context.Context, in GrantCreateInput) (*sqlcgen.FileAccessGrant, error) {
 	in.Permission = normalizePermission(in.Permission)
 	if in.OwnerID <= 0 || in.GranteeID <= 0 || in.OwnerID == in.GranteeID || in.FileID == uuid.Nil || !validPermission(in.Permission) || (in.ExpiresAt != nil && !in.ExpiresAt.After(s.now())) {
 		return nil, ErrInvalidInput
 	}
-	if _, err := s.catalog.Get(ctx, in.OwnerID, in.FileID); err != nil {
+	file, err := s.catalog.Get(ctx, in.OwnerID, in.FileID)
+	if err != nil {
 		return nil, err
+	}
+	if file.Status != sqlcgen.FileStatusActive {
+		return nil, ErrNotFound
 	}
 	user, err := s.queries.GetUser(ctx, in.GranteeID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && user.DisabledAt.Valid) {
@@ -739,9 +747,10 @@ func (s *Service) ListSharedWithMe(ctx context.Context, granteeID int64) ([]Shar
 }
 
 // ResolveAccess resolves the caller's effective access to a single file. It
-// returns ErrInvalidInput for an unset actor or file ID, ErrNotFound when the
-// file is not an existing active file, and ErrForbidden when it exists but
-// neither ownership nor a qualifying grant covers it. With requireEdit, a
+// returns ErrInvalidInput for an unset actor or file ID, and ErrNotFound both
+// when the file is not an existing active file and when it exists but neither
+// ownership nor a qualifying grant covers it, so the two cases stay
+// indistinguishable to a caller probing for file existence. With requireEdit, a
 // read-only grant does not satisfy the request.
 func (s *Service) ResolveAccess(ctx context.Context, actorID int64, fileID uuid.UUID, requireEdit bool) (*Access, error) {
 	if actorID <= 0 || fileID == uuid.Nil {
@@ -757,11 +766,11 @@ func (s *Service) ResolveAccess(ctx context.Context, actorID int64, fileID uuid.
 // ResolveAccessMany resolves the caller's effective access for several files at
 // once, returning one result per input element in the caller's order and
 // repeating entries for duplicate IDs. It is all-or-nothing: if any file does
-// not resolve the whole call fails, with ErrForbidden when every requested file
-// exists but access is missing for at least one, and with ErrNotFound when at
-// least one ID is not an active file (so the caller learns only that some input
-// was unknown, not which). With requireEdit, read-only grants do not qualify
-// while ownership always does. A nil ID anywhere makes it ErrInvalidInput.
+// not resolve, the whole call fails with ErrNotFound, which covers both an ID
+// that is not an active file and an ID that exists without access, so a caller
+// learns neither which input failed nor which of the two cases applies. With
+// requireEdit, read-only grants do not qualify while ownership always does. A
+// nil ID anywhere makes it ErrInvalidInput.
 func (s *Service) ResolveAccessMany(ctx context.Context, actorID int64, fileIDs []uuid.UUID, requireEdit bool) ([]*Access, error) {
 	if actorID <= 0 || len(fileIDs) == 0 {
 		return nil, ErrInvalidInput
@@ -793,15 +802,11 @@ func (s *Service) ResolveAccessMany(ctx context.Context, actorID int64, fileIDs 
 		}
 		byID[fileID] = &Access{OwnerID: row.OwnerID, RootFileID: rootID, Permission: row.Permission, Owned: row.Owned}
 	}
+	// A file missing from byID is either not an active file or active without
+	// ownership or a qualifying grant. Both are reported as ErrNotFound so that
+	// an authenticated caller cannot probe for the existence of file IDs.
 	if len(byID) != len(unique) {
-		activeIDs, loadErr := s.queries.ListActiveFileIDsAnyOwner(ctx, shareUUIDs(unique))
-		if loadErr != nil {
-			return nil, fmt.Errorf("resolve file access targets: %w", loadErr)
-		}
-		if len(activeIDs) != len(unique) {
-			return nil, ErrNotFound
-		}
-		return nil, ErrForbidden
+		return nil, ErrNotFound
 	}
 	result := make([]*Access, 0, len(fileIDs))
 	for _, fileID := range fileIDs {

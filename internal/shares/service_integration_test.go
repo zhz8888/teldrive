@@ -275,8 +275,11 @@ VALUES
 	if err != nil || access.OwnerID != 1001 || access.RootFileID != rootID || access.Permission != sqlcgen.SharePermissionRead {
 		t.Fatalf("ResolveAccess(read) = %#v, %v", access, err)
 	}
-	if _, err := service.ResolveAccess(ctx, 2002, childID, true); !errors.Is(err, ErrForbidden) {
+	if _, err := service.ResolveAccess(ctx, 2002, childID, true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ResolveAccess(edit with read grant) error = %v", err)
+	}
+	if _, err := service.ResolveAccess(ctx, 2002, uuid.New(), false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ResolveAccess(unknown file) error = %v", err)
 	}
 	shared, err := service.ListShared(ctx, 1001)
 	if err != nil || len(shared) != 1 {
@@ -316,7 +319,7 @@ VALUES
 	if err := service.RevokeGrant(ctx, 1001, grantID); err != nil {
 		t.Fatalf("RevokeGrant() error = %v", err)
 	}
-	if _, err := service.ResolveAccess(ctx, 2002, childID, false); !errors.Is(err, ErrForbidden) {
+	if _, err := service.ResolveAccess(ctx, 2002, childID, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ResolveAccess(after revoke) error = %v", err)
 	}
 
