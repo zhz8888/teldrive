@@ -220,73 +220,88 @@ function LoginPage() {
                 </Tabs.List>
               </Tabs.ListContainer>
               <Tabs.Panel id="phone" className="space-y-4 pt-4">
-                {/* Without autocomplete hints browsers classify the code field as
+                {/* The step is a real form so Enter in its only input submits it,
+                    exactly like the public share password form. */}
+                <form
+                  className="space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void submitPhone();
+                  }}
+                >
+                  {/* Without autocomplete hints browsers classify the code field as
                     a username and replay it into the password field that appears
                     next; one-time-code/current-password keep the two apart. */}
-                {step === "phone" && (
-                  <TextField className="grid gap-1">
-                    <Label>{t("routes.login.phone.label")}</Label>
-                    <Input
-                      autoFocus
-                      autoComplete="tel"
-                      placeholder="+12025550123"
-                      value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
-                    />
-                    <Description>{t("routes.login.phone.description")}</Description>
-                  </TextField>
-                )}
-                {step === "code" && (
-                  <TextField className="grid gap-1">
-                    <Label>{t("routes.login.code.label")}</Label>
-                    <Input
-                      autoFocus
-                      autoComplete="one-time-code"
-                      inputMode="numeric"
-                      value={code}
-                      onChange={(event) => setCode(event.target.value)}
-                    />
-                  </TextField>
-                )}
-                {step === "password" && (
-                  <TextField className="grid gap-1">
-                    <Label>{t("routes.login.password.label")}</Label>
-                    <Input
-                      autoFocus
-                      autoComplete="current-password"
-                      type="password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
-                  </TextField>
-                )}
-                <Button
-                  className="w-full"
-                  onPress={submitPhone}
-                  isDisabled={
-                    pending ||
-                    (step === "phone" ? !phone.trim() : step === "code" ? !code.trim() : !password)
-                  }
-                >
-                  {pending ? <Spinner size="sm" /> : <ShieldIcon className="size-4" />}
-                  {step === "phone"
-                    ? t("routes.login.action.sendCode")
-                    : t("routes.login.action.verify")}
-                </Button>
-                {step !== "phone" && (
+                  {step === "phone" && (
+                    <TextField className="grid gap-1">
+                      <Label>{t("routes.login.phone.label")}</Label>
+                      <Input
+                        autoFocus
+                        autoComplete="tel"
+                        placeholder="+12025550123"
+                        value={phone}
+                        onChange={(event) => setPhone(event.target.value)}
+                      />
+                      <Description>{t("routes.login.phone.description")}</Description>
+                    </TextField>
+                  )}
+                  {step === "code" && (
+                    <TextField className="grid gap-1">
+                      <Label>{t("routes.login.code.label")}</Label>
+                      <Input
+                        autoFocus
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        value={code}
+                        onChange={(event) => setCode(event.target.value)}
+                      />
+                    </TextField>
+                  )}
+                  {step === "password" && (
+                    <TextField className="grid gap-1">
+                      <Label>{t("routes.login.password.label")}</Label>
+                      <Input
+                        autoFocus
+                        autoComplete="current-password"
+                        type="password"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                      />
+                    </TextField>
+                  )}
                   <Button
-                    variant="ghost"
+                    type="submit"
                     className="w-full"
-                    onPress={() => {
-                      setStep("phone");
-                      setFlowId("");
-                      setCode("");
-                      setPassword("");
-                    }}
+                    isDisabled={
+                      pending ||
+                      (step === "phone"
+                        ? !phone.trim()
+                        : step === "code"
+                          ? !code.trim()
+                          : !password)
+                    }
                   >
-                    {t("routes.login.action.restart")}
+                    {pending ? <Spinner size="sm" /> : <ShieldIcon className="size-4" />}
+                    {step === "phone"
+                      ? t("routes.login.action.sendCode")
+                      : t("routes.login.action.verify")}
                   </Button>
-                )}
+                  {step !== "phone" && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full"
+                      onPress={() => {
+                        setStep("phone");
+                        setFlowId("");
+                        setCode("");
+                        setPassword("");
+                      }}
+                    >
+                      {t("routes.login.action.restart")}
+                    </Button>
+                  )}
+                </form>
               </Tabs.Panel>
               <Tabs.Panel id="qr" className="space-y-4 pt-4">
                 <div className="grid min-h-72 place-items-center rounded-xl border border-border bg-white p-5 text-black">
