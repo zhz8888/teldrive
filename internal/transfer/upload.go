@@ -313,6 +313,12 @@ func (p *Pipeline) UploadPart(ctx context.Context, request UploadPartRequest) (*
 	})
 	slog.DebugContext(ctx, "uploading part to telegram", "upload_id", request.UploadID, "part_no", request.PartNo, "channel_id", channelID, "stored_size", storedSize, "threads", p.config.UploadThreads)
 	if err != nil {
+		// The storage contract returns the published part alongside a size
+		// mismatch, so a document published before the failure is deleted like any
+		// other published-then-failed part.
+		if stored.MessageID > 0 {
+			err = errors.Join(err, p.deleteUploaded(ctx, request.UserID, stored))
+		}
 		if renewErr := pendingRenewError(renewErrors); renewErr != nil {
 			err = errors.Join(err, renewErr)
 		}

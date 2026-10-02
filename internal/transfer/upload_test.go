@@ -208,6 +208,28 @@ func TestUploadPartFinalizesPublishedMessageAfterRequestCancellation(t *testing.
 	}
 }
 
+func TestUploadPartDeletesPartPublishedWithFailedUpload(t *testing.T) {
+	t.Parallel()
+	catalog := newLeaseCatalog()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	storage := &publishedFailureStorage{cancelRequest: cancel}
+	pipeline := NewPipeline(catalog, fixedChannelResolver(9), storage, nil, Config{})
+
+	_, err := pipeline.UploadPart(ctx, UploadPartRequest{
+		UserID: 1, UploadID: catalog.uploadID, PartNo: 1, PlainSize: 4, Body: bytes.NewBufferString("data"),
+	})
+	if !errors.Is(err, telegramstore.ErrSizeMismatch) {
+		t.Fatalf("UploadPart() error = %v, want ErrSizeMismatch", err)
+	}
+	if len(storage.deleted) != 1 || storage.deleted[0] != 7 {
+		t.Fatalf("deleted messages = %#v, want [7]", storage.deleted)
+	}
+	if storage.deleteErr != nil || !storage.deleteDeadline {
+		t.Fatalf("compensating delete context error = %v, deadline = %v, want a live bounded context", storage.deleteErr, storage.deleteDeadline)
+	}
+}
+
 type fixedChannelResolver int64
 
 func (r fixedChannelResolver) Resolve(context.Context, int64, int64) (int64, error) {
@@ -342,6 +364,39 @@ func (*deleteStorage) CreateChannel(context.Context, int64, string) (telegramsto
 	return telegramstore.Channel{}, errors.New("not used")
 }
 func (*deleteStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
+
+// publishedFailureStorage mirrors the storage contract for a failed upload that
+// already published a document: it reports the part next to the error, cancels
+// the request first, and records what the compensating delete sees.
+type publishedFailureStorage struct {
+	cancelRequest  context.CancelFunc
+	deleted        []int64
+	deleteErr      error
+	deleteDeadline bool
+}
+
+func (s *publishedFailureStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
+	if s.cancelRequest != nil {
+		s.cancelRequest()
+	}
+	return telegramstore.StoredPart{ChannelID: 9, MessageID: 7, Size: 4}, telegramstore.ErrSizeMismatch
+}
+func (*publishedFailureStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
+	return nil, errors.New("not used")
+}
+func (s *publishedFailureStorage) DeleteMessages(ctx context.Context, _ int64, _ int64, ids []int64) error {
+	s.deleteErr = ctx.Err()
+	_, s.deleteDeadline = ctx.Deadline()
+	s.deleted = append(s.deleted, ids...)
+	return nil
+}
+func (*publishedFailureStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
+	return telegramstore.StoredPart{}, errors.New("not used")
+}
+func (*publishedFailureStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
+	return telegramstore.Channel{}, errors.New("not used")
+}
+func (*publishedFailureStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
 
 func TestNormalizeOptionalChecksum(t *testing.T) {
 	t.Parallel()

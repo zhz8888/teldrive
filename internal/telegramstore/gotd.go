@@ -159,10 +159,11 @@ func NewGotdStorage(runner Runner, c cache.Cacher, options ...GotdStorageOption)
 // Upload sends request.Reader as one document and publishes it in the target
 // channel. Every call creates a new message, so a retry after a partial failure
 // can leave an orphan document behind. It returns ErrInvalidRequest for a
-// malformed request, ErrSizeMismatch when Telegram stored a different size (the
-// document is already published and this call cannot delete it), and
-// ErrMessageNotFound when the publish response carries no channel message. The
-// reader is not closed, and Telegram errors are wrapped with the operation name.
+// malformed request, ErrSizeMismatch when Telegram stored a different size
+// (returning the published part alongside the error, so the caller can delete
+// it), and ErrMessageNotFound when the publish response carries no channel
+// message. The reader is not closed, and Telegram errors are wrapped with the
+// operation name.
 func (s *GotdStorage) Upload(ctx context.Context, request UploadRequest) (StoredPart, error) {
 	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.Reader == nil || request.Size < 0 || strings.TrimSpace(request.Name) == "" {
 		return StoredPart{}, ErrInvalidRequest
@@ -198,13 +199,16 @@ func (s *GotdStorage) Upload(ctx context.Context, request UploadRequest) (Stored
 			return err
 		}
 		if documentSize != request.Size {
+			// Record the published message before failing: the caller can only
+			// compensate for a document it can name.
+			stored = StoredPart{ChannelID: request.ChannelID, MessageID: messageID, Size: documentSize}
 			return fmt.Errorf("%w: got %d, want %d", ErrSizeMismatch, documentSize, request.Size)
 		}
 		stored = StoredPart{ChannelID: request.ChannelID, MessageID: messageID, Size: documentSize}
 		return nil
 	})
 	if err != nil {
-		return StoredPart{}, err
+		return stored, err
 	}
 	if stored.MessageID == 0 {
 		return StoredPart{}, ErrMessageNotFound

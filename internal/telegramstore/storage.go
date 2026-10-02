@@ -23,8 +23,10 @@ var (
 	ErrDocumentNotFound = errors.New("Telegram document not found")
 	// ErrSizeMismatch reports a stored document whose size differs from the
 	// requested (Upload) or source (CopyPart) size. The document is already
-	// published at that point, and the failed call returns no part, so the
-	// caller cannot delete it and must leave it to the orphan cleanup sweep.
+	// published at that point, and the failing call returns that published part
+	// next to the error, so the caller can delete it; an implementation that
+	// cannot name the message returns a zero part and leaves the orphan to the
+	// cleanup sweep.
 	ErrSizeMismatch = errors.New("Telegram stored size mismatch")
 )
 
@@ -227,10 +229,11 @@ type Storage interface {
 	// Upload publishes Reader as one document message in ChannelID and returns
 	// the resulting part. It returns ErrInvalidRequest for a malformed request,
 	// ErrSizeMismatch when Telegram stored a different size (the document is
-	// already published, so this call cannot clean it up), and
-	// ErrMessageNotFound when the publish response carries no channel message.
-	// The reader is not closed. Every call creates a new message, so retrying a
-	// failed upload can produce a second document.
+	// already published and is returned alongside the error, so the caller can
+	// delete it; an implementation that cannot name the message returns a zero
+	// part instead), and ErrMessageNotFound when the publish response carries no
+	// channel message. The reader is not closed. Every call creates a new
+	// message, so retrying a failed upload can produce a second document.
 	Upload(ctx context.Context, request UploadRequest) (StoredPart, error)
 	// OpenRange streams Length bytes of a stored document starting at Offset.
 	// The returned reader belongs to the caller and must be closed to cancel
