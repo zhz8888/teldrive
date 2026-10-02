@@ -68,9 +68,12 @@ func (m retryMiddleware) Handle(next tg.Invoker) telegram.InvokeFunc {
 
 // isTransientTelegramError reports whether err is worth retrying: first by exact
 // Telegram RPC error type, then by case insensitive match of the error text
-// against transientTelegramMessages. It must not be called with a nil error,
-// because the text based check dereferences it.
+// against transientTelegramMessages. A nil error is not transient and reports
+// false without being dereferenced, so the text based check never sees nil.
 func isTransientTelegramError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if tgerr.Is(err, transientTelegramErrors...) {
 		return true
 	}

@@ -61,8 +61,9 @@ type Account interface {
 	DiscoverChannels(ctx context.Context, userID int64) ([]DiscoveredChannel, error)
 	// ProfilePhoto returns the user's current Telegram profile photo. The
 	// boolean is false with a nil error when the account has no usable photo; a
-	// download that exceeds the size cap or fails on the Telegram side is
-	// returned as an error. The content is a copy owned by the caller.
+	// download that exceeds the size cap fails with ErrProfilePhotoTooLarge and
+	// a failure on the Telegram side with its own error, both wrapped with the
+	// download context. The content is a copy owned by the caller.
 	ProfilePhoto(ctx context.Context, userID int64) (ProfilePhoto, bool, error)
 }
 
@@ -132,9 +133,10 @@ func (a *GotdAccount) DiscoverChannels(ctx context.Context, userID int64) ([]Dis
 // ProfilePhoto downloads the small variant of the user's profile photo on a
 // download session and returns it with the Telegram photo ID. It reports
 // found=false and a nil error when Telegram returns no user, no photo, or a
-// photo without an ID, and fails when the download exceeds
-// maxProfilePhotoBytes or Telegram reports an error. A nil receiver, missing
-// runner, or non-positive user ID returns ErrInvalidRequest.
+// photo without an ID. A download that exceeds maxProfilePhotoBytes fails with
+// ErrProfilePhotoTooLarge and a Telegram failure with its own error, both
+// wrapped with the download context. A nil receiver, missing runner, or
+// non-positive user ID returns ErrInvalidRequest.
 func (a *GotdAccount) ProfilePhoto(ctx context.Context, userID int64) (ProfilePhoto, bool, error) {
 	if a == nil || a.runner == nil || userID <= 0 {
 		return ProfilePhoto{}, false, ErrInvalidRequest
@@ -175,6 +177,11 @@ func (a *GotdAccount) ProfilePhoto(ctx context.Context, userID int64) (ProfilePh
 	return result, found, nil
 }
 
+// ErrProfilePhotoTooLarge reports a Telegram profile photo download that would
+// exceed maxProfilePhotoBytes. ProfilePhoto wraps it with the download context,
+// so callers classify it with errors.Is.
+var ErrProfilePhotoTooLarge = errors.New("Telegram profile photo exceeds size limit")
+
 // boundedWriter buffers a download while enforcing a byte budget. It caps
 // profile photo downloads: the first write that would cross the budget fails
 // without storing anything, so the buffer never exceeds the limit.
@@ -188,11 +195,11 @@ type boundedWriter struct {
 }
 
 // Write appends p to the buffer while it fits in the remaining budget. It
-// returns an error and writes nothing when p alone would exceed the budget,
-// which is the only failure mode of this writer.
+// returns ErrProfilePhotoTooLarge and writes nothing when p alone would exceed
+// the budget, which is the only failure mode of this writer.
 func (w *boundedWriter) Write(p []byte) (int, error) {
 	if int64(len(p)) > w.remaining {
-		return 0, errors.New("Telegram profile photo exceeds size limit")
+		return 0, ErrProfilePhotoTooLarge
 	}
 	n, err := w.writer.Write(p)
 	w.remaining -= int64(n)

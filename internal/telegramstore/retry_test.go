@@ -18,6 +18,12 @@ func TestIsTransientTelegramErrorMatchesRPCTimeout(t *testing.T) {
 	}
 }
 
+func TestIsTransientTelegramErrorRejectsNil(t *testing.T) {
+	if isTransientTelegramError(nil) {
+		t.Fatal("isTransientTelegramError(nil) = true, want false")
+	}
+}
+
 func TestRetryMiddlewareRetriesRPCTimeout(t *testing.T) {
 	var calls atomic.Int32
 	middleware := retryMiddleware{max: 2}

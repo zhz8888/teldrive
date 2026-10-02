@@ -219,6 +219,26 @@ func (s *GotdStorage) runUpload(ctx context.Context, userID int64, threads int, 
 	return runWithConnections(ctx, s.runner, userID, OperationUpload, threads, fn)
 }
 
+// validMetadataRequest reports whether request is well formed for a document
+// lookup. Only a positive user ID, a non-zero channel ID, and a non-negative
+// message ID can resolve: a zero message ID is still looked up and reported as
+// a document lookup error, so it is accepted here. GotdStorage.Metadata and
+// gotdDownloadSession.Metadata share this predicate, so the storage path and the
+// session path reject the same requests with ErrInvalidRequest.
+func validMetadataRequest(request MetadataRequest) bool {
+	return request.UserID > 0 && request.ChannelID != 0 && request.MessageID >= 0
+}
+
+// validRangeRequest reports whether request is well formed for a range read. A
+// message ID must be positive, the offset must not be negative, and the length
+// is either -1, meaning "through the end of the document", or zero and above.
+// GotdStorage.OpenRange and gotdDownloadSession.OpenRange share this predicate,
+// so the storage path and the session path reject the same requests with
+// ErrInvalidRequest.
+func validRangeRequest(request RangeRequest) bool {
+	return request.UserID > 0 && request.ChannelID != 0 && request.MessageID > 0 && request.Offset >= 0 && request.Length >= -1
+}
+
 // Metadata resolves the stored size of a document without transferring it,
 // serving repeated lookups of the same message from the shared location cache.
 // It runs on a single download session. A nil runner, non-positive user ID, zero
@@ -227,7 +247,7 @@ func (s *GotdStorage) runUpload(ctx context.Context, userID int64, threads int, 
 // part repeats the requested channel and message IDs and carries the size
 // Telegram reported.
 func (s *GotdStorage) Metadata(ctx context.Context, request MetadataRequest) (StoredPart, error) {
-	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.MessageID < 0 {
+	if s.runner == nil || !validMetadataRequest(request) {
 		return StoredPart{}, ErrInvalidRequest
 	}
 	var stored StoredPart
@@ -254,7 +274,7 @@ func (s *GotdStorage) Metadata(ctx context.Context, request MetadataRequest) (St
 // zero channel ID, negative offset, or length below -1 returns
 // ErrInvalidRequest.
 func (s *GotdStorage) OpenRange(ctx context.Context, request RangeRequest) (io.ReadCloser, error) {
-	if s.runner == nil || request.UserID <= 0 || request.ChannelID == 0 || request.MessageID <= 0 || request.Offset < 0 || request.Length < -1 {
+	if s.runner == nil || !validRangeRequest(request) {
 		return nil, ErrInvalidRequest
 	}
 	streamCtx, cancel := context.WithCancel(ctx)
@@ -320,7 +340,10 @@ type gotdDownloadSession struct {
 	closeFn func() error
 	// close guards Close, so releasing the session twice is harmless.
 	close sync.Once
-	// mu guards api, err, and clientID.
+	// closed reports that Close ran; a closed session never hands out a client.
+	// Guarded by mu, so a concurrent Close and client() cannot race.
+	closed bool
+	// mu guards api, err, closed, and clientID.
 	mu sync.Mutex
 	// downloadReadBuffers is the number of prefetched chunks per range reader
 	// opened by this session.
@@ -439,11 +462,14 @@ func (s *GotdStorage) OpenDownloadSession(ctx context.Context, userID int64) (Do
 }
 
 // Metadata resolves a document size through the session client and its location
-// cache. It deliberately performs no request validation of its own, unlike
-// GotdStorage.Metadata, so a non-positive channel or message ID is sent to
-// Telegram and comes back as a lookup error. It must be called while the session
-// is open: a closed pooled session reports ErrClientUnavailable.
+// cache. It validates the request with the same predicate as
+// GotdStorage.Metadata and returns ErrInvalidRequest for a malformed one before
+// it touches the client. It must be called while the session is open: a closed
+// session reports ErrClientUnavailable.
 func (s *gotdDownloadSession) Metadata(ctx context.Context, request MetadataRequest) (StoredPart, error) {
+	if !validMetadataRequest(request) {
+		return StoredPart{}, ErrInvalidRequest
+	}
 	api, err := s.client()
 	if err != nil {
 		return StoredPart{}, err
@@ -456,12 +482,14 @@ func (s *gotdDownloadSession) Metadata(ctx context.Context, request MetadataRequ
 }
 
 // OpenRange opens a range reader on the session client, resolving the document
-// location on a background goroutine. It performs no request validation of its
-// own, unlike GotdStorage.OpenRange, so a length below -1 is treated as reading
-// to the end and a negative offset is forwarded to Telegram, which reports an
-// opaque error instead of ErrInvalidRequest. The caller owns the reader and must
-// close it.
+// location on a background goroutine. It validates the request with the same
+// predicate as GotdStorage.OpenRange and returns ErrInvalidRequest for a
+// malformed one before it touches the client, so a length below -1 or a negative
+// offset never reaches Telegram. The caller owns the reader and must close it.
 func (s *gotdDownloadSession) OpenRange(ctx context.Context, request RangeRequest) (io.ReadCloser, error) {
+	if !validRangeRequest(request) {
+		return nil, ErrInvalidRequest
+	}
 	api, err := s.client()
 	if err != nil {
 		return nil, err
@@ -496,12 +524,19 @@ func (s *gotdDownloadSession) refreshDocumentLocation(ctx context.Context, api *
 	return refreshDocumentLocation(WithClientID(ctx, s.clientID), api, channelID, messageID, s.globalCache)
 }
 
-// client returns the API the caller must use for this session. A pooled session
-// asks the pool on every call, so a closed pool or a released slot reports
-// ErrClientUnavailable. A private session returns the client it started, and
-// after Close that is the client it already stopped, so later calls fail on
-// first use instead of reporting ErrClientUnavailable.
+// client returns the API the caller must use for this session. It reports
+// ErrClientUnavailable once Close ran, whether the session is pooled or private,
+// so a closed session never hands out a client. An open pooled session asks the
+// pool on every call, so a closed pool or a released slot reports
+// ErrClientUnavailable as well; an open private session returns the client it
+// started and reports the run error when it never became usable.
 func (s *gotdDownloadSession) client() (*tg.Client, error) {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return nil, ErrClientUnavailable
+	}
 	if s.clientFn != nil {
 		return s.clientFn()
 	}
@@ -517,13 +552,18 @@ func (s *gotdDownloadSession) client() (*tg.Client, error) {
 }
 
 // Close releases the session: a pooled session returns its lease, a private
-// session cancels its context and waits for the client run to finish. It is
-// idempotent, returns the release error of a pooled session, and must be called
-// after every reader opened through OpenRange has been closed, because closing
-// the session stops the client those readers use.
+// session cancels its context and waits for the client run to finish. It marks
+// the session closed before releasing the lease, so a later or concurrent
+// client() reports ErrClientUnavailable instead of handing out the stopped
+// client. It is idempotent, returns the release error of a pooled session, and
+// must be called after every reader opened through OpenRange has been closed,
+// because closing the session stops the client those readers use.
 func (s *gotdDownloadSession) Close() error {
 	var err error
 	s.close.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		s.mu.Unlock()
 		if s.closeFn != nil {
 			err = s.closeFn()
 			return
@@ -911,17 +951,23 @@ func (s *GotdStorage) CopyPart(ctx context.Context, userID, sourceChannelID, sou
 
 // DeleteMessages deletes the given messages from a channel in batches of at most
 // deleteBatchSize, on a management session. An empty slice is a no-op and a
-// channel that no longer resolves counts as already deleted. The validation of
-// the message IDs happens inside the batch loop, so the batches are not
-// transactional: a failure, including an ID at or below zero detected late,
-// leaves earlier batches deleted. A nil runner, non-positive user ID, or zero
-// channel ID returns ErrInvalidRequest before any Telegram call.
+// channel that no longer resolves counts as already deleted. Every message ID is
+// validated before the first Telegram call, so an ID at or below zero returns
+// ErrInvalidRequest without deleting anything. Telegram batches are still not
+// transactional: a Telegram failure midway leaves earlier batches deleted. A nil
+// runner, non-positive user ID, or zero channel ID returns ErrInvalidRequest
+// before any Telegram call.
 func (s *GotdStorage) DeleteMessages(ctx context.Context, userID, channelID int64, messageIDs []int64) error {
 	if s.runner == nil || userID <= 0 || channelID == 0 {
 		return ErrInvalidRequest
 	}
 	if len(messageIDs) == 0 {
 		return nil
+	}
+	for _, id := range messageIDs {
+		if id <= 0 {
+			return ErrInvalidRequest
+		}
 	}
 	return s.runner.Run(ctx, userID, OperationManage, func(runCtx context.Context, api *tg.Client) error {
 		channel, err := inputChannel(runCtx, api, channelID)
@@ -935,9 +981,6 @@ func (s *GotdStorage) DeleteMessages(ctx context.Context, userID, channelID int6
 			end := min(start+deleteBatchSize, len(messageIDs))
 			ids := make([]int, 0, end-start)
 			for _, id := range messageIDs[start:end] {
-				if id <= 0 {
-					return ErrInvalidRequest
-				}
 				ids = append(ids, int(id))
 			}
 			if _, err := api.ChannelsDeleteMessages(runCtx, &tg.ChannelsDeleteMessagesRequest{Channel: channel, ID: ids}); err != nil {
@@ -1265,21 +1308,4 @@ func messageDocument(msg *tg.Message) (*tg.Document, bool) {
 	}
 	document, ok := media.Document.(*tg.Document)
 	return document, ok
-}
-
-// cancelReadCloser pairs a reader with the cancel function that stops its
-// producer, so closing the reader also releases the work behind it.
-type cancelReadCloser struct {
-	// ReadCloser is the wrapped reader, closed after the producer is cancelled.
-	io.ReadCloser
-	// cancel stops the producer of the wrapped reader.
-	cancel context.CancelFunc
-}
-
-// Close cancels the producer and then closes the wrapped reader, returning that
-// reader's error. It does not guard against a second call, so the wrapped reader
-// must tolerate being closed twice.
-func (r *cancelReadCloser) Close() error {
-	r.cancel()
-	return r.ReadCloser.Close()
 }

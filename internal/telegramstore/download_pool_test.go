@@ -2,6 +2,7 @@ package telegramstore
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -207,6 +208,33 @@ func TestDownloadClientPoolUsesConfiguredConnections(t *testing.T) {
 		t.Fatalf("runner calls = pooled:%d regular:%d connections:%d", runner.pooledCalls, runner.regularCalls, runner.connections)
 	}
 	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closeDownloadClientPool(t, pool)
+}
+
+func TestDownloadClientPoolClosedSessionReportsClientUnavailable(t *testing.T) {
+	runner := &backgroundRunnerStub{}
+	pool := newTestDownloadClientPool(t, runner, DownloadClientPoolConfig{Clients: 1})
+
+	first, err := pool.OpenDownloadSession(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := pool.OpenDownloadSession(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.(*gotdDownloadSession).client(); !errors.Is(err, ErrClientUnavailable) {
+		t.Fatalf("closed session client() error = %v, want ErrClientUnavailable", err)
+	}
+	if _, err := second.(*gotdDownloadSession).client(); err != nil {
+		t.Fatalf("open session client() error = %v", err)
+	}
+	if err := second.Close(); err != nil {
 		t.Fatal(err)
 	}
 	closeDownloadClientPool(t, pool)

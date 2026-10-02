@@ -142,9 +142,9 @@ type MetadataRequest struct {
 	UserID int64
 	// ChannelID is the channel holding the document and must be non-zero.
 	ChannelID int64
-	// MessageID is the Telegram message ID of the document. Values below one
-	// cannot resolve to a document and surface as a lookup error rather than
-	// ErrInvalidRequest.
+	// MessageID is the Telegram message ID of the document. A negative value
+	// cannot name a message and is rejected with ErrInvalidRequest, while zero
+	// is looked up and surfaces as a document lookup error.
 	MessageID int64
 }
 
@@ -181,15 +181,17 @@ type RangeRequest struct {
 // range operations belonging to a single caller request.
 type DownloadSession interface {
 	// Metadata resolves a document's stored size without opening its body,
-	// reusing the session's client. It reports the document lookup errors of
-	// MetadataReader.Metadata and must be called while the session is still
-	// open: a closed pooled session answers ErrClientUnavailable, and a closed
-	// private session still hands out the client it already stopped.
+	// reusing the session's client. It validates the request like
+	// MetadataReader.Metadata, so a malformed one returns ErrInvalidRequest, and
+	// reports the remaining document lookup errors the same way. It must be
+	// called while the session is still open: a closed session, pooled or
+	// private, answers ErrClientUnavailable.
 	Metadata(context.Context, MetadataRequest) (StoredPart, error)
-	// OpenRange opens a byte range of a document. The returned reader belongs
-	// to the caller and must be closed, which cancels the background fetch;
-	// reads end with io.EOF at the end of the range and surface the underlying
-	// Telegram error otherwise.
+	// OpenRange opens a byte range of a document. It validates the request like
+	// Storage.OpenRange, so a malformed one returns ErrInvalidRequest before the
+	// client is used. The returned reader belongs to the caller and must be
+	// closed, which cancels the background fetch; reads end with io.EOF at the
+	// end of the range and surface the underlying Telegram error otherwise.
 	OpenRange(context.Context, RangeRequest) (io.ReadCloser, error)
 	// Close releases the client lease held by the session. It is idempotent and
 	// must be called when the request ends, after every reader returned by
@@ -237,8 +239,9 @@ type Storage interface {
 	OpenRange(ctx context.Context, request RangeRequest) (io.ReadCloser, error)
 	// DeleteMessages removes the given messages from a channel, splitting the
 	// work into batches of at most 100. An empty slice is a no-op, a channel
-	// that no longer resolves is treated as already deleted, and batch
-	// boundaries are not transactional: a failure midway leaves earlier
+	// that no longer resolves is treated as already deleted, and an ID at or
+	// below zero returns ErrInvalidRequest before anything is deleted. Telegram
+	// batch boundaries are not transactional: a failure midway leaves earlier
 	// batches deleted.
 	DeleteMessages(ctx context.Context, userID, channelID int64, messageIDs []int64) error
 	// CopyPart republishes an existing document into another channel without
