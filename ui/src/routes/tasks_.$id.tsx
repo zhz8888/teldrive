@@ -14,6 +14,7 @@ import RefreshIcon from "~icons/gravity-ui/arrows-rotate-right";
 import { TaskStatusChip, taskStatusLabel } from "../components/task-status-chip";
 import type { components } from "@/api/schema";
 import { $api as api, fetchClient } from "@/api/client";
+import { unwrap } from "@/api/errors";
 import { queryClient } from "@/api/query-client";
 import { invalidateTaskQueries } from "@/api/tasks";
 import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
@@ -95,13 +96,13 @@ function TaskDetailPage() {
 
   const retry = async () => {
     setRetrying(true);
-    const { error } = await fetchClient.POST("/v1/jobs/{jobId}/retry", {
-      params: { path: { jobId: id } },
-    });
-    setRetrying(false);
-    if (error) {
+    try {
+      await unwrap(fetchClient.POST("/v1/jobs/{jobId}/retry", { params: { path: { jobId: id } } }));
+    } catch {
       toast.error(t("routes.tasks.toast.retryFailed"));
       return;
+    } finally {
+      setRetrying(false);
     }
     toast.success(t("routes.tasks.toast.retryQueued"));
     await invalidateTaskQueries(qc, id);
@@ -109,11 +110,15 @@ function TaskDetailPage() {
 
   const remove = async () => {
     setDeleting(true);
-    const { error } = ACTIVE_STATES.includes(task.status)
-      ? await fetchClient.POST("/v1/jobs/{jobId}/cancel", { params: { path: { jobId: id } } })
-      : await fetchClient.DELETE("/v1/jobs/{jobId}", { params: { path: { jobId: id } } });
-    setDeleting(false);
-    if (error) {
+    try {
+      if (ACTIVE_STATES.includes(task.status)) {
+        await unwrap(
+          fetchClient.POST("/v1/jobs/{jobId}/cancel", { params: { path: { jobId: id } } }),
+        );
+      } else {
+        await unwrap(fetchClient.DELETE("/v1/jobs/{jobId}", { params: { path: { jobId: id } } }));
+      }
+    } catch {
       toast.error(
         t(
           ACTIVE_STATES.includes(task.status)
@@ -122,6 +127,8 @@ function TaskDetailPage() {
         ),
       );
       return;
+    } finally {
+      setDeleting(false);
     }
     toast.success(
       t(

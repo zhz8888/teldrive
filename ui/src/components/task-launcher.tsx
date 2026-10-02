@@ -73,10 +73,12 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
         maxAttempts: value.maxAttempts,
         tags: ["teldrive", "maintenance"],
       };
-      const { error } = await fetchClient.POST("/v1/jobs", { body });
-      if (error) {
+      try {
+        await fetchClient.POST("/v1/jobs", { body });
+      } catch {
+        // The launcher stays open with the values the user entered.
         toast.error(t("components.taskLauncher.queueFailed"));
-        throw new Error("Failed to queue task");
+        return;
       }
       toast.success(t("components.taskLauncher.queued"));
       onQueued();

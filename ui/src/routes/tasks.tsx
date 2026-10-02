@@ -13,6 +13,7 @@ import { TaskLauncher } from "../components/task-launcher";
 import { TaskStatusChip } from "../components/task-status-chip";
 import type { components } from "@/api/schema";
 import { $api as api, fetchClient } from "@/api/client";
+import { unwrap } from "@/api/errors";
 import { queryClient } from "@/api/query-client";
 import { invalidateTaskQueries } from "@/api/tasks";
 import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
@@ -213,13 +214,15 @@ function TasksPage() {
 
   const retryTask = async (task: TaskOut) => {
     setRetryingId(task.id);
-    const { error } = await fetchClient.POST("/v1/jobs/{jobId}/retry", {
-      params: { path: { jobId: task.id } },
-    });
-    setRetryingId(null);
-    if (error) {
+    try {
+      await unwrap(
+        fetchClient.POST("/v1/jobs/{jobId}/retry", { params: { path: { jobId: task.id } } }),
+      );
+    } catch {
       toast.error(t("routes.tasks.toast.retryFailed"));
       return;
+    } finally {
+      setRetryingId(null);
     }
     toast.success(t("routes.tasks.toast.retryQueued"));
     refreshTasks();
@@ -227,15 +230,17 @@ function TasksPage() {
 
   const deleteTask = async (task: TaskOut) => {
     setDeletingId(task.id);
-    const { error } = CANCELLABLE_STATUSES.includes(task.status)
-      ? await fetchClient.POST("/v1/jobs/{jobId}/cancel", {
-          params: { path: { jobId: task.id } },
-        })
-      : await fetchClient.DELETE("/v1/jobs/{jobId}", {
-          params: { path: { jobId: task.id } },
-        });
-    setDeletingId(null);
-    if (error) {
+    try {
+      if (CANCELLABLE_STATUSES.includes(task.status)) {
+        await unwrap(
+          fetchClient.POST("/v1/jobs/{jobId}/cancel", { params: { path: { jobId: task.id } } }),
+        );
+      } else {
+        await unwrap(
+          fetchClient.DELETE("/v1/jobs/{jobId}", { params: { path: { jobId: task.id } } }),
+        );
+      }
+    } catch {
       toast.error(
         t(
           CANCELLABLE_STATUSES.includes(task.status)
@@ -244,6 +249,8 @@ function TasksPage() {
         ),
       );
       return;
+    } finally {
+      setDeletingId(null);
     }
     toast.success(
       t(
@@ -258,21 +265,21 @@ function TasksPage() {
   const cleanTasks = async () => {
     if (!cleanupStatus) return;
     setCleaning(true);
-    const { data: response, error } = await fetchClient.DELETE("/v1/jobs/purge", {
-      params: { query: { status: cleanupStatus } },
-    });
-    setCleaning(false);
-    if (error) {
+    try {
+      const response = await unwrap(
+        fetchClient.DELETE("/v1/jobs/purge", { params: { query: { status: cleanupStatus } } }),
+      );
+      const status = cleanupStatus;
+      setCleanupStatus(null);
+      setCursor(undefined);
+      setCursorHistory([]);
+      toast.success(t("routes.tasks.toast.cleaned", { count: response.count, status }));
+      refreshTasks();
+    } catch {
       toast.error(t("routes.tasks.toast.cleanFailed", { status: cleanupStatus }));
-      return;
+    } finally {
+      setCleaning(false);
     }
-
-    const status = cleanupStatus;
-    setCleanupStatus(null);
-    setCursor(undefined);
-    setCursorHistory([]);
-    toast.success(t("routes.tasks.toast.cleaned", { count: response.count, status }));
-    refreshTasks();
   };
 
   return (
@@ -580,9 +587,9 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
     const endpoint = queue.paused
       ? "/v1/jobs/queues/{queue}/resume"
       : "/v1/jobs/queues/{queue}/pause";
-    const { error } = await fetchClient.POST(endpoint, { params: { path: { queue: queue.name } } });
-    setPendingQueue(null);
-    if (error) {
+    try {
+      await unwrap(fetchClient.POST(endpoint, { params: { path: { queue: queue.name } } }));
+    } catch {
       toast.error(
         t(
           queue.paused
@@ -592,6 +599,8 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
         ),
       );
       return;
+    } finally {
+      setPendingQueue(null);
     }
     toast.success(
       t(queue.paused ? "routes.tasks.queues.toast.resumed" : "routes.tasks.queues.toast.paused", {

@@ -14,6 +14,7 @@ import PlusIcon from "~icons/gravity-ui/plus";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 import type { components } from "@/api/schema";
 import { fetchClient } from "@/api/client";
+import { userMessage } from "@/api/errors";
 import { type MessageKey, type MessageParams, useI18n } from "@/lib/i18n";
 import { newClientId } from "@/features/shared/client-id";
 import { AppDialog } from "./dialogs/app-dialog";
@@ -136,8 +137,14 @@ export function BackgroundUploadDialog({
         encryption,
       };
       setSubmitting(true);
-      const { error } = await fetchClient.POST("/v1/uploads/imports", { body });
-      if (error) throw new Error(t("components.backgroundUpload.serverRejected"));
+      try {
+        // The client throws for a rejected request, so the failure carries the
+        // reason to report instead of the dead `error` field the response never
+        // fills.
+        await fetchClient.POST("/v1/uploads/imports", { body });
+      } catch (error) {
+        throw new Error(userMessage(error) || t("components.backgroundUpload.serverRejected"));
+      }
       toast.success(t("components.backgroundUpload.queued"));
       reset();
       onOpenChange(false);
