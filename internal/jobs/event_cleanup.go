@@ -41,8 +41,9 @@ func (EventCleanupArgs) InsertOpts() river.InsertOpts {
 }
 
 // EventCleanupWorker deletes user events that are older than the configured
-// retention and records how many rows it removed. Each run is a single DELETE,
-// so retrying after a failure simply deletes whatever is left.
+// retention, deletes expired Telegram login flows, and records how many rows it
+// removed. Each run issues one bounded DELETE per table, so retrying after a
+// failure simply deletes whatever is left.
 type EventCleanupWorker struct {
 	// WorkerDefaults supplies River's no-op defaults for the hooks this worker
 	// does not override.
@@ -71,12 +72,18 @@ func (w *EventCleanupWorker) Timeout(*river.Job[EventCleanupArgs]) time.Duration
 }
 
 // Work deletes every user event older than the retention window in the job
-// arguments and records the deleted row count and the cutoff as the job output,
-// so an operator can see what a sweep did without querying the database.
+// arguments, deletes every Telegram login flow whose deadline has passed, and
+// records the deleted row counts and the cutoff as the job output, so an operator
+// can see what a sweep did without querying the database.
+//
+// Both deletes are bounded single statements and independent of each other: the
+// event delete uses the cutoff the arguments select, while the flow delete uses
+// the database clock and does not depend on the retention. Neither is skipped
+// when the other has nothing to remove, and both are idempotent, so a retry after
+// a partial failure is safe.
 //
 // It fails with ErrEventCleanupNotConfigured when the worker is not wired up, and
-// rejects a retention that does not parse or is not positive. The delete is
-// idempotent, so a retry after a partial failure is safe.
+// rejects a retention that does not parse or is not positive.
 func (w *EventCleanupWorker) Work(ctx context.Context, job *river.Job[EventCleanupArgs]) error {
 	if w == nil || w.pool == nil || w.queries == nil || w.now == nil {
 		return ErrEventCleanupNotConfigured
@@ -90,11 +97,21 @@ func (w *EventCleanupWorker) Work(ctx context.Context, job *river.Job[EventClean
 	if err != nil {
 		return fmt.Errorf("delete expired user events: %w", err)
 	}
+	// Every StartLogin and StartQR stores a login flow that is only meaningful
+	// until it expires, and nothing else removes them, so the sweep that already
+	// maintains the event stream drops them here as well. Without it the table
+	// grows without bound and keeps the sealed phone number and login state of
+	// abandoned logins forever.
+	flowsDeleted, err := w.queries.DeleteExpiredTelegramLoginFlows(ctx)
+	if err != nil {
+		return fmt.Errorf("delete expired Telegram login flows: %w", err)
+	}
 	if job.JobRow != nil {
 		return river.RecordOutput(ctx, struct {
-			Deleted int64     `json:"deleted"`
-			Cutoff  time.Time `json:"cutoff"`
-		}{Deleted: deleted, Cutoff: cutoff})
+			Deleted           int64     `json:"deleted"`
+			LoginFlowsDeleted int64     `json:"login_flows_deleted"`
+			Cutoff            time.Time `json:"cutoff"`
+		}{Deleted: deleted, LoginFlowsDeleted: flowsDeleted, Cutoff: cutoff})
 	}
 	return nil
 }

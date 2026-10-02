@@ -436,7 +436,7 @@ func (r *Runtime) PeriodicJobCatalog() []PeriodicTemplate {
 			DefaultCronExpression: uploadCleanupDefaultCron, DefaultCronTimezone: maintenanceTimezone,
 		},
 		{
-			ID: eventCleanupPeriodicID, Label: "User event cleanup", Description: "Delete replayable user events older than the configured retention period.",
+			ID: eventCleanupPeriodicID, Label: "User event cleanup", Description: "Delete replayable user events older than the configured retention period and expired Telegram login flows.",
 			Kind: EventCleanupKind, DefaultArgs: rawArgs(EventCleanupArgs{Retention: eventCleanupDefaultRetention}),
 			DefaultQueue: CleanupQueue, DefaultPriority: 2, DefaultMaxAttempts: 3,
 			DefaultCronExpression: eventCleanupDefaultCron, DefaultCronTimezone: maintenanceTimezone,
