@@ -27,7 +27,12 @@ core_patterns=(
   ./internal/treehash
   ./internal/uploads
 )
-mapfile -t core_packages < <(go list "${core_patterns[@]}")
+# Read the package list line by line instead of using mapfile, which is a bash 4
+# builtin and therefore missing from the bash 3.2 that macOS ships.
+core_packages=()
+while IFS= read -r core_package; do
+  core_packages+=("$core_package")
+done < <(go list "${core_patterns[@]}")
 coverpkg="$(IFS=,; echo "${core_packages[*]}")"
 
 ./scripts/test-postgres.sh go test \
