@@ -152,7 +152,8 @@ type CreateInput struct {
 	// ParentID is the destination folder, or nil for the user's root. A non-nil id
 	// must be an active folder of UserID, otherwise ErrInvalidParent is returned.
 	ParentID *uuid.UUID
-	// Name is the destination file name, stored verbatim without normalization.
+	// Name is the destination file name, stored verbatim without normalization. It
+	// must not be blank after trimming, otherwise Create returns ErrInvalidInput.
 	Name string
 	// ExpectedSize is the total plaintext size in bytes, or -1 when it is not known
 	// yet; the real size is then derived from the stored parts at completion. It
@@ -185,8 +186,8 @@ type CreateInput struct {
 
 // Create validates in and inserts a new upload session in the open state, expiring
 // sessionTTL after creation. It returns ErrInvalidInput for a malformed request
-// (non-positive user, size below -1, only one half of the expected hash, an
-// encryption flag that disagrees with the key version),
+// (non-positive user, size below -1, a name that is blank after trimming, only one
+// half of the expected hash, an encryption flag that disagrees with the key version),
 // ErrUnsupportedConflictPolicy for a policy outside fail, replace and rename,
 // ErrInvalidParent when ParentID is not an active folder of the user, and otherwise
 // the raw error of CreateUploadSession, with no wrapping added.
@@ -194,6 +195,12 @@ type CreateInput struct {
 // completion.
 func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSession, error) {
 	if in.UserID <= 0 || in.ExpectedSize < -1 {
+		return nil, ErrInvalidInput
+	}
+	// A name that is blank after trimming would fail the
+	// upload_sessions_name_not_blank check constraint, so it is rejected here
+	// instead of surfacing as a database error.
+	if strings.TrimSpace(in.Name) == "" {
 		return nil, ErrInvalidInput
 	}
 	if (in.ExpectedHashAlgorithm == nil) != (in.ExpectedHashValue == nil) {
