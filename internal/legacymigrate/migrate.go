@@ -24,6 +24,7 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/bots"
 	"github.com/tgdrive/teldrive/v2/internal/database"
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
+	"github.com/tgdrive/teldrive/v2/internal/treehash"
 )
 
 // Config describes one migration run.
@@ -874,7 +875,10 @@ func migrateFiles(ctx context.Context, tx pgx.Tx, files []legacyFile, cfg Config
 		}
 		var hashAlg, hashValue *string
 		if f.Hash != nil && *f.Hash != "" {
-			alg := "blake3-tree"
+			// The digest is a tree hash over the parts, but the algorithm a file
+			// records is the identifier the API contract declares, so a migrated
+			// row carries the same value as a freshly completed upload.
+			alg := string(treehash.TypeBlake3)
 			hashAlg, hashValue = &alg, f.Hash
 		}
 		fileRows = append(fileRows, []any{f.ID, f.UserID, f.ParentID, f.Name, f.Kind, f.MimeType, size, hashAlg, hashValue, enc, keyVersion, status, f.UpdatedAt, int64(1), f.CreatedAt, f.UpdatedAt, deletedAt})
