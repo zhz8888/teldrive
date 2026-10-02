@@ -246,8 +246,10 @@ type Storage interface {
 	DeleteMessages(ctx context.Context, userID, channelID int64, messageIDs []int64) error
 	// CopyPart republishes an existing document into another channel without
 	// re-uploading its bytes and returns the new part. Every call creates a new
-	// message, so it is not idempotent, and a copied size that differs from the
-	// source reports ErrSizeMismatch after the message was published.
+	// message, so it is not idempotent. A size mismatch reports ErrSizeMismatch
+	// after the message was published and returns that published part alongside
+	// the error, so the caller can delete it; an implementation that cannot name
+	// the message returns a zero part instead.
 	CopyPart(ctx context.Context, userID, sourceChannelID, sourceMessageID, destinationChannelID int64) (StoredPart, error)
 	// CreateChannel creates a broadcast channel titled with the trimmed name.
 	// When an upload bot provider is configured, its bots are granted channel

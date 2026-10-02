@@ -902,10 +902,11 @@ func (b *telegramRangeBuffer) remaining() []byte {
 // so no bytes are transferred, and returns the new part. It runs as a
 // management operation and checks the copied size against the source, reporting
 // ErrSizeMismatch when they differ; the copy is already published at that point,
-// so this call cannot clean it up and leaves it to the orphan cleanup sweep.
-// Every call creates a new message, so it is not idempotent. A nil runner,
-// non-positive user ID, zero channel ID, or non-positive source message ID
-// returns ErrInvalidRequest.
+// so it is returned together with the error, which is what lets the caller
+// delete it instead of leaving it to the orphan cleanup sweep. Every call
+// creates a new message, so it is not idempotent. A nil runner, non-positive
+// user ID, zero channel ID, or non-positive source message ID returns
+// ErrInvalidRequest along with a zero part.
 func (s *GotdStorage) CopyPart(ctx context.Context, userID, sourceChannelID, sourceMessageID, destinationChannelID int64) (StoredPart, error) {
 	if s.runner == nil || userID <= 0 || sourceChannelID == 0 || sourceMessageID <= 0 || destinationChannelID == 0 {
 		return StoredPart{}, ErrInvalidRequest
@@ -938,13 +939,16 @@ func (s *GotdStorage) CopyPart(ctx context.Context, userID, sourceChannelID, sou
 			return err
 		}
 		if copiedSize != size {
+			// Record the published message before failing: the caller can only
+			// compensate for a document it can name.
+			copied = StoredPart{ChannelID: destinationChannelID, MessageID: messageID, Size: copiedSize}
 			return fmt.Errorf("%w: copied %d, source %d", ErrSizeMismatch, copiedSize, size)
 		}
 		copied = StoredPart{ChannelID: destinationChannelID, MessageID: messageID, Size: copiedSize}
 		return nil
 	})
 	if err != nil {
-		return StoredPart{}, err
+		return copied, err
 	}
 	return copied, nil
 }
