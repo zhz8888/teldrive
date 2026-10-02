@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"runtime/debug"
 	"testing"
 )
 
@@ -333,7 +334,9 @@ func TestDecryptSeekClosesReplacedRanges(t *testing.T) {
 
 func TestEncrypterReturnsPoolBuffersWhenNonceReadFails(t *testing.T) {
 	// Not parallel: the assertion inspects the cipher's private pool, and a
-	// garbage collection triggered by another test could clear it.
+	// garbage collection would legitimately clear it, so collection stays off for
+	// the critical section. The previous setting is restored when the test ends.
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	cipher, err := NewCipher("pool-password", "pool-salt")
 	if err != nil {
 		t.Fatal(err)
@@ -352,9 +355,33 @@ func TestEncrypterReturnsPoolBuffersWhenNonceReadFails(t *testing.T) {
 		t.Fatalf("buffers allocated during the failed construction = %d, want 2", allocations)
 	}
 
+	if raceDetectorEnabled() {
+		// The race runtime changes when sync.Pool hands a stored entry back to a
+		// later Get, so the two borrows below can miss buffers that were returned
+		// moments earlier. The retention itself is covered by a run without -race
+		// (just test-unit), which is where this assertion is meaningful.
+		t.Log("skipping the pool retention assertion in a -race build")
+		return
+	}
+
 	cipher.getBlock()
 	cipher.getBlock()
 	if allocations != 2 {
 		t.Fatalf("pool buffers were not returned: allocations = %d, want 2", allocations)
 	}
+}
+
+// raceDetectorEnabled reports whether this test binary was built with -race, which
+// it reads from the build settings the toolchain stamps into the executable.
+func raceDetectorEnabled() bool {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "-race" {
+			return setting.Value == "true"
+		}
+	}
+	return false
 }
