@@ -83,6 +83,52 @@ export function filePageQueryOptions(search: FileRouteSearch, status: FileStatus
 }
 
 /**
+ * Cursor pages of the files the caller has shared, so `fetchNextPage` walks the
+ * server's `nextCursor` and every entry stays reachable instead of only the
+ * first page. The listings are disabled until the shared browser needs them.
+ */
+export function useSharedFilePages(enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["get", "/v1/shared", "pages"] as const,
+    enabled,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const result = await fetchClient.GET("/v1/shared", {
+        params: { query: { cursor: pageParam, limit: 500 } },
+        signal,
+      });
+      if (!result.data) {
+        throw invalidResponse("Teldrive returned an empty shared-file response.");
+      }
+      return result.data;
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 15_000,
+  });
+}
+
+/** Cursor pages of the files other owners granted the caller. */
+export function useSharedWithMePages(enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["get", "/v1/shared/with-me", "pages"] as const,
+    enabled,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const result = await fetchClient.GET("/v1/shared/with-me", {
+        params: { query: { cursor: pageParam, limit: 500 } },
+        signal,
+      });
+      if (!result.data) {
+        throw invalidResponse("Teldrive returned an empty shared-with-me response.");
+      }
+      return result.data;
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 15_000,
+  });
+}
+
+/**
  * Cursor pages of one listing. Trash uses this instead of the first page alone,
  * so `fetchNextPage` walks the `nextCursor` the server returns and every entry
  * stays reachable rather than only the first hundred.

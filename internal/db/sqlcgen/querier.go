@@ -112,6 +112,8 @@ type Querier interface {
 	ListReferencedMessageIDs(ctx context.Context, arg ListReferencedMessageIDsParams) ([]int64, error)
 	ListSessions(ctx context.Context, arg ListSessionsParams) ([]*Session, error)
 	ListShared(ctx context.Context, arg ListSharedParams) ([]*File, error)
+	// The grant's own timestamp and id are the sort key and the cursor, so both are
+	// returned next to the file the grant points at.
 	ListSharedWithMe(ctx context.Context, arg ListSharedWithMeParams) ([]*ListSharedWithMeRow, error)
 	ListStorageChannelStatistics(ctx context.Context, userID int64) ([]*ListStorageChannelStatisticsRow, error)
 	ListStorageGrowth(ctx context.Context, userID int64) ([]*ListStorageGrowthRow, error)

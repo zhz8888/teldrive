@@ -32,6 +32,7 @@ export const features = {
   "features.fileBrowser.action.stopSharing": "Stop sharing selected items",
   "features.fileBrowser.action.trash": "Move selected items to trash",
   "features.fileBrowser.action.clearSelection": "Clear selection",
+  "features.fileBrowser.action.loadMore": "Load more",
   "features.fileBrowser.dialog.createFolderTitle": "Create folder",
   "features.fileBrowser.dialog.renameTitle": "Rename item",
 

@@ -4722,7 +4722,7 @@ func encodeListSessionsResponse(response ListSessionsRes, w http.ResponseWriter,
 
 func encodeListSharedResponse(response ListSharedRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ListSharedOKApplicationJSON:
+	case *ListSharedOK:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(200)
 
@@ -4734,9 +4734,21 @@ func encodeListSharedResponse(response ListSharedRes, w http.ResponseWriter, spa
 
 		return nil
 
-	case *ErrorEnvelope:
+	case *ListSharedUnauthorized:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListSharedUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(422)
 
 		e := new(jx.Encoder)
 		response.Encode(e)
@@ -4753,7 +4765,7 @@ func encodeListSharedResponse(response ListSharedRes, w http.ResponseWriter, spa
 
 func encodeListSharedWithMeResponse(response ListSharedWithMeRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ListSharedWithMeOKApplicationJSON:
+	case *ListSharedWithMeOK:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(200)
 
@@ -4765,9 +4777,21 @@ func encodeListSharedWithMeResponse(response ListSharedWithMeRes, w http.Respons
 
 		return nil
 
-	case *ErrorEnvelope:
+	case *ListSharedWithMeUnauthorized:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(401)
+
+		e := new(jx.Encoder)
+		response.Encode(e)
+		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *ListSharedWithMeUnprocessableEntity:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(422)
 
 		e := new(jx.Encoder)
 		response.Encode(e)

@@ -1012,6 +1012,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description List the owner's files that a live share or grant makes reachable, newest first. */
         get: operations["listShared"];
         put?: never;
         post?: never;
@@ -1028,6 +1029,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description List the files other owners granted the caller, newest grant first. */
         get: operations["listSharedWithMe"];
         put?: never;
         post?: never;
@@ -6150,7 +6152,10 @@ export interface operations {
     };
     listShared: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: components["parameters"]["CursorQuery.cursor"];
+                limit?: components["parameters"]["CursorQuery.limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6163,7 +6168,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FileEntry"][];
+                    "application/json": {
+                        items: components["schemas"]["FileEntry"][];
+                        nextCursor?: components["schemas"]["Cursor"];
+                    };
                 };
             };
             /** @description Access is unauthorized. */
@@ -6175,11 +6183,23 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description Client error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     listSharedWithMe: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: components["parameters"]["CursorQuery.cursor"];
+                limit?: components["parameters"]["CursorQuery.limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6192,11 +6212,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SharedWithMeEntry"][];
+                    "application/json": {
+                        items: components["schemas"]["SharedWithMeEntry"][];
+                        nextCursor?: components["schemas"]["Cursor"];
+                    };
                 };
             };
             /** @description Access is unauthorized. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Client error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

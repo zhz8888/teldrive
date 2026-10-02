@@ -281,7 +281,7 @@ VALUES
 	if _, err := service.ResolveAccess(ctx, 2002, uuid.New(), false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ResolveAccess(unknown file) error = %v", err)
 	}
-	shared, err := service.ListShared(ctx, 1001)
+	shared, err := service.ListShared(ctx, ListSharedInput{OwnerID: 1001, Limit: 100})
 	if err != nil || len(shared) != 1 {
 		t.Fatalf("ListShared(owner) = %#v, %v", shared, err)
 	}
@@ -289,12 +289,12 @@ VALUES
 	if sharedID != rootID {
 		t.Fatalf("ListShared(owner) file = %s, want %s", sharedID, rootID)
 	}
-	incomingOnly, err := service.ListShared(ctx, 2002)
+	incomingOnly, err := service.ListShared(ctx, ListSharedInput{OwnerID: 2002, Limit: 100})
 	if err != nil || len(incomingOnly) != 0 {
 		t.Fatalf("ListShared(grantee) = %#v, %v", incomingOnly, err)
 	}
 
-	sharedWithMe, err := service.ListSharedWithMe(ctx, 2002)
+	sharedWithMe, err := service.ListSharedWithMe(ctx, ListSharedWithMeInput{GranteeID: 2002, Limit: 100})
 	if err != nil || len(sharedWithMe) != 1 {
 		t.Fatalf("ListSharedWithMe(grantee) = %#v, %v", sharedWithMe, err)
 	}
@@ -311,7 +311,7 @@ VALUES
 	if access, err := service.ResolveAccess(ctx, 2002, childID, true); err != nil || access.Permission != sqlcgen.SharePermissionEdit {
 		t.Fatalf("ResolveAccess(edit) = %#v, %v", access, err)
 
-		sharedWithMe, err = service.ListSharedWithMe(ctx, 2002)
+		sharedWithMe, err = service.ListSharedWithMe(ctx, ListSharedWithMeInput{GranteeID: 2002, Limit: 100})
 		if err != nil || len(sharedWithMe) != 1 || sharedWithMe[0].Permission != sqlcgen.SharePermissionEdit {
 			t.Fatalf("ListSharedWithMe(after edit) = %#v, %v", sharedWithMe, err)
 		}
@@ -323,7 +323,7 @@ VALUES
 		t.Fatalf("ResolveAccess(after revoke) error = %v", err)
 	}
 
-	sharedWithMe, err = service.ListSharedWithMe(ctx, 2002)
+	sharedWithMe, err = service.ListSharedWithMe(ctx, ListSharedWithMeInput{GranteeID: 2002, Limit: 100})
 	if err != nil || len(sharedWithMe) != 0 {
 		t.Fatalf("ListSharedWithMe(after revoke) = %#v, %v", sharedWithMe, err)
 	}

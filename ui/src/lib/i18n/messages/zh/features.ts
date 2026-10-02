@@ -34,6 +34,7 @@ export const features: AreaMessages<typeof enFeatures> = {
   "features.fileBrowser.action.stopSharing": "停止分享所选项",
   "features.fileBrowser.action.trash": "将所选项移到回收站",
   "features.fileBrowser.action.clearSelection": "清除选择",
+  "features.fileBrowser.action.loadMore": "加载更多",
   "features.fileBrowser.dialog.createFolderTitle": "新建文件夹",
   "features.fileBrowser.dialog.renameTitle": "重命名项目",
 

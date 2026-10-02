@@ -328,12 +328,16 @@ type Handler interface {
 	ListSessions(ctx context.Context, params ListSessionsParams) (ListSessionsRes, error)
 	// ListShared implements listShared operation.
 	//
+	// List the owner's files that a live share or grant makes reachable, newest first.
+	//
 	// GET /v1/shared
-	ListShared(ctx context.Context) (ListSharedRes, error)
+	ListShared(ctx context.Context, params ListSharedParams) (ListSharedRes, error)
 	// ListSharedWithMe implements listSharedWithMe operation.
 	//
+	// List the files other owners granted the caller, newest grant first.
+	//
 	// GET /v1/shared/with-me
-	ListSharedWithMe(ctx context.Context) (ListSharedWithMeRes, error)
+	ListSharedWithMe(ctx context.Context, params ListSharedWithMeParams) (ListSharedWithMeRes, error)
 	// ListUploadParts implements listUploadParts operation.
 	//
 	// List parts already known to the upload session.

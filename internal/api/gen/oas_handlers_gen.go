@@ -14020,6 +14020,8 @@ func (s *Server) handleListSessionsRequest(args [0]string, argsEscaped bool, w h
 
 // handleListSharedRequest handles listShared operation.
 //
+// List the owner's files that a live share or grant makes reachable, newest first.
+//
 // GET /v1/shared
 func (s *Server) handleListSharedRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -14172,6 +14174,16 @@ func (s *Server) handleListSharedRequest(args [0]string, argsEscaped bool, w htt
 			return
 		}
 	}
+	params, err := decodeListSharedParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
 
 	var rawBody []byte
 
@@ -14184,13 +14196,22 @@ func (s *Server) handleListSharedRequest(args [0]string, argsEscaped bool, w htt
 			OperationID:      "listShared",
 			Body:             nil,
 			RawBody:          rawBody,
-			Params:           middleware.Parameters{},
-			Raw:              r,
+			Params: middleware.Parameters{
+				{
+					Name: "cursor",
+					In:   "query",
+				}: params.Cursor,
+				{
+					Name: "limit",
+					In:   "query",
+				}: params.Limit,
+			},
+			Raw: r,
 		}
 
 		type (
 			Request  = struct{}
-			Params   = struct{}
+			Params   = ListSharedParams
 			Response = ListSharedRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -14200,14 +14221,14 @@ func (s *Server) handleListSharedRequest(args [0]string, argsEscaped bool, w htt
 		](
 			m,
 			mreq,
-			nil,
+			unpackListSharedParams,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.ListShared(ctx)
+				response, err = s.h.ListShared(ctx, params)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.ListShared(ctx)
+		response, err = s.h.ListShared(ctx, params)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
@@ -14225,6 +14246,8 @@ func (s *Server) handleListSharedRequest(args [0]string, argsEscaped bool, w htt
 }
 
 // handleListSharedWithMeRequest handles listSharedWithMe operation.
+//
+// List the files other owners granted the caller, newest grant first.
 //
 // GET /v1/shared/with-me
 func (s *Server) handleListSharedWithMeRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -14378,6 +14401,16 @@ func (s *Server) handleListSharedWithMeRequest(args [0]string, argsEscaped bool,
 			return
 		}
 	}
+	params, err := decodeListSharedWithMeParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
 
 	var rawBody []byte
 
@@ -14390,13 +14423,22 @@ func (s *Server) handleListSharedWithMeRequest(args [0]string, argsEscaped bool,
 			OperationID:      "listSharedWithMe",
 			Body:             nil,
 			RawBody:          rawBody,
-			Params:           middleware.Parameters{},
-			Raw:              r,
+			Params: middleware.Parameters{
+				{
+					Name: "cursor",
+					In:   "query",
+				}: params.Cursor,
+				{
+					Name: "limit",
+					In:   "query",
+				}: params.Limit,
+			},
+			Raw: r,
 		}
 
 		type (
 			Request  = struct{}
-			Params   = struct{}
+			Params   = ListSharedWithMeParams
 			Response = ListSharedWithMeRes
 		)
 		response, err = middleware.HookMiddleware[
@@ -14406,14 +14448,14 @@ func (s *Server) handleListSharedWithMeRequest(args [0]string, argsEscaped bool,
 		](
 			m,
 			mreq,
-			nil,
+			unpackListSharedWithMeParams,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.ListSharedWithMe(ctx)
+				response, err = s.h.ListSharedWithMe(ctx, params)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.ListSharedWithMe(ctx)
+		response, err = s.h.ListSharedWithMe(ctx, params)
 	}
 	if err != nil {
 		defer recordError("Internal", err)

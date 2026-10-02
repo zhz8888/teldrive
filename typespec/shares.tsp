@@ -193,17 +193,23 @@ namespace Shares {
     | ErrorResponse<401>
     | ErrorResponse<404>;
 
+  /** List the owner's files that a live share or grant makes reachable, newest first. */
   @get
   @route("/shared")
   @operationId("listShared")
-  op shared(): JsonResponse<200, FileEntry[]> | ErrorResponse<401>;
+  op shared(...CursorQuery):
+    | JsonResponse<200, CursorPage<FileEntry>>
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
+  /** List the files other owners granted the caller, newest grant first. */
   @get
   @route("/shared/with-me")
   @operationId("listSharedWithMe")
-  op sharedWithMe():
-    | JsonResponse<200, SharedWithMeEntry[]>
-    | ErrorResponse<401>;
+  op sharedWithMe(...CursorQuery):
+    | JsonResponse<200, CursorPage<SharedWithMeEntry>>
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 }
 
 @tag("Public shares")

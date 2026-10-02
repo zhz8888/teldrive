@@ -148,18 +148,28 @@ WHERE f.user_id = sqlc.arg(owner_id)
         AND (fs.max_downloads IS NULL OR fs.download_count < fs.max_downloads)
     )
   )
+  AND (
+    sqlc.narg(after_updated_at)::timestamptz IS NULL
+    OR (f.updated_at, f.id) < (sqlc.narg(after_updated_at)::timestamptz, sqlc.narg(after_id)::uuid)
+  )
 ORDER BY f.updated_at DESC, f.id DESC
 LIMIT sqlc.arg(page_size);
 
 
 -- name: ListSharedWithMe :many
-SELECT f.*, g.permission
+-- The grant's own timestamp and id are the sort key and the cursor, so both are
+-- returned next to the file the grant points at.
+SELECT f.*, g.permission, g.updated_at AS grant_updated_at, g.id AS grant_id
 FROM /* TEMPLATE: schema */file_access_grants g
 JOIN /* TEMPLATE: schema */files f ON f.id = g.file_id AND f.user_id = g.owner_id
 WHERE g.grantee_id = sqlc.arg(grantee_id)
   AND g.revoked_at IS NULL
   AND (g.expires_at IS NULL OR g.expires_at > now())
   AND f.status = 'active'
+  AND (
+    sqlc.narg(after_grant_updated_at)::timestamptz IS NULL
+    OR (g.updated_at, g.id) < (sqlc.narg(after_grant_updated_at)::timestamptz, sqlc.narg(after_grant_id)::uuid)
+  )
 ORDER BY g.updated_at DESC, g.id DESC
 LIMIT sqlc.arg(page_size);
 

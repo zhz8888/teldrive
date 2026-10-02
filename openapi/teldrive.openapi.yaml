@@ -3467,18 +3467,35 @@ paths:
   /v1/shared:
     get:
       operationId: listShared
-      parameters: []
+      description: List the owner's files that a live share or grant makes reachable,
+        newest first.
+      parameters:
+        - $ref: "#/components/parameters/CursorQuery.cursor"
+        - $ref: "#/components/parameters/CursorQuery.limit"
       responses:
         "200":
           description: The request has succeeded.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FileEntry"
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileEntry"
+                  nextCursor:
+                    $ref: "#/components/schemas/Cursor"
         "401":
           description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Client error
           content:
             application/json:
               schema:
@@ -3492,18 +3509,34 @@ paths:
   /v1/shared/with-me:
     get:
       operationId: listSharedWithMe
-      parameters: []
+      description: List the files other owners granted the caller, newest grant first.
+      parameters:
+        - $ref: "#/components/parameters/CursorQuery.cursor"
+        - $ref: "#/components/parameters/CursorQuery.limit"
       responses:
         "200":
           description: The request has succeeded.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SharedWithMeEntry"
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SharedWithMeEntry"
+                  nextCursor:
+                    $ref: "#/components/schemas/Cursor"
         "401":
           description: Access is unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Client error
           content:
             application/json:
               schema:

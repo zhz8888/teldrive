@@ -230,10 +230,12 @@ func (h *Handler) RevokeFileAccessGrant(ctx context.Context, params gen.RevokeFi
 	return &gen.RevokeFileAccessGrantNoContent{}, nil
 }
 
-// ListShared lists the caller's own files that are reachable through at least one
-// live share or grant, most recently updated first and capped by the service. It
-// skips rows whose ID cannot be converted instead of failing the whole page.
-func (h *Handler) ListShared(ctx context.Context) (gen.ListSharedRes, error) {
+// ListShared returns a cursor page of the caller's own files that are reachable
+// through at least one live share or grant, most recently updated first. The
+// cursor is the (updated_at, id) pair of the last entry of the previous page, and
+// a full page reports the cursor for the next one. It skips rows whose ID cannot
+// be converted instead of failing the whole page.
+func (h *Handler) ListShared(ctx context.Context, params gen.ListSharedParams) (gen.ListSharedRes, error) {
 	ownerID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -241,24 +243,42 @@ func (h *Handler) ListShared(ctx context.Context) (gen.ListSharedRes, error) {
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
-	rows, err := h.Shares.ListShared(ctx, ownerID)
+	var cursor datedUUIDCursor
+	if err := decodeCursor(params.Cursor, &cursor); err != nil {
+		return nil, mapServiceError(shares.ErrInvalidInput)
+	}
+	input := shares.ListSharedInput{OwnerID: ownerID, Limit: params.Limit.Or(100)}
+	if cursor.ID != uuid.Nil {
+		input.AfterUpdatedAt, input.AfterID = &cursor.CreatedAt, &cursor.ID
+	}
+	rows, err := h.Shares.ListShared(ctx, input)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	out := make(gen.ListSharedOKApplicationJSON, 0, len(rows))
+	items := make([]gen.FileEntry, 0, len(rows))
 	for _, row := range rows {
 		entry, err := fileEntry(row)
 		if err != nil {
 			continue
 		}
-		out = append(out, entry)
+		items = append(items, entry)
 	}
-	return &out, nil
+	response := gen.ListSharedOK{Items: items}
+	if len(rows) == int(input.Limit) && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		lastID, _ := dbtypes.GoogleUUID(last.ID)
+		// The cursor payload names its timestamp field created_at, but the sort
+		// key of this listing is the file's updated_at.
+		response.NextCursor = encodeCursor(datedUUIDCursor{CreatedAt: last.UpdatedAt.Time, ID: lastID})
+	}
+	return &response, nil
 }
 
-// ListSharedWithMe lists the files other owners granted the caller, each carrying
-// the granted permission, and drops entries whose IDs cannot be converted.
-func (h *Handler) ListSharedWithMe(ctx context.Context) (gen.ListSharedWithMeRes, error) {
+// ListSharedWithMe returns a cursor page of the files other owners granted the
+// caller, each carrying the granted permission. The cursor is the grant's own
+// (updated_at, id) pair, because that is what orders the listing, and entries
+// whose IDs cannot be converted are dropped.
+func (h *Handler) ListSharedWithMe(ctx context.Context, params gen.ListSharedWithMeParams) (gen.ListSharedWithMeRes, error) {
 	granteeID, err := UserIDFromContext(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -266,22 +286,35 @@ func (h *Handler) ListSharedWithMe(ctx context.Context) (gen.ListSharedWithMeRes
 	if h.Shares == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
 	}
-	rows, err := h.Shares.ListSharedWithMe(ctx, granteeID)
+	var cursor datedUUIDCursor
+	if err := decodeCursor(params.Cursor, &cursor); err != nil {
+		return nil, mapServiceError(shares.ErrInvalidInput)
+	}
+	input := shares.ListSharedWithMeInput{GranteeID: granteeID, Limit: params.Limit.Or(100)}
+	if cursor.ID != uuid.Nil {
+		input.AfterGrantUpdatedAt, input.AfterGrantID = &cursor.CreatedAt, &cursor.ID
+	}
+	rows, err := h.Shares.ListSharedWithMe(ctx, input)
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	out := make(gen.ListSharedWithMeOKApplicationJSON, 0, len(rows))
+	items := make([]gen.SharedWithMeEntry, 0, len(rows))
 	for _, row := range rows {
 		entry, err := fileEntry(row.File)
 		if err != nil {
 			continue
 		}
-		out = append(out, gen.SharedWithMeEntry{
+		items = append(items, gen.SharedWithMeEntry{
 			File:       entry,
 			Permission: gen.SharePermission(row.Permission),
 		})
 	}
-	return &out, nil
+	response := gen.ListSharedWithMeOK{Items: items}
+	if len(rows) == int(input.Limit) && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		response.NextCursor = encodeCursor(datedUUIDCursor{CreatedAt: last.GrantUpdatedAt, ID: last.GrantID})
+	}
+	return &response, nil
 }
 
 // CreatePublicShareFolder creates a folder inside an edit-enabled public share,

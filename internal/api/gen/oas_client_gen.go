@@ -378,12 +378,16 @@ type Invoker interface {
 	ListSessions(ctx context.Context, params ListSessionsParams) (ListSessionsRes, error)
 	// ListShared invokes listShared operation.
 	//
+	// List the owner's files that a live share or grant makes reachable, newest first.
+	//
 	// GET /v1/shared
-	ListShared(ctx context.Context) (ListSharedRes, error)
+	ListShared(ctx context.Context, params ListSharedParams) (ListSharedRes, error)
 	// ListSharedWithMe invokes listSharedWithMe operation.
 	//
+	// List the files other owners granted the caller, newest grant first.
+	//
 	// GET /v1/shared/with-me
-	ListSharedWithMe(ctx context.Context) (ListSharedWithMeRes, error)
+	ListSharedWithMe(ctx context.Context, params ListSharedWithMeParams) (ListSharedWithMeRes, error)
 	// ListUploadParts invokes listUploadParts operation.
 	//
 	// List parts already known to the upload session.
@@ -11153,13 +11157,15 @@ func (c *Client) sendListSessions(ctx context.Context, params ListSessionsParams
 
 // ListShared invokes listShared operation.
 //
+// List the owner's files that a live share or grant makes reachable, newest first.
+//
 // GET /v1/shared
-func (c *Client) ListShared(ctx context.Context) (ListSharedRes, error) {
-	res, err := c.sendListShared(ctx)
+func (c *Client) ListShared(ctx context.Context, params ListSharedParams) (ListSharedRes, error) {
+	res, err := c.sendListShared(ctx, params)
 	return res, err
 }
 
-func (c *Client) sendListShared(ctx context.Context) (res ListSharedRes, err error) {
+func (c *Client) sendListShared(ctx context.Context, params ListSharedParams) (res ListSharedRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("listShared"),
 		semconv.HTTPRequestMethodKey.String("GET"),
@@ -11199,6 +11205,47 @@ func (c *Client) sendListShared(ctx context.Context) (res ListSharedRes, err err
 	var pathParts [1]string
 	pathParts[0] = "/v1/shared"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "cursor" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cursor",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Cursor.Get(); ok {
+				if unwrapped := string(val); true {
+					return e.EncodeValue(conv.StringToString(unwrapped))
+				}
+				return nil
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "limit" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "limit",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Limit.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)
@@ -11288,13 +11335,15 @@ func (c *Client) sendListShared(ctx context.Context) (res ListSharedRes, err err
 
 // ListSharedWithMe invokes listSharedWithMe operation.
 //
+// List the files other owners granted the caller, newest grant first.
+//
 // GET /v1/shared/with-me
-func (c *Client) ListSharedWithMe(ctx context.Context) (ListSharedWithMeRes, error) {
-	res, err := c.sendListSharedWithMe(ctx)
+func (c *Client) ListSharedWithMe(ctx context.Context, params ListSharedWithMeParams) (ListSharedWithMeRes, error) {
+	res, err := c.sendListSharedWithMe(ctx, params)
 	return res, err
 }
 
-func (c *Client) sendListSharedWithMe(ctx context.Context) (res ListSharedWithMeRes, err error) {
+func (c *Client) sendListSharedWithMe(ctx context.Context, params ListSharedWithMeParams) (res ListSharedWithMeRes, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("listSharedWithMe"),
 		semconv.HTTPRequestMethodKey.String("GET"),
@@ -11334,6 +11383,47 @@ func (c *Client) sendListSharedWithMe(ctx context.Context) (res ListSharedWithMe
 	var pathParts [1]string
 	pathParts[0] = "/v1/shared/with-me"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "cursor" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "cursor",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Cursor.Get(); ok {
+				if unwrapped := string(val); true {
+					return e.EncodeValue(conv.StringToString(unwrapped))
+				}
+				return nil
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "limit" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "limit",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Limit.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)

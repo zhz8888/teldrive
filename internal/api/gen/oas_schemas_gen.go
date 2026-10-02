@@ -3233,8 +3233,6 @@ func (*ErrorEnvelope) listBotsRes()                  {}
 func (*ErrorEnvelope) listChannelsRes()              {}
 func (*ErrorEnvelope) listJobQueuesRes()             {}
 func (*ErrorEnvelope) listSessionsRes()              {}
-func (*ErrorEnvelope) listSharedRes()                {}
-func (*ErrorEnvelope) listSharedWithMeRes()          {}
 func (*ErrorEnvelope) logoutCookieSessionRes()       {}
 func (*ErrorEnvelope) logoutSessionRes()             {}
 
@@ -6660,13 +6658,75 @@ func (s *ListSessionsOK) SetNextCursor(val OptCursor) {
 
 func (*ListSessionsOK) listSessionsRes() {}
 
-type ListSharedOKApplicationJSON []FileEntry
+type ListSharedOK struct {
+	Items      []FileEntry `json:"items"`
+	NextCursor OptCursor   `json:"nextCursor"`
+}
 
-func (*ListSharedOKApplicationJSON) listSharedRes() {}
+// GetItems returns the value of Items.
+func (s *ListSharedOK) GetItems() []FileEntry {
+	return s.Items
+}
 
-type ListSharedWithMeOKApplicationJSON []SharedWithMeEntry
+// GetNextCursor returns the value of NextCursor.
+func (s *ListSharedOK) GetNextCursor() OptCursor {
+	return s.NextCursor
+}
 
-func (*ListSharedWithMeOKApplicationJSON) listSharedWithMeRes() {}
+// SetItems sets the value of Items.
+func (s *ListSharedOK) SetItems(val []FileEntry) {
+	s.Items = val
+}
+
+// SetNextCursor sets the value of NextCursor.
+func (s *ListSharedOK) SetNextCursor(val OptCursor) {
+	s.NextCursor = val
+}
+
+func (*ListSharedOK) listSharedRes() {}
+
+type ListSharedUnauthorized ErrorEnvelope
+
+func (*ListSharedUnauthorized) listSharedRes() {}
+
+type ListSharedUnprocessableEntity ErrorEnvelope
+
+func (*ListSharedUnprocessableEntity) listSharedRes() {}
+
+type ListSharedWithMeOK struct {
+	Items      []SharedWithMeEntry `json:"items"`
+	NextCursor OptCursor           `json:"nextCursor"`
+}
+
+// GetItems returns the value of Items.
+func (s *ListSharedWithMeOK) GetItems() []SharedWithMeEntry {
+	return s.Items
+}
+
+// GetNextCursor returns the value of NextCursor.
+func (s *ListSharedWithMeOK) GetNextCursor() OptCursor {
+	return s.NextCursor
+}
+
+// SetItems sets the value of Items.
+func (s *ListSharedWithMeOK) SetItems(val []SharedWithMeEntry) {
+	s.Items = val
+}
+
+// SetNextCursor sets the value of NextCursor.
+func (s *ListSharedWithMeOK) SetNextCursor(val OptCursor) {
+	s.NextCursor = val
+}
+
+func (*ListSharedWithMeOK) listSharedWithMeRes() {}
+
+type ListSharedWithMeUnauthorized ErrorEnvelope
+
+func (*ListSharedWithMeUnauthorized) listSharedWithMeRes() {}
+
+type ListSharedWithMeUnprocessableEntity ErrorEnvelope
+
+func (*ListSharedWithMeUnprocessableEntity) listSharedWithMeRes() {}
 
 type ListUploadPartsGone ErrorEnvelope
 

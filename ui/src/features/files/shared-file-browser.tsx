@@ -19,6 +19,7 @@ import { Page, PageContent } from "@/components/page";
 import { startFileDownload } from "@/features/files/download";
 import { FileBrowser, type FileBrowserView } from "@/features/files/file-browser";
 import { useFileActions } from "@/features/files/mutations";
+import { useSharedFilePages, useSharedWithMePages } from "@/features/files/queries";
 import { ShareDialog } from "@/features/files/share-dialog";
 import { useUploadStore } from "@/features/uploads/store";
 import { useI18n } from "@/lib/i18n";
@@ -65,14 +66,8 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
   const fileActions = useFileActions();
   const atRoot = !search.parentId;
 
-  const sharedQuery = useQuery({
-    ...$api.queryOptions("get", "/v1/shared"),
-    enabled: atRoot && mode === "shared",
-  });
-  const sharedWithMeQuery = useQuery({
-    ...$api.queryOptions("get", "/v1/shared/with-me"),
-    enabled: atRoot && mode === "with-me",
-  });
+  const sharedQuery = useSharedFilePages(atRoot && mode === "shared");
+  const sharedWithMeQuery = useSharedWithMePages(atRoot && mode === "with-me");
   const childrenQuery = useQuery({
     ...$api.queryOptions("get", "/v1/files", {
       params: {
@@ -91,12 +86,19 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
 
   useEffect(() => setSelectedKeys(new Set()), [search.parentId, search.path, search.query]);
 
-  const incomingEntries = sharedWithMeQuery.data ?? [];
+  const incomingEntries = sharedWithMeQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const incomingPermission = new Map(
     incomingEntries.map((entry) => [entry.file.id, entry.permission]),
   );
   const roots =
-    mode === "with-me" ? incomingEntries.map((entry) => entry.file) : (sharedQuery.data ?? []);
+    mode === "with-me"
+      ? incomingEntries.map((entry) => entry.file)
+      : (sharedQuery.data?.pages.flatMap((page) => page.items) ?? []);
+  // The listing is cursor-paged, so the control that walks the remaining pages
+  // follows whichever of the two queries the current mode uses.
+  const rootQuery = mode === "with-me" ? sharedWithMeQuery : sharedQuery;
+  const moreRoots = atRoot && rootQuery.hasNextPage;
+  const loadingMoreRoots = rootQuery.isFetchingNextPage;
   const rootFiles = roots.filter(
     (file) =>
       !search.query || file.name.toLocaleLowerCase().includes(search.query.toLocaleLowerCase()),
@@ -285,40 +287,54 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
             onClearSelection: () => setSelectedKeys(new Set()),
           }}
           toolbar={
-            currentFolderEditable ? (
+            currentFolderEditable || moreRoots ? (
               <>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="secondary"
-                  aria-label={t("features.fileBrowser.action.newFolder")}
-                  isDisabled={fileActions.pending}
-                  onPress={() => setFolderDialogOpen(true)}
-                >
-                  <PlusIcon className="size-4" />
-                </Button>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="primary"
-                  aria-label={t("features.fileBrowser.action.uploadFiles")}
-                  isDisabled={fileActions.pending}
-                  onPress={() => uploadTriggerRef.current?.click()}
-                >
-                  <UploadIcon className="size-4" />
-                </Button>
-                <span className="hidden" aria-hidden="true">
-                  <FileTrigger
-                    allowsMultiple
-                    onSelect={(list) => {
-                      if (list?.length) enqueue(Array.from(list), search.parentId, search.path);
-                    }}
-                  >
-                    <Button ref={uploadTriggerRef}>
-                      {t("features.fileBrowser.action.chooseFiles")}
+                {currentFolderEditable ? (
+                  <>
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="secondary"
+                      aria-label={t("features.fileBrowser.action.newFolder")}
+                      isDisabled={fileActions.pending}
+                      onPress={() => setFolderDialogOpen(true)}
+                    >
+                      <PlusIcon className="size-4" />
                     </Button>
-                  </FileTrigger>
-                </span>
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      variant="primary"
+                      aria-label={t("features.fileBrowser.action.uploadFiles")}
+                      isDisabled={fileActions.pending}
+                      onPress={() => uploadTriggerRef.current?.click()}
+                    >
+                      <UploadIcon className="size-4" />
+                    </Button>
+                    <span className="hidden" aria-hidden="true">
+                      <FileTrigger
+                        allowsMultiple
+                        onSelect={(list) => {
+                          if (list?.length) enqueue(Array.from(list), search.parentId, search.path);
+                        }}
+                      >
+                        <Button ref={uploadTriggerRef}>
+                          {t("features.fileBrowser.action.chooseFiles")}
+                        </Button>
+                      </FileTrigger>
+                    </span>
+                  </>
+                ) : null}
+                {moreRoots ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    isDisabled={loadingMoreRoots}
+                    onPress={() => void rootQuery.fetchNextPage()}
+                  >
+                    {t("features.fileBrowser.action.loadMore")}
+                  </Button>
+                ) : null}
               </>
             ) : undefined
           }

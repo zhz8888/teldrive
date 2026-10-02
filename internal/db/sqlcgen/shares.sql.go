@@ -477,17 +477,28 @@ WHERE f.user_id = $1
         AND (fs.max_downloads IS NULL OR fs.download_count < fs.max_downloads)
     )
   )
+  AND (
+    $2::timestamptz IS NULL
+    OR (f.updated_at, f.id) < ($2::timestamptz, $3::uuid)
+  )
 ORDER BY f.updated_at DESC, f.id DESC
-LIMIT $2
+LIMIT $4
 `
 
 type ListSharedParams struct {
-	OwnerID  int64 `json:"owner_id"`
-	PageSize int32 `json:"page_size"`
+	OwnerID        int64              `json:"owner_id"`
+	AfterUpdatedAt pgtype.Timestamptz `json:"after_updated_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	PageSize       int32              `json:"page_size"`
 }
 
 func (q *Queries) ListShared(ctx context.Context, arg ListSharedParams) ([]*File, error) {
-	rows, err := q.db.Query(ctx, listShared, arg.OwnerID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listShared,
+		arg.OwnerID,
+		arg.AfterUpdatedAt,
+		arg.AfterID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -525,20 +536,26 @@ func (q *Queries) ListShared(ctx context.Context, arg ListSharedParams) ([]*File
 }
 
 const listSharedWithMe = `-- name: ListSharedWithMe :many
-SELECT f.id, f.user_id, f.parent_id, f.name, f.kind, f.mime_type, f.size, f.hash_algorithm, f.hash_value, f.encryption, f.encryption_key_version, f.status, f.mod_time, f.generation, f.created_at, f.updated_at, f.deleted_at, g.permission
+SELECT f.id, f.user_id, f.parent_id, f.name, f.kind, f.mime_type, f.size, f.hash_algorithm, f.hash_value, f.encryption, f.encryption_key_version, f.status, f.mod_time, f.generation, f.created_at, f.updated_at, f.deleted_at, g.permission, g.updated_at AS grant_updated_at, g.id AS grant_id
 FROM /* TEMPLATE: schema */file_access_grants g
 JOIN /* TEMPLATE: schema */files f ON f.id = g.file_id AND f.user_id = g.owner_id
 WHERE g.grantee_id = $1
   AND g.revoked_at IS NULL
   AND (g.expires_at IS NULL OR g.expires_at > now())
   AND f.status = 'active'
+  AND (
+    $2::timestamptz IS NULL
+    OR (g.updated_at, g.id) < ($2::timestamptz, $3::uuid)
+  )
 ORDER BY g.updated_at DESC, g.id DESC
-LIMIT $2
+LIMIT $4
 `
 
 type ListSharedWithMeParams struct {
-	GranteeID int64 `json:"grantee_id"`
-	PageSize  int32 `json:"page_size"`
+	GranteeID           int64              `json:"grantee_id"`
+	AfterGrantUpdatedAt pgtype.Timestamptz `json:"after_grant_updated_at"`
+	AfterGrantID        pgtype.UUID        `json:"after_grant_id"`
+	PageSize            int32              `json:"page_size"`
 }
 
 type ListSharedWithMeRow struct {
@@ -560,10 +577,19 @@ type ListSharedWithMeRow struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
 	Permission           SharePermission    `json:"permission"`
+	GrantUpdatedAt       pgtype.Timestamptz `json:"grant_updated_at"`
+	GrantID              pgtype.UUID        `json:"grant_id"`
 }
 
+// The grant's own timestamp and id are the sort key and the cursor, so both are
+// returned next to the file the grant points at.
 func (q *Queries) ListSharedWithMe(ctx context.Context, arg ListSharedWithMeParams) ([]*ListSharedWithMeRow, error) {
-	rows, err := q.db.Query(ctx, listSharedWithMe, arg.GranteeID, arg.PageSize)
+	rows, err := q.db.Query(ctx, listSharedWithMe,
+		arg.GranteeID,
+		arg.AfterGrantUpdatedAt,
+		arg.AfterGrantID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -590,6 +616,8 @@ func (q *Queries) ListSharedWithMe(ctx context.Context, arg ListSharedWithMePara
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.Permission,
+			&i.GrantUpdatedAt,
+			&i.GrantID,
 		); err != nil {
 			return nil, err
 		}

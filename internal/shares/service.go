@@ -90,6 +90,41 @@ type SharedWithMe struct {
 	File *sqlcgen.File
 	// Permission is the granted level, read or edit.
 	Permission sqlcgen.SharePermission
+	// GrantUpdatedAt and GrantID are the sort key of the entry, which is the
+	// grant's own timestamp and id rather than the file's. They are returned so a
+	// caller can build the cursor of the next page; they are not part of the API
+	// payload.
+	GrantUpdatedAt time.Time
+	GrantID        uuid.UUID
+}
+
+// ListSharedInput selects one page of the files an owner has shared. Pages are
+// cut on the (updated_at, id) pair of the file and returned newest first.
+type ListSharedInput struct {
+	// OwnerID is the user whose shared files are listed; it must be positive.
+	OwnerID int64
+	// AfterUpdatedAt is the file timestamp cursor from the previous page; it only
+	// takes effect together with AfterID.
+	AfterUpdatedAt *time.Time
+	// AfterID is the file ID cursor from the previous page.
+	AfterID *uuid.UUID
+	// Limit caps the page size; it must be positive and is clamped by the caller.
+	Limit int32
+}
+
+// ListSharedWithMeInput selects one page of the grants that point at the files
+// the caller can reach. Pages are cut on the (updated_at, id) pair of the grant
+// and returned newest first.
+type ListSharedWithMeInput struct {
+	// GranteeID is the user the files were granted to; it must be positive.
+	GranteeID int64
+	// AfterGrantUpdatedAt is the grant timestamp cursor from the previous page; it
+	// only takes effect together with AfterGrantID.
+	AfterGrantUpdatedAt *time.Time
+	// AfterGrantID is the grant ID cursor from the previous page.
+	AfterGrantID *uuid.UUID
+	// Limit caps the page size; it must be positive and is clamped by the caller.
+	Limit int32
 }
 
 // CreateInput describes a new public share. OwnerID and FileID are required and
@@ -705,43 +740,61 @@ func (s *Service) RevokeGrant(ctx context.Context, ownerID int64, grantID uuid.U
 	return nil
 }
 
-// ListShared returns the caller's active files that are reachable through at
-// least one live share or grant, most recently updated first and capped at 500
-// entries. It is a discovery aid only: the rows do not say which share or grant
-// matched, and the effective permission is not included.
-func (s *Service) ListShared(ctx context.Context, ownerID int64) ([]*sqlcgen.File, error) {
-	if ownerID <= 0 {
+// ListShared returns one page of the caller's active files that are reachable
+// through at least one live share or grant, most recently updated first. It is a
+// discovery aid only: the rows do not say which share or grant matched, and the
+// effective permission is not included. A page is cut at Limit rows and the
+// caller pages on with the (updated_at, id) pair of the last entry it received,
+// so nothing past the first page is unreachable.
+func (s *Service) ListShared(ctx context.Context, in ListSharedInput) ([]*sqlcgen.File, error) {
+	if in.OwnerID <= 0 || in.Limit <= 0 {
 		return nil, ErrInvalidInput
 	}
-	rows, err := s.queries.ListShared(ctx, sqlcgen.ListSharedParams{OwnerID: ownerID, PageSize: 500})
+	params := sqlcgen.ListSharedParams{OwnerID: in.OwnerID, PageSize: in.Limit}
+	if in.AfterUpdatedAt != nil && in.AfterID != nil {
+		params.AfterUpdatedAt = dbtypes.Time(*in.AfterUpdatedAt)
+		params.AfterID = dbtypes.UUID(*in.AfterID)
+	}
+	rows, err := s.queries.ListShared(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list shared files: %w", err)
 	}
 	return rows, nil
 }
 
-// ListSharedWithMe returns the active files other owners have granted the
-// caller, most recently updated grant first and capped at 500 entries. Expired
-// and revoked grants are excluded, and each entry carries the granted
-// permission rather than a merged effective one.
-func (s *Service) ListSharedWithMe(ctx context.Context, granteeID int64) ([]SharedWithMe, error) {
-	if granteeID <= 0 {
+// ListSharedWithMe returns one page of the active files other owners have
+// granted the caller, most recently updated grant first. Expired and revoked
+// grants are excluded, and each entry carries the granted permission rather than
+// a merged effective one. The page is cut at Limit rows and the caller pages on
+// with the grant key of the last entry.
+func (s *Service) ListSharedWithMe(ctx context.Context, in ListSharedWithMeInput) ([]SharedWithMe, error) {
+	if in.GranteeID <= 0 || in.Limit <= 0 {
 		return nil, ErrInvalidInput
 	}
-	rows, err := s.queries.ListSharedWithMe(ctx, sqlcgen.ListSharedWithMeParams{GranteeID: granteeID, PageSize: 500})
+	params := sqlcgen.ListSharedWithMeParams{GranteeID: in.GranteeID, PageSize: in.Limit}
+	if in.AfterGrantUpdatedAt != nil && in.AfterGrantID != nil {
+		params.AfterGrantUpdatedAt = dbtypes.Time(*in.AfterGrantUpdatedAt)
+		params.AfterGrantID = dbtypes.UUID(*in.AfterGrantID)
+	}
+	rows, err := s.queries.ListSharedWithMe(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("list files shared with user: %w", err)
 	}
 	out := make([]SharedWithMe, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, SharedWithMe{File: &sqlcgen.File{
+		grantID, _ := dbtypes.GoogleUUID(row.GrantID)
+		entry := SharedWithMe{File: &sqlcgen.File{
 			ID: row.ID, UserID: row.UserID, ParentID: row.ParentID, Name: row.Name,
 			Kind: row.Kind, MimeType: row.MimeType,
 			Size: row.Size, HashAlgorithm: row.HashAlgorithm, HashValue: row.HashValue,
 			Encryption: row.Encryption, EncryptionKeyVersion: row.EncryptionKeyVersion,
 			Status: row.Status, ModTime: row.ModTime, Generation: row.Generation,
 			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, DeletedAt: row.DeletedAt,
-		}, Permission: row.Permission})
+		}, Permission: row.Permission, GrantID: grantID}
+		if row.GrantUpdatedAt.Valid {
+			entry.GrantUpdatedAt = row.GrantUpdatedAt.Time
+		}
+		out = append(out, entry)
 	}
 	return out, nil
 }

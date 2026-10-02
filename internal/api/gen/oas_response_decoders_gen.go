@@ -12697,7 +12697,7 @@ func decodeListSharedResponse(resp *http.Response) (res ListSharedRes, _ error) 
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ListSharedOKApplicationJSON
+			var response ListSharedOK
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -12741,7 +12741,42 @@ func decodeListSharedResponse(resp *http.Response) (res ListSharedRes, _ error) 
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ErrorEnvelope
+			var response ListSharedUnauthorized
+			if err := func() error {
+				if err := response.Decode(d); err != nil {
+					return err
+				}
+				if err := d.Skip(); err != io.EOF {
+					return errors.New("unexpected trailing data")
+				}
+				return nil
+			}(); err != nil {
+				err = &ogenerrors.DecodeBodyError{
+					ContentType: ct,
+					Body:        buf,
+					Err:         err,
+				}
+				return res, err
+			}
+			return &response, nil
+		default:
+			return res, validate.InvalidContentType(ct)
+		}
+	case 422:
+		// Code 422.
+		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return res, errors.Wrap(err, "parse media type")
+		}
+		switch {
+		case ct == "application/json":
+			buf, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return res, err
+			}
+			d := jx.DecodeBytes(buf)
+
+			var response ListSharedUnprocessableEntity
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -12782,7 +12817,7 @@ func decodeListSharedWithMeResponse(resp *http.Response) (res ListSharedWithMeRe
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ListSharedWithMeOKApplicationJSON
+			var response ListSharedWithMeOK
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -12826,7 +12861,42 @@ func decodeListSharedWithMeResponse(resp *http.Response) (res ListSharedWithMeRe
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ErrorEnvelope
+			var response ListSharedWithMeUnauthorized
+			if err := func() error {
+				if err := response.Decode(d); err != nil {
+					return err
+				}
+				if err := d.Skip(); err != io.EOF {
+					return errors.New("unexpected trailing data")
+				}
+				return nil
+			}(); err != nil {
+				err = &ogenerrors.DecodeBodyError{
+					ContentType: ct,
+					Body:        buf,
+					Err:         err,
+				}
+				return res, err
+			}
+			return &response, nil
+		default:
+			return res, validate.InvalidContentType(ct)
+		}
+	case 422:
+		// Code 422.
+		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return res, errors.Wrap(err, "parse media type")
+		}
+		switch {
+		case ct == "application/json":
+			buf, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return res, err
+			}
+			d := jx.DecodeBytes(buf)
+
+			var response ListSharedWithMeUnprocessableEntity
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
