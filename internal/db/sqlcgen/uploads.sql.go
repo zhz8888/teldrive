@@ -324,6 +324,23 @@ func (q *Queries) DeleteUploadPartsForCleanup(ctx context.Context, parts []byte)
 	return result.RowsAffected(), nil
 }
 
+const deleteUploadSessionsForCleanup = `-- name: DeleteUploadSessionsForCleanup :execrows
+DELETE FROM /* TEMPLATE: schema */upload_sessions
+WHERE id = ANY($1::uuid[])
+  AND state IN ('aborted', 'expired')
+`
+
+// Removing the session also removes its remaining part rows, because
+// upload_parts references the session with ON DELETE CASCADE; the caller has
+// already deleted the Telegram messages of the parts that held one.
+func (q *Queries) DeleteUploadSessionsForCleanup(ctx context.Context, uploadIds []pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUploadSessionsForCleanup, uploadIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const expireUploadSessions = `-- name: ExpireUploadSessions :many
 UPDATE /* TEMPLATE: schema */upload_sessions
 SET state = 'expired',
@@ -1089,15 +1106,16 @@ func (q *Queries) ListUploadSessions(ctx context.Context, arg ListUploadSessions
 }
 
 const listUploadSessionsPendingCleanup = `-- name: ListUploadSessionsPendingCleanup :many
-SELECT DISTINCT us.id, us.user_id, us.parent_id, us.name, us.expected_size, us.expected_hash_algorithm, us.expected_hash_value, us.mime_type, us.mod_time, us.encryption, us.encryption_key_version, us.conflict_policy, us.part_size, us.state, us.file_id, us.expires_at, us.created_at, us.updated_at, us.completed_at
+SELECT id, user_id, parent_id, name, expected_size, expected_hash_algorithm, expected_hash_value, mime_type, mod_time, encryption, encryption_key_version, conflict_policy, part_size, state, file_id, expires_at, created_at, updated_at, completed_at
 FROM /* TEMPLATE: schema */upload_sessions us
-JOIN /* TEMPLATE: schema */upload_parts up ON up.upload_id = us.id
 WHERE us.state IN ('aborted', 'expired')
-  AND up.message_id IS NOT NULL
 ORDER BY us.updated_at, us.id
 LIMIT 1000
 `
 
+// Every finalized session is listed, not only the ones with a stored part:
+// a session whose parts were claimed but never stored, or that has no parts at
+// all, still has a row to remove.
 func (q *Queries) ListUploadSessionsPendingCleanup(ctx context.Context) ([]*UploadSession, error) {
 	rows, err := q.db.Query(ctx, listUploadSessionsPendingCleanup)
 	if err != nil {

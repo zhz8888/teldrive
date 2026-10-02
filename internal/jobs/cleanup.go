@@ -124,11 +124,13 @@ func (w *UploadCleanupWorker) Timeout(*river.Job[UploadCleanupSweepArgs]) time.D
 // Work drains expired upload sessions until there is nothing left to clean.
 //
 // Each round first expires the sessions whose expires_at has passed and then
-// fetches the sessions that still have parts with a Telegram message, in pages of
-// at most 1000 rows, so a large backlog is never processed inside one long
-// transaction. The loop stops only when both queries come back empty, which makes
-// the sweep safe to retry. It returns ErrUploadCleanupNotConfigured when the
-// worker is not wired up.
+// fetches the finalized sessions in pages of at most 1000 rows, so a large
+// backlog is never processed inside one long transaction. A page deletes the
+// Telegram messages of its stored parts, removes those part rows, and finally
+// removes the sessions themselves, which also drops any part row that never
+// reached storage. The loop stops only when both queries come back empty, which
+// makes the sweep safe to retry. It returns ErrUploadCleanupNotConfigured when
+// the worker is not wired up.
 func (w *UploadCleanupWorker) Work(ctx context.Context, job *river.Job[UploadCleanupSweepArgs]) error {
 	if w.pool == nil || w.storage == nil {
 		return ErrUploadCleanupNotConfigured
@@ -151,16 +153,19 @@ func (w *UploadCleanupWorker) Work(ctx context.Context, job *river.Job[UploadCle
 	}
 }
 
-// cleanupUploads deletes the Telegram messages of the given sessions and then
-// removes the part rows that referenced them.
+// cleanupUploads deletes the Telegram messages of the given sessions, removes the
+// part rows that referenced them, and finally deletes the session rows.
 //
 // Parts are grouped per owner and channel, so every channel is contacted once,
 // and the groups are sorted so a failure is reproducible. The messages are
 // deleted before the rows on purpose: a crash in between leaves the rows in place
 // with their message IDs, so the next run repeats the Telegram delete, while
 // DeleteUploadPartsForCleanup only removes rows whose message ID still matches the
-// one that was deleted. A row-count mismatch means a part changed concurrently,
-// and the whole sweep fails so River retries it.
+// one that was deleted. Deleting a session removes whatever part rows are left,
+// including the parts that were claimed and never stored, because upload_parts
+// references upload_sessions with ON DELETE CASCADE. A row-count mismatch means a
+// part or session changed concurrently, and the whole sweep fails so River
+// retries it.
 func (w *UploadCleanupWorker) cleanupUploads(ctx context.Context, sessions []*sqlcgen.UploadSession) error {
 	if len(sessions) == 0 {
 		return nil
@@ -225,6 +230,13 @@ func (w *UploadCleanupWorker) cleanupUploads(ctx context.Context, sessions []*sq
 		if deleted != int64(len(records)) {
 			return fmt.Errorf("upload cleanup deleted %d of %d parts; %d parts changed during cleanup", deleted, len(records), int64(len(records))-deleted)
 		}
+	}
+	deletedSessions, err := w.queries.DeleteUploadSessionsForCleanup(ctx, uploadIDs)
+	if err != nil {
+		return fmt.Errorf("delete upload sessions after Telegram cleanup: %w", err)
+	}
+	if deletedSessions != int64(len(uploadIDs)) {
+		return fmt.Errorf("upload cleanup deleted %d of %d sessions; %d sessions changed during cleanup", deletedSessions, len(uploadIDs), int64(len(uploadIDs))-deletedSessions)
 	}
 	return nil
 }

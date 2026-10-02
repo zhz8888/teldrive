@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -53,12 +54,10 @@ func TestCleanupSweepExpiresAndDeletesTelegramParts(t *testing.T) {
 	if err := worker.Work(ctx, &river.Job[jobs.CleanupSweepArgs]{Args: jobs.CleanupSweepArgs{}}); err != nil {
 		t.Fatalf("Work() error = %v", err)
 	}
-	updated, err := catalog.Get(ctx, 1001, uploadID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(updated.State) != "expired" {
-		t.Fatalf("state = %s", updated.State)
+	// The sweep removes the session row as well, so an expired upload leaves
+	// nothing behind: the session, its parts and its Telegram messages are gone.
+	if _, err := catalog.Get(ctx, 1001, uploadID); !errors.Is(err, uploads.ErrNotFound) {
+		t.Fatalf("Get() error = %v, want ErrNotFound", err)
 	}
 	var partCount int
 	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM upload_parts WHERE upload_id = $1", uploadID).Scan(&partCount); err != nil {
@@ -69,6 +68,60 @@ func TestCleanupSweepExpiresAndDeletesTelegramParts(t *testing.T) {
 	}
 	if got := storage.deletedMessages(); len(got) != 1 || got[0] != 77 {
 		t.Fatalf("deleted messages = %#v", got)
+	}
+}
+
+func TestCleanupSweepRemovesSessionsWithoutStoredParts(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	seedCleanupOwner(t, db.Pool)
+	catalog := uploads.NewService(db.Pool)
+
+	// A session that never received a part.
+	empty, err := catalog.Create(ctx, uploads.CreateInput{UserID: 1001, Name: "empty.bin", ExpectedSize: 1, PartSize: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyID, _ := dbtypes.GoogleUUID(empty.ID)
+
+	// A session whose only part was claimed and never stored, so it has no
+	// Telegram message to delete.
+	claimed, err := catalog.Create(ctx, uploads.CreateInput{UserID: 1001, Name: "claimed.bin", ExpectedSize: 1, PartSize: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimedID, _ := dbtypes.GoogleUUID(claimed.ID)
+	if _, err := catalog.ClaimPart(ctx, uploads.ClaimPartInput{
+		UserID: 1001, UploadID: claimedID, PartNo: 1, ChannelID: 9001, PlainSize: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, uploadID := range []uuid.UUID{emptyID, claimedID} {
+		if _, err := db.Pool.Exec(ctx, "UPDATE upload_sessions SET expires_at = now() - interval '1 minute' WHERE id = $1", uploadID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	storage := &cleanupStorage{}
+	worker := jobs.NewUploadCleanupWorker(db.Pool, storage)
+	if err := worker.Work(ctx, &river.Job[jobs.CleanupSweepArgs]{Args: jobs.CleanupSweepArgs{}}); err != nil {
+		t.Fatalf("Work() error = %v", err)
+	}
+	for _, uploadID := range []uuid.UUID{emptyID, claimedID} {
+		if _, err := catalog.Get(ctx, 1001, uploadID); !errors.Is(err, uploads.ErrNotFound) {
+			t.Fatalf("session %s: Get() error = %v, want ErrNotFound", uploadID, err)
+		}
+		var parts int
+		if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM upload_parts WHERE upload_id = $1", uploadID).Scan(&parts); err != nil {
+			t.Fatal(err)
+		}
+		if parts != 0 {
+			t.Fatalf("session %s: remaining parts = %d, want 0", uploadID, parts)
+		}
+	}
+	if got := storage.deletedMessages(); len(got) != 0 {
+		t.Fatalf("deleted messages = %#v, want none", got)
 	}
 }
 

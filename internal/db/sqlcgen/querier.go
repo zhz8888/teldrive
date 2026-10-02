@@ -44,6 +44,10 @@ type Querier interface {
 	DeleteFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) error
 	DeleteFileViewState(ctx context.Context, arg DeleteFileViewStateParams) (int64, error)
 	DeleteUploadPartsForCleanup(ctx context.Context, parts []byte) (int64, error)
+	// Removing the session also removes its remaining part rows, because
+	// upload_parts references the session with ON DELETE CASCADE; the caller has
+	// already deleted the Telegram messages of the parts that held one.
+	DeleteUploadSessionsForCleanup(ctx context.Context, uploadIds []pgtype.UUID) (int64, error)
 	DeleteUserEventsBefore(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
 	ExpireUploadSessions(ctx context.Context) ([]*UploadSession, error)
 	FinalizeUploadExpectedSize(ctx context.Context, arg FinalizeUploadExpectedSizeParams) (*UploadSession, error)
@@ -119,6 +123,9 @@ type Querier interface {
 	ListUploadPartsByUploadIDs(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error)
 	ListUploadPartsForCleanupMany(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error)
 	ListUploadSessions(ctx context.Context, arg ListUploadSessionsParams) ([]*UploadSession, error)
+	// Every finalized session is listed, not only the ones with a stored part:
+	// a session whose parts were claimed but never stored, or that has no parts at
+	// all, still has a row to remove.
 	ListUploadSessionsPendingCleanup(ctx context.Context) ([]*UploadSession, error)
 	ListUserEventsAfter(ctx context.Context, arg ListUserEventsAfterParams) ([]*UserEvent, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]*User, error)

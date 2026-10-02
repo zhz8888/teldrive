@@ -333,13 +333,22 @@ WHERE us.id = ANY(sqlc.arg(upload_ids)::uuid[])
 ORDER BY up.upload_id, up.channel_id, up.part_no;
 
 -- name: ListUploadSessionsPendingCleanup :many
-SELECT DISTINCT us.*
+-- Every finalized session is listed, not only the ones with a stored part:
+-- a session whose parts were claimed but never stored, or that has no parts at
+-- all, still has a row to remove.
+SELECT *
 FROM /* TEMPLATE: schema */upload_sessions us
-JOIN /* TEMPLATE: schema */upload_parts up ON up.upload_id = us.id
 WHERE us.state IN ('aborted', 'expired')
-  AND up.message_id IS NOT NULL
 ORDER BY us.updated_at, us.id
 LIMIT 1000;
+
+-- name: DeleteUploadSessionsForCleanup :execrows
+-- Removing the session also removes its remaining part rows, because
+-- upload_parts references the session with ON DELETE CASCADE; the caller has
+-- already deleted the Telegram messages of the parts that held one.
+DELETE FROM /* TEMPLATE: schema */upload_sessions
+WHERE id = ANY(sqlc.arg(upload_ids)::uuid[])
+  AND state IN ('aborted', 'expired');
 
 -- name: DeleteUploadPartsForCleanup :execrows
 DELETE FROM /* TEMPLATE: schema */upload_parts AS part
