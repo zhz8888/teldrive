@@ -47,6 +47,12 @@ function envelope(
   return candidate.error as { code?: unknown; message?: unknown; details?: unknown };
 }
 
+/**
+ * Wraps a failure as an `ApiError`. A `response` makes it an HTTP failure; the
+ * wrapper in `api/client.ts` calls this without one when `fetch` itself rejects,
+ * which is the only case that carries the `network_error` code a caller may use
+ * to tell an unreachable server from an error the interface raised locally.
+ */
 export function normalizeApiError(error: unknown, response?: Response): ApiError {
   if (error instanceof ApiError) return error;
   const parsed = envelope(error);
@@ -104,10 +110,17 @@ export function invalidResponse(
  * below are the phrases the interface writes itself, so they are translated.
  */
 export function userMessage(error: unknown): string {
+  // Only a request that never reached the server is a connectivity problem.
+  // An error the interface raised itself (`"name" already exists and is not a
+  // folder`, a refused clipboard write) keeps the wording it was created with;
+  // the request wrapper reports its own network failures as an `ApiError`.
+  if (error instanceof Error && !(error instanceof ApiError)) return error.message;
   const normalized = normalizeApiError(error);
   switch (normalized.status) {
     case 0:
-      return t("errors.networkUnreachable");
+      return normalized.code === "network_error"
+        ? t("errors.networkUnreachable")
+        : normalized.message;
     case 400:
       return normalized.message || t("errors.badRequest");
     case 401:
