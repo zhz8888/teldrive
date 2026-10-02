@@ -392,7 +392,7 @@ func (h *Handler) ListUploads(ctx context.Context, params gen.ListUploadsParams)
 	if err := decodeCursor(params.Cursor, &cursor); err != nil {
 		return nil, mapServiceError(uploads.ErrInvalidInput)
 	}
-	input := uploads.ListInput{UserID: userID, Limit: params.Limit.Or(100)}
+	input := uploads.ListInput{UserID: userID, Limit: clampListLimit(params.Limit.Or(100))}
 	if value, ok := params.State.Get(); ok {
 		state := sqlcgen.UploadState(value)
 		input.State = &state
@@ -437,7 +437,7 @@ func (h *Handler) ListUploadParts(ctx context.Context, params gen.ListUploadPart
 	if err != nil {
 		return nil, mapServiceError(err)
 	}
-	input := uploads.ListPartsInput{UserID: ownerID, UploadID: googleUUID(params.UploadId), Limit: params.Limit.Or(100)}
+	input := uploads.ListPartsInput{UserID: ownerID, UploadID: googleUUID(params.UploadId), Limit: clampListLimit(params.Limit.Or(100))}
 	if cursor.PartNo > 0 {
 		input.AfterPartNo = &cursor.PartNo
 	}

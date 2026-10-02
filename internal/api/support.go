@@ -34,6 +34,24 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
 )
 
+// listPageCap is the largest page the listing services return. Each of them
+// silently clamps its own copy of the requested limit to this value, while the
+// contract lets a client ask for up to 500; a handler that compared the returned
+// row count against the requested limit would therefore never emit a cursor for a
+// request above the cap, and the client would mistake a truncated page for the end
+// of the listing. Handlers clamp the input once with clampListLimit and then
+// compare against that clamped value.
+const listPageCap = 200
+
+// clampListLimit returns the page size the listing services will actually apply
+// to requested.
+func clampListLimit(requested int32) int32 {
+	if requested > listPageCap {
+		return listPageCap
+	}
+	return requested
+}
+
 // Problem is an error carrying the HTTP status, stable error code and public
 // message that should be returned to the client. Handlers build it with problem
 // or mapServiceError and the generated router renders it through ErrorHandler,
