@@ -116,3 +116,36 @@ func TestSlotLimiterCapsConcurrentLoginFlows(t *testing.T) {
 		t.Fatalf("withFlowLock() error = %v, want context.Canceled", err)
 	}
 }
+
+// TestLoginLimitsThrottleSendsAndAttempts checks that the code-send budget is
+// per phone number and that only wrong codes or passwords consume the per-flow
+// attempt budget.
+func TestLoginLimitsThrottleSendsAndAttempts(t *testing.T) {
+	t.Parallel()
+	s := &Service{now: time.Now}
+	phone := "+10000000000"
+	for send := 0; send < loginCodeSends; send++ {
+		if _, ok := s.sendLimiter().Allow(phone); !ok {
+			t.Fatalf("send %d refused before the budget ran out", send)
+		}
+		s.sendLimiter().Fail(phone)
+	}
+	if _, ok := s.sendLimiter().Allow(phone); ok {
+		t.Fatal("send allowed after the budget ran out")
+	}
+	if _, ok := s.sendLimiter().Allow("+19999999999"); !ok {
+		t.Fatal("an unrelated phone number was throttled")
+	}
+	flowID := uuid.New()
+	for attempt := 0; attempt < loginAttemptFailures; attempt++ {
+		s.recordAttemptFailure(flowID, ErrCodeInvalid)
+	}
+	if _, ok := s.attemptLimiter().Allow(flowID.String()); ok {
+		t.Fatal("attempt allowed after the failure budget ran out")
+	}
+	other := uuid.New()
+	s.recordAttemptFailure(other, errors.New("network"))
+	if _, ok := s.attemptLimiter().Allow(other.String()); !ok {
+		t.Fatal("an unrelated error consumed the attempt budget")
+	}
+}

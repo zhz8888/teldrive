@@ -40,6 +40,7 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 	"github.com/tgdrive/teldrive/v2/internal/principal"
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
+	"github.com/tgdrive/teldrive/v2/internal/throttle"
 )
 
 var (
@@ -90,6 +91,11 @@ var (
 	// loginFlowLockWait. It maps to HTTP 429 so the client can retry the same
 	// step later instead of starting over.
 	ErrLoginBusy = errors.New("login flow is busy")
+
+	// ErrTooManyAttempts reports that a phone number asked for too many login
+	// codes or that one flow saw too many wrong codes or passwords. It maps to
+	// HTTP 429, and the client should wait before trying the same step again.
+	ErrTooManyAttempts = errors.New("too many login attempts")
 )
 
 const (
@@ -107,6 +113,31 @@ const (
 	// The connection is released before the pause, so waiting for a busy flow
 	// costs no pool slot.
 	loginFlowLockRetry = 25 * time.Millisecond
+
+	// loginCodeSends is how many codes one phone number may ask Telegram to send
+	// before further requests are refused. The endpoints are unauthenticated, so
+	// without this anyone could drive the server's application credentials to
+	// message an arbitrary number and exhaust the account's Telegram budget.
+	loginCodeSends = 3
+	// loginCodeBlock is the first refusal applied to a phone number that ran out
+	// of sends; it doubles with every further send up to loginCodeBlockMax.
+	loginCodeBlock = 10 * time.Minute
+	// loginCodeBlockMax caps one refusal so a legitimate owner is never locked
+	// out for good.
+	loginCodeBlockMax = time.Hour
+
+	// loginAttemptFailures is how many wrong codes or passwords one flow may see
+	// before further guesses are refused for loginAttemptBlock, which doubles up
+	// to loginAttemptBlockMax.
+	loginAttemptFailures = 5
+	// loginAttemptBlock is the first refusal after too many wrong codes or
+	// passwords.
+	loginAttemptBlock = 15 * time.Second
+	// loginAttemptBlockMax caps one refusal of a flow.
+	loginAttemptBlockMax = 10 * time.Minute
+	// loginLimitKeys bounds how many phone numbers and flows the two throttles
+	// remember at once.
+	loginLimitKeys = 4096
 )
 
 // Config carries the settings a Service is built from. The values are copied at
@@ -159,10 +190,16 @@ type Service struct {
 	// time without sleeping.
 	now func() time.Time
 	// loginSlots bounds how many login calls hold a pooled connection at once.
-	// It is built on first use rather than in the constructor because tests
-	// assemble the service from a struct literal.
-	loginSlots     chan struct{}
-	loginSlotsOnce sync.Once
+	// It, codeSends and attempts are built on first use rather than in the
+	// constructor because tests assemble the service from a struct literal.
+	loginSlots chan struct{}
+	// codeSends throttles how often one phone number may ask Telegram for a new
+	// login code, so the server cannot be used to message a number repeatedly.
+	codeSends *throttle.Limiter
+	// attempts throttles wrong codes and passwords per login flow, which bounds
+	// online guessing of a code or a two-step password.
+	attempts        *throttle.Limiter
+	loginLimitsOnce sync.Once
 }
 
 // FlowResult describes a phone login flow that has been started and is waiting
@@ -342,16 +379,23 @@ func NewService(pool *pgxpool.Pool, cipher *secureblob.Cipher, login TelegramLog
 // The phone number and the gateway state are sealed before they reach the
 // database, and the flow expires after Config.LoginFlowTTL. A blank phone number
 // reports ErrInvalidInput; gateway failures are returned unchanged instead of
-// being folded into a sentinel.
+// being folded into a sentinel. Because the endpoint is unauthenticated, one
+// phone number may ask for at most loginCodeSends codes before further requests
+// are refused with ErrTooManyAttempts, which stops the server's Telegram
+// credentials from being used to message a number on demand.
 func (s *Service) StartLogin(ctx context.Context, phone string) (*FlowResult, error) {
 	phone = strings.TrimSpace(phone)
 	if phone == "" {
 		return nil, ErrInvalidInput
 	}
+	if _, ok := s.sendLimiter().Allow(phone); !ok {
+		return nil, ErrTooManyAttempts
+	}
 	step, err := s.login.Start(ctx, phone)
 	if err != nil {
 		return nil, err
 	}
+	s.sendLimiter().Fail(phone)
 	phoneCiphertext, err := s.cipher.Seal("login-phone", []byte(phone))
 	if err != nil {
 		return nil, err
@@ -485,11 +529,16 @@ func (s *Service) PollQR(ctx context.Context, flowID uuid.UUID) (*VerifyResult, 
 // The flow must be a phone flow whose sealed state still decrypts, otherwise
 // ErrInvalidInput or ErrLoginStateInvalid is returned. Unknown, expired and
 // already completed flows report ErrFlowNotFound. A wrong or expired code is
-// reported by the gateway as ErrCodeInvalid; failed attempts are neither counted
-// nor throttled by this service.
+// reported by the gateway as ErrCodeInvalid. Wrong codes are counted per flow,
+// so after loginAttemptFailures of them the flow is refused with
+// ErrTooManyAttempts for a growing delay instead of being guessable at the rate
+// Telegram allows.
 func (s *Service) VerifyCode(ctx context.Context, flowID uuid.UUID, code string) (*VerifyResult, error) {
 	if flowID == uuid.Nil || strings.TrimSpace(code) == "" {
 		return nil, ErrInvalidInput
+	}
+	if _, ok := s.attemptLimiter().Allow(flowID.String()); !ok {
+		return nil, ErrTooManyAttempts
 	}
 	return s.withFlowLock(ctx, flowID, func(conn *pgxpool.Conn, flow *sqlcgen.TelegramLoginFlow) (*VerifyResult, error) {
 		if flow.Method != sqlcgen.TelegramLoginMethodPhone {
@@ -501,7 +550,7 @@ func (s *Service) VerifyCode(ctx context.Context, flowID uuid.UUID, code string)
 		}
 		step, err := s.login.VerifyCode(ctx, phone, state, code)
 		if err != nil {
-			return nil, err
+			return nil, s.recordAttemptFailure(flowID, err)
 		}
 		if step.PasswordRequired {
 			return s.persistPendingFlow(ctx, conn, flow, step)
@@ -515,13 +564,17 @@ func (s *Service) VerifyCode(ctx context.Context, flowID uuid.UUID, code string)
 //
 // The flow must already have PasswordRequired set, otherwise ErrInvalidInput is
 // returned. The password is checked by Telegram against the account rather than
-// against anything stored here, so this service cannot enforce local lockouts or
-// count failed attempts; a rejected password is reported as ErrPasswordInvalid,
-// which maps to HTTP 401. Success marks the flow completed in the same
+// against anything stored here, so the only local defence is the per-flow
+// throttle: a rejected password is reported as ErrPasswordInvalid, which maps to
+// HTTP 401, and after loginAttemptFailures wrong passwords the flow is refused
+// with ErrTooManyAttempts. Success marks the flow completed in the same
 // transaction that creates the session, so a flow can never be completed twice.
 func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password string) (*VerifyResult, error) {
 	if flowID == uuid.Nil || password == "" {
 		return nil, ErrInvalidInput
+	}
+	if _, ok := s.attemptLimiter().Allow(flowID.String()); !ok {
+		return nil, ErrTooManyAttempts
 	}
 	return s.withFlowLock(ctx, flowID, func(conn *pgxpool.Conn, flow *sqlcgen.TelegramLoginFlow) (*VerifyResult, error) {
 		if !flow.PasswordRequired {
@@ -533,7 +586,7 @@ func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password
 		}
 		step, err := s.login.VerifyPassword(ctx, state, password)
 		if err != nil {
-			return nil, err
+			return nil, s.recordAttemptFailure(flowID, err)
 		}
 		return s.completeLogin(ctx, conn, flowID, step)
 	})
@@ -606,12 +659,48 @@ func (s *Service) withFlowLock(ctx context.Context, flowID uuid.UUID, fn func(*p
 // the unauthenticated login endpoints cannot hold more than
 // maxConcurrentLoginFlows connections between them.
 func (s *Service) slotLimiter() chan struct{} {
-	s.loginSlotsOnce.Do(func() {
+	s.initLoginLimits()
+	return s.loginSlots
+}
+
+// sendLimiter returns the per-phone throttle that bounds how many login codes
+// one number may ask Telegram to deliver.
+func (s *Service) sendLimiter() *throttle.Limiter {
+	s.initLoginLimits()
+	return s.codeSends
+}
+
+// attemptLimiter returns the per-flow throttle that bounds wrong codes and
+// passwords.
+func (s *Service) attemptLimiter() *throttle.Limiter {
+	s.initLoginLimits()
+	return s.attempts
+}
+
+// initLoginLimits builds the login limits on first use, so a service assembled
+// by a test literal behaves like one built by NewService.
+func (s *Service) initLoginLimits() {
+	s.loginLimitsOnce.Do(func() {
 		if s.loginSlots == nil {
 			s.loginSlots = make(chan struct{}, maxConcurrentLoginFlows)
 		}
+		if s.codeSends == nil {
+			s.codeSends = throttle.New(loginCodeSends, loginCodeBlock, loginCodeBlockMax, loginLimitKeys)
+		}
+		if s.attempts == nil {
+			s.attempts = throttle.New(loginAttemptFailures, loginAttemptBlock, loginAttemptBlockMax, loginLimitKeys)
+		}
 	})
-	return s.loginSlots
+}
+
+// recordAttemptFailure counts a wrong code or password against its flow and
+// returns the error unchanged, so callers report what the gateway said while the
+// next guess from the same flow is throttled.
+func (s *Service) recordAttemptFailure(flowID uuid.UUID, err error) error {
+	if errors.Is(err, ErrCodeInvalid) || errors.Is(err, ErrPasswordInvalid) {
+		s.attemptLimiter().Fail(flowID.String())
+	}
+	return err
 }
 
 // lockFlow acquires a pooled connection and takes the session-level advisory lock
