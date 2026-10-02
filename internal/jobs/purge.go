@@ -94,10 +94,21 @@ func (w *PendingFilePurgeWorker) Timeout(*river.Job[PurgeSweepArgs]) time.Durati
 // again, and River retries the job when a purge fails. A root whose own parent is
 // still deletion_pending is not listed by the query and is handled once its
 // parent is gone.
+//
+// fileops.PurgeMany reports one error per batch and silently skips roots whose
+// advisory lock another purge already holds, so a pass can return successfully
+// without removing anything. When a whole pass leaves every listed root in place
+// the sweep waits the shared, one-second-capped backoff before it lists again
+// instead of querying as fast as the database answers, and a context that ends
+// during that wait stops the run.
 func (w *PendingFilePurgeWorker) Work(ctx context.Context, job *river.Job[PurgeSweepArgs]) error {
 	if w == nil || w.pool == nil || w.service == nil {
 		return ErrPurgeNotConfigured
 	}
+	var (
+		previous   map[uuid.UUID]struct{}
+		retryDelay time.Duration
+	)
 	for {
 		rows, err := w.queries.ListDeletionPendingRoots(ctx)
 		if err != nil {
@@ -107,12 +118,14 @@ func (w *PendingFilePurgeWorker) Work(ctx context.Context, job *river.Job[PurgeS
 			return nil
 		}
 		byUser := make(map[int64][]uuid.UUID)
+		roots := make(map[uuid.UUID]struct{}, len(rows))
 		for _, item := range rows {
 			fileID, ok := dbtypes.GoogleUUID(item.FileID)
 			if !ok {
 				return fmt.Errorf("list deletion-pending roots: invalid file ID")
 			}
 			byUser[item.UserID] = append(byUser[item.UserID], fileID)
+			roots[fileID] = struct{}{}
 		}
 		userIDs := slices.Sorted(maps.Keys(byUser))
 		for _, userID := range userIDs {
@@ -120,5 +133,61 @@ func (w *PendingFilePurgeWorker) Work(ctx context.Context, job *river.Job[PurgeS
 				return fmt.Errorf("retry deletion-pending files for user %d: %w", userID, err)
 			}
 		}
+		if previous != nil && !sweepMadeProgress(previous, roots) {
+			retryDelay = nextSweepRetryDelay(retryDelay)
+			if err := waitForSweepRetry(ctx, retryDelay); err != nil {
+				return err
+			}
+		} else {
+			retryDelay = 0
+		}
+		previous = roots
+	}
+}
+
+// sweepRetryDelay is the first delay a sweep waits after a pass that removed no
+// root, and sweepRetryDelayMax caps how far that delay doubles. The cap keeps a
+// sweep responsive once the competing purge finishes while still taking the load
+// of a handful of workers off the database.
+const (
+	sweepRetryDelay    = 100 * time.Millisecond
+	sweepRetryDelayMax = time.Second
+)
+
+// nextSweepRetryDelay returns the delay to wait after a pass that made no
+// progress: sweepRetryDelay for the first such pass and twice the previous delay
+// afterwards, capped at sweepRetryDelayMax.
+func nextSweepRetryDelay(current time.Duration) time.Duration {
+	if current <= 0 {
+		return sweepRetryDelay
+	}
+	return min(2*current, sweepRetryDelayMax)
+}
+
+// sweepMadeProgress reports whether the current listing dropped at least one root
+// the previous listing carried.
+//
+// The purge and trash sweeps share it because fileops.PurgeMany reports success
+// per batch rather than how many roots it removed, so a root that is missing from
+// the next listing is the only progress they can observe.
+func sweepMadeProgress(previous, current map[uuid.UUID]struct{}) bool {
+	for fileID := range previous {
+		if _, ok := current[fileID]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForSweepRetry waits delay before a sweep lists again and returns ctx.Err()
+// when the context ends first, so a cancelled or timed-out run does not sleep on.
+func waitForSweepRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }

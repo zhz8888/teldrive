@@ -83,6 +83,13 @@ func (w *TrashCleanupWorker) Timeout(*river.Job[TrashCleanupSweepArgs]) time.Dur
 // listing, and a page that fails is retried by River with whatever is left. It
 // returns ErrTrashCleanupNotConfigured when the worker is not wired up, and
 // rejects a retention that does not parse or is not positive.
+//
+// fileops.PurgeMany reports one error per batch and silently skips roots whose
+// advisory lock another purge already holds, so a pass can return successfully
+// without removing anything. When a whole pass leaves every listed root in place
+// the sweep waits the shared, one-second-capped backoff before it lists again
+// instead of querying as fast as the database answers, and a context that ends
+// during that wait stops the run.
 func (w *TrashCleanupWorker) Work(ctx context.Context, job *river.Job[TrashCleanupSweepArgs]) error {
 	if w == nil || w.pool == nil || w.service == nil {
 		return ErrTrashCleanupNotConfigured
@@ -96,6 +103,10 @@ func (w *TrashCleanupWorker) Work(ctx context.Context, job *river.Job[TrashClean
 		return fmt.Errorf("invalid trash retention %q", retentionText)
 	}
 	deletedBefore := dbtypes.Time(w.now().Add(-retention))
+	var (
+		previous   map[uuid.UUID]struct{}
+		retryDelay time.Duration
+	)
 	for {
 		rows, err := w.queries.ListTrashedRootsBefore(ctx, deletedBefore)
 		if err != nil {
@@ -105,12 +116,14 @@ func (w *TrashCleanupWorker) Work(ctx context.Context, job *river.Job[TrashClean
 			return nil
 		}
 		byUser := make(map[int64][]uuid.UUID)
+		roots := make(map[uuid.UUID]struct{}, len(rows))
 		for _, item := range rows {
 			fileID, ok := dbtypes.GoogleUUID(item.FileID)
 			if !ok {
 				return errors.New("expired trash root has invalid file ID")
 			}
 			byUser[item.UserID] = append(byUser[item.UserID], fileID)
+			roots[fileID] = struct{}{}
 		}
 		userIDs := slices.Sorted(maps.Keys(byUser))
 		for _, userID := range userIDs {
@@ -118,5 +131,14 @@ func (w *TrashCleanupWorker) Work(ctx context.Context, job *river.Job[TrashClean
 				return fmt.Errorf("purge expired trash files for user %d: %w", userID, err)
 			}
 		}
+		if previous != nil && !sweepMadeProgress(previous, roots) {
+			retryDelay = nextSweepRetryDelay(retryDelay)
+			if err := waitForSweepRetry(ctx, retryDelay); err != nil {
+				return err
+			}
+		} else {
+			retryDelay = 0
+		}
+		previous = roots
 	}
 }
