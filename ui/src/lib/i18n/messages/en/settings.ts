@@ -151,6 +151,7 @@ export const settings = {
   "settings.channels.toast.createFailed": "Channel could not be created",
   "settings.channels.toast.deleted": "Storage channel deleted",
   "settings.channels.toast.deleteFailed": "Storage channel could not be deleted",
+  "settings.channels.toast.selectFailed": "Channel could not be selected",
 
   "settings.sessions.title": "Sessions",
   "settings.sessions.description": "Sessions currently authorized for this account.",

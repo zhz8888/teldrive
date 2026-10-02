@@ -144,6 +144,7 @@ export const settings: AreaMessages<typeof enSettings> = {
   "settings.channels.toast.createFailed": "无法创建频道",
   "settings.channels.toast.deleted": "已删除存储频道",
   "settings.channels.toast.deleteFailed": "无法删除存储频道",
+  "settings.channels.toast.selectFailed": "无法选择该频道",
 
   "settings.sessions.title": "会话",
   "settings.sessions.description": "当前已授权访问该账户的会话。",

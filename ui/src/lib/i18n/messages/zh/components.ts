@@ -172,6 +172,7 @@ export const components: AreaMessages<typeof enComponents> = {
   "components.pdfReader.unlock": "解锁",
   "components.pdfReader.openFailed": "无法打开此 PDF",
   "components.pdfReader.openFailedFallback": "此 PDF 文件无法打开。",
+  "components.pdfReader.saveFailed": "无法保存编辑后的副本",
   "components.pdfReader.findLabel": "在 PDF 中查找",
   "components.pdfReader.findPlaceholder": "在文档中查找",
   "components.pdfReader.noMatches": "无匹配结果",

@@ -146,6 +146,7 @@ export const routes = {
   "routes.trash.deletedAt": "Deleted {date}",
   "routes.trash.kind.file": "file",
   "routes.trash.kind.folder": "folder",
+  "routes.trash.loadMore": "Load more items",
   "routes.trash.confirm.purge.title": "Permanently delete this item?",
   "routes.trash.confirm.purge.message":
     "This removes the file record and schedules its Telegram data for physical cleanup. This action cannot be undone.",
@@ -382,6 +383,10 @@ export const routes = {
     other: "{count} items moved to trash",
   },
   "routes.share.toast.trashFailed": "Items could not be moved to trash",
+  "routes.share.toast.trashPartial": {
+    one: "{count} item could not be moved to trash",
+    other: "{count} items could not be moved to trash",
+  },
   "routes.share.toast.uploaded": "{name} uploaded",
   "routes.share.toast.uploadFailed": "Upload failed",
 } as const;

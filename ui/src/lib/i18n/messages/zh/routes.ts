@@ -143,6 +143,7 @@ export const routes: AreaMessages<typeof enRoutes> = {
   "routes.trash.deletedAt": "删除于 {date}",
   "routes.trash.kind.file": "文件",
   "routes.trash.kind.folder": "文件夹",
+  "routes.trash.loadMore": "加载更多项目",
   "routes.trash.confirm.purge.title": "永久删除此项目？",
   "routes.trash.confirm.purge.message":
     "这将删除文件记录，并将其 Telegram 数据加入物理清理队列。此操作无法撤销。",
@@ -373,6 +374,10 @@ export const routes: AreaMessages<typeof enRoutes> = {
     other: "已将 {count} 项移入回收站",
   },
   "routes.share.toast.trashFailed": "无法将项目移入回收站",
+  "routes.share.toast.trashPartial": {
+    one: "有 {count} 个项目无法移入回收站",
+    other: "有 {count} 个项目无法移入回收站",
+  },
   "routes.share.toast.uploaded": "{name} 已上传",
   "routes.share.toast.uploadFailed": "上传失败",
 };

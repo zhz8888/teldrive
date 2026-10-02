@@ -59,6 +59,7 @@ export const features: AreaMessages<typeof enFeatures> = {
   "features.folderPicker.loadFailed": "无法加载文件夹。",
   "features.folderPicker.empty": "此处没有文件夹。",
   "features.folderPicker.confirm": "移动到此",
+  "features.folderPicker.loadMore": "加载更多文件夹",
 
   // 分享对话框（`features/files/share-dialog.tsx`）。
   "features.shareDialog.title": "分享 {name}",
@@ -125,6 +126,7 @@ export const features: AreaMessages<typeof enFeatures> = {
     other: "{count} 个文件",
   },
   "features.uploads.originalFileUnavailable": "原始文件已不可用，请重新开始上传。",
+  "features.uploads.folderMissing": "文件夹 {path} 已不存在。",
 
   // 登录校验（`auth/login-schema.ts`）。
   "features.auth.phoneFormat": "请使用 E.164 格式，并包含国家代码。",

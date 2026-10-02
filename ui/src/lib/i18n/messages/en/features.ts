@@ -57,6 +57,7 @@ export const features = {
   "features.folderPicker.loadFailed": "Folders could not be loaded.",
   "features.folderPicker.empty": "No folders here.",
   "features.folderPicker.confirm": "Move here",
+  "features.folderPicker.loadMore": "Load more folders",
 
   // Share dialog (`features/files/share-dialog.tsx`).
   "features.shareDialog.title": "Share {name}",
@@ -126,6 +127,7 @@ export const features = {
   },
   "features.uploads.originalFileUnavailable":
     "The original file is no longer available. Start the upload again.",
+  "features.uploads.folderMissing": "The folder {path} is no longer available.",
 
   // Sign-in validation (`auth/login-schema.ts`).
   "features.auth.phoneFormat": "Use E.164 format, including the country code.",

@@ -172,6 +172,7 @@ export const components = {
   "components.pdfReader.unlock": "Unlock",
   "components.pdfReader.openFailed": "Unable to open this PDF",
   "components.pdfReader.openFailedFallback": "This PDF could not be opened.",
+  "components.pdfReader.saveFailed": "The edited copy could not be saved",
   "components.pdfReader.findLabel": "Find in PDF",
   "components.pdfReader.findPlaceholder": "Find in document",
   "components.pdfReader.noMatches": "No matches",
