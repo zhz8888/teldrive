@@ -225,9 +225,14 @@ func (l *Listener) Close(ctx context.Context) error {
 
 // run is the listener loop. It waits for notifications until the connection
 // fails, then closes that connection, sleeps for a jittered exponential backoff
-// and reconnects until it succeeds; it only returns once ctx is cancelled. On
-// return it closes conn, marks the listener stopped and closes done, which is
-// what Close waits for.
+// and reconnects until it succeeds; it only returns once ctx is cancelled. A
+// connection that proved healthy before it failed (see wait) resets the backoff,
+// so a long-lived listener starts every new outage from ReconnectMin instead of
+// carrying the accumulated attempt count forever. A connection that failed
+// before proving itself leaves the count alone, which keeps the backoff growing
+// for a peer that accepts and immediately drops connections and cannot turn into
+// a hot reconnect loop. On return it closes conn, marks the listener stopped and
+// closes done, which is what Close waits for.
 func (l *Listener) run(ctx context.Context, conn listenerConn, done chan struct{}) {
 	defer func() {
 		if conn != nil {
@@ -242,11 +247,14 @@ func (l *Listener) run(ctx context.Context, conn listenerConn, done chan struct{
 
 	attempt := 0
 	for {
-		err := l.wait(ctx, conn)
+		healthy, err := l.wait(ctx, conn)
 		conn.Close()
 		conn = nil
 		if ctx.Err() != nil {
 			return
+		}
+		if healthy {
+			attempt = 0
 		}
 
 		delay := jitterDelay(reconnectDelay(l.config.ReconnectMin, l.config.ReconnectMax, attempt))
@@ -284,30 +292,38 @@ func (l *Listener) connect(ctx context.Context) (listenerConn, error) {
 // wait pumps notifications from conn until the connection fails or ctx is
 // cancelled. Every blocking read is bounded by config.PingInterval so that an
 // idle connection is probed with a ping instead of being trusted forever; each
-// notification is handed to deliver and the loop continues. It returns ctx.Err()
-// on shutdown and a wrapped error describing the failure otherwise.
-func (l *Listener) wait(ctx context.Context, conn listenerConn) error {
+// notification is handed to deliver and the loop continues. The boolean reports
+// whether the connection proved itself usable before it failed: it becomes true
+// as soon as the connection delivers a notification or answers a ping, and stays
+// false for a connection that breaks before either happened, which is what lets
+// run reset the reconnect backoff only for a connection that really worked. It
+// returns ctx.Err() on shutdown and a wrapped error describing the failure
+// otherwise.
+func (l *Listener) wait(ctx context.Context, conn listenerConn) (bool, error) {
+	healthy := false
 	for {
 		waitCtx, cancel := context.WithTimeout(ctx, l.config.PingInterval)
 		notification, err := conn.WaitForNotification(waitCtx)
 		cancel()
 		if err == nil {
+			healthy = true
 			l.deliver(notification)
 			continue
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return healthy, ctx.Err()
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			pingCtx, pingCancel := context.WithTimeout(ctx, l.config.ConnectTimeout)
 			pingErr := conn.Ping(pingCtx)
 			pingCancel()
 			if pingErr == nil {
+				healthy = true
 				continue
 			}
-			return fmt.Errorf("ping event listener: %w", pingErr)
+			return healthy, fmt.Errorf("ping event listener: %w", pingErr)
 		}
-		return fmt.Errorf("wait for event notification: %w", err)
+		return healthy, fmt.Errorf("wait for event notification: %w", err)
 	}
 }
 

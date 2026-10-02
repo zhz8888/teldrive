@@ -122,6 +122,12 @@ type Service struct {
 
 	// mu guards cancel, done, running and closed.
 	mu sync.Mutex
+	// startMu serializes Start so that at most one listener connect is ever in
+	// flight and a caller that races another Start either observes the running
+	// service or performs the connect itself. It is held across the connect;
+	// Close never takes it, so shutdown can never queue behind a slow connect.
+	// It is never acquired while mu is held.
+	startMu sync.Mutex
 	// cancel stops the ticket cleanup goroutine; nil while the service is
 	// stopped.
 	cancel context.CancelFunc
@@ -238,18 +244,26 @@ func validateConfig(cfg Config) error {
 // idempotent while running and returns ErrServiceClosed after Close. The
 // listener connects synchronously, so a connection failure is reported here and
 // the service stays stopped; cancelling ctx stops both goroutines and Close
-// waits for them.
+// waits for them. The connect runs outside the state lock, so Done and Close are
+// never blocked by it: concurrent Start calls are serialized instead, and a
+// Close that lands while this call is connecting is noticed afterwards, in which
+// case Start stops the fresh listener again and reports ErrServiceClosed rather
+// than leaking its dedicated connection.
 func (s *Service) Start(ctx context.Context) error {
 	if s == nil || s.listener == nil {
 		return errors.New("event service is not configured")
 	}
 
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
+	closed, running := s.closed, s.running
+	s.mu.Unlock()
+	if closed {
 		return ErrServiceClosed
 	}
-	if s.running {
+	if running {
 		return nil
 	}
 
@@ -258,17 +272,33 @@ func (s *Service) Start(ctx context.Context) error {
 		cancel()
 		return err
 	}
+
+	s.mu.Lock()
+	if s.closed {
+		// Close ran while this call was connecting and saw nothing running, so
+		// it left the listener alone; stop it here instead of leaking the
+		// dedicated connection. The run goroutine terminates on its own once
+		// serviceCtx is cancelled even if ctx is already done and Close returns
+		// early.
+		s.mu.Unlock()
+		cancel()
+		_ = s.listener.Close(ctx)
+		return ErrServiceClosed
+	}
 	s.cancel = cancel
 	s.running = true
 	s.done = make(chan struct{})
 	go s.runTicketCleanup(serviceCtx, s.done)
+	s.mu.Unlock()
 	return nil
 }
 
 // Close stops the listener and the ticket cleanup, closes the hub and waits for
-// the cleanup goroutine to exit. It is idempotent and safe on a nil service.
-// Closing the hub ends every in-flight SSE stream, and if ctx expires before the
-// goroutine stops, the listener error is joined with ctx.Err() and returned.
+// the cleanup goroutine to exit. It is idempotent and safe on a nil service. A
+// Close that lands while a concurrent Start is still connecting leaves that
+// listener to Start, which stops it and reports ErrServiceClosed. Closing the hub
+// ends every in-flight SSE stream, and if ctx expires before the goroutine stops,
+// the listener error is joined with ctx.Err() and returned.
 func (s *Service) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -398,11 +428,15 @@ func (s *Service) CurrentCursor(ctx context.Context, userID int64) (int64, error
 
 // CursorExpired reports whether the client's cursor has fallen out of the
 // retained window: the event with that id no longer exists while newer events
-// are available, so the gap can never be replayed. A non-positive cursor is
-// treated as not expired, a cursor ahead of the newest event yields
-// ErrInvalidCursor, and a failed lookup returns a wrapped error. The SSE handler
-// turns a true result into a sync.required control frame.
+// are available, so the gap can never be replayed. A non-positive user id is
+// rejected as an invalid request, exactly as ListAfter and CurrentCursor reject
+// it. A non-positive cursor is treated as not expired, a cursor ahead of the
+// newest event yields ErrInvalidCursor, and a failed lookup returns a wrapped
+// error. The SSE handler turns a true result into a sync.required control frame.
 func (s *Service) CursorExpired(ctx context.Context, userID, afterID int64) (bool, error) {
+	if s == nil || s.queries == nil || userID <= 0 {
+		return false, errors.New("invalid event cursor request")
+	}
 	if afterID <= 0 {
 		return false, nil
 	}
