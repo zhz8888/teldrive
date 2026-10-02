@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useSuspenseInfiniteQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { $api, fetchClient } from "@/api/client";
 import { invalidResponse } from "@/api/errors";
@@ -82,10 +82,42 @@ export function filePageQueryOptions(search: FileRouteSearch, status: FileStatus
   });
 }
 
+/**
+ * Cursor pages of one listing. Trash uses this instead of the first page alone,
+ * so `fetchNextPage` walks the `nextCursor` the server returns and every entry
+ * stays reachable rather than only the first hundred.
+ */
 export function useFilePage(search: FileRouteSearch, status: FileStatus) {
-  return $api.useSuspenseQuery("get", "/v1/files", filePageInit(search, status), {
+  const queryKey = [
+    "get",
+    "/v1/files",
+    "pages",
+    {
+      path: search.path,
+      parentId: search.parentId,
+      q: search.q,
+      sort: search.sort,
+      order: search.order,
+      category: search.category,
+      status,
+    },
+  ] as const;
+
+  return useSuspenseInfiniteQuery({
+    queryKey,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const result = await fetchClient.GET("/v1/files", {
+        ...filePageInit(search, status, pageParam),
+        signal,
+      });
+      if (!result.data) {
+        throw invalidResponse("Teldrive returned an empty file-list response.");
+      }
+      return validateFileList(result.data);
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 15_000,
-    select: validateFileList,
   });
 }
 
@@ -124,23 +156,39 @@ export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus
   });
 }
 
+/**
+ * Cursor pages of the folders under one destination. The folder picker pages
+ * through them with `fetchNextPage`, so a folder beyond the first page is still
+ * selectable.
+ */
 export function useFolderChildren(parentId?: string, path?: string) {
-  return $api.useQuery(
-    "get",
-    "/v1/files",
-    {
-      params: {
-        query: {
-          parentId,
-          path: parentId ? undefined : path === "/" ? undefined : path,
-          kind: "folder",
-          status: "active",
-          limit: 200,
-          sort: "name",
-          order: "asc",
+  const queryKey = ["get", "/v1/files", "folders", { parentId, path }] as const;
+
+  return useInfiniteQuery({
+    queryKey,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) => {
+      const result = await fetchClient.GET("/v1/files", {
+        params: {
+          query: {
+            parentId,
+            path: parentId ? undefined : path === "/" ? undefined : path,
+            kind: "folder",
+            status: "active",
+            limit: 200,
+            sort: "name",
+            order: "asc",
+            cursor: pageParam,
+          },
         },
-      },
+        signal,
+      });
+      if (!result.data) {
+        throw invalidResponse("Teldrive returned an empty file-list response.");
+      }
+      return validateFileList(result.data);
     },
-    { staleTime: 20_000 },
-  );
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 20_000,
+  });
 }

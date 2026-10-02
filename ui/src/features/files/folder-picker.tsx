@@ -22,6 +22,7 @@ export function FolderPicker({
   const [path, setPath] = useState(initialPath);
   const [parentId, setParentId] = useState<string | undefined>(initialParentId);
   const folders = useFolderChildren(parentId, parentId ? undefined : path);
+  const folderItems = folders.data?.pages.flatMap((page) => page.items) ?? [];
   const crumbs = path.split("/").filter(Boolean);
 
   const openPath = (nextPath: string, nextParentId?: string) => {
@@ -75,36 +76,51 @@ export function FolderPicker({
             </Button>
           </div>
         ) : (
-          <GridList
-            aria-label={t("features.folderPicker.folders")}
-            items={folders.data?.items ?? []}
-            selectionMode="none"
-            renderEmptyState={() => (
-              <div className="grid min-h-52 place-items-center text-sm text-muted">
-                {t("features.folderPicker.empty")}
+          <>
+            <GridList
+              aria-label={t("features.folderPicker.folders")}
+              items={folderItems}
+              selectionMode="none"
+              renderEmptyState={() => (
+                <div className="grid min-h-52 place-items-center text-sm text-muted">
+                  {t("features.folderPicker.empty")}
+                </div>
+              )}
+              className="outline-none"
+            >
+              {(folder) => (
+                <GridListItem
+                  id={folder.id}
+                  textValue={folder.name}
+                  onAction={() => openPath(joinPath(path, folder.name), folder.id)}
+                  className={({ isFocusVisible }) =>
+                    [
+                      "flex min-h-11 items-center gap-3 border-b border-border px-3 text-sm outline-none last:border-b-0 hover:bg-default/20",
+                      isFocusVisible && "ring-2 ring-inset ring-accent/30",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                  }
+                >
+                  <FolderIcon className="size-4 text-accent" />
+                  <span className="truncate">{folder.name}</span>
+                </GridListItem>
+              )}
+            </GridList>
+            {folders.hasNextPage ? (
+              <div className="border-border border-t p-2">
+                <Button
+                  size="sm"
+                  variant="tertiary"
+                  className="w-full"
+                  isPending={folders.isFetchingNextPage}
+                  onPress={() => void folders.fetchNextPage()}
+                >
+                  {t("features.folderPicker.loadMore")}
+                </Button>
               </div>
-            )}
-            className="outline-none"
-          >
-            {(folder) => (
-              <GridListItem
-                id={folder.id}
-                textValue={folder.name}
-                onAction={() => openPath(joinPath(path, folder.name), folder.id)}
-                className={({ isFocusVisible }) =>
-                  [
-                    "flex min-h-11 items-center gap-3 border-b border-border px-3 text-sm outline-none last:border-b-0 hover:bg-default/20",
-                    isFocusVisible && "ring-2 ring-inset ring-accent/30",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")
-                }
-              >
-                <FolderIcon className="size-4 text-accent" />
-                <span className="truncate">{folder.name}</span>
-              </GridListItem>
-            )}
-          </GridList>
+            ) : null}
+          </>
         )}
       </div>
 

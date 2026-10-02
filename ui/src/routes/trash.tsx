@@ -43,6 +43,7 @@ function TrashPage() {
   const actions = useFileActions();
   const [purging, setPurging] = useState<FileEntry>();
   const [cleaningTrash, setCleaningTrash] = useState(false);
+  const trashedFiles = query.data.pages.flatMap((page) => page.items);
 
   const restore = async (file: FileEntry) => {
     try {
@@ -81,7 +82,7 @@ function TrashPage() {
             <Button
               size="sm"
               variant="danger"
-              isDisabled={query.data.items.length === 0 || actions.pending}
+              isDisabled={trashedFiles.length === 0 || actions.pending}
               onPress={() => setCleaningTrash(true)}
             >
               <TrashIcon className="size-4" /> {t("routes.trash.action.clean")}
@@ -98,14 +99,14 @@ function TrashPage() {
         }
       />
       <PageContent>
-        {query.data.items.length === 0 ? (
+        {trashedFiles.length === 0 ? (
           <EmptyState
             title={t("routes.trash.empty.title")}
             description={t("routes.trash.empty.description")}
           />
         ) : (
           <Card className="gap-0 overflow-hidden border border-border bg-surface/80 shadow-sm">
-            {query.data.items.map((file) => {
+            {trashedFiles.map((file) => {
               const Icon = file.kind === "folder" ? FolderIcon : FileIcon;
               const kindKey = KIND_LABEL_KEYS[file.kind];
               return (
@@ -152,6 +153,18 @@ function TrashPage() {
             })}
           </Card>
         )}
+        {query.hasNextPage ? (
+          <div className="mt-4 flex justify-center">
+            <Button
+              size="sm"
+              variant="tertiary"
+              isPending={query.isFetchingNextPage}
+              onPress={() => void query.fetchNextPage()}
+            >
+              {t("routes.trash.loadMore")}
+            </Button>
+          </div>
+        ) : null}
       </PageContent>
 
       <ConfirmDialog
