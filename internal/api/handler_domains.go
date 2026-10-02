@@ -361,6 +361,13 @@ func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest, par
 		seen[botID] = struct{}{}
 		tokens = append(tokens, token)
 	}
+	// A request whose tokens were all malformed or duplicated still has a
+	// meaningful answer: the per-index feedback the contract models. Reporting it
+	// instead of calling InsertPending keeps an empty token list from turning the
+	// documented response into a bare 422 that drops failedIndexes.
+	if len(tokens) == 0 {
+		return &response, nil
+	}
 	rows, insertErr := h.Bots.InsertPending(ctx, userID, tokens)
 	if insertErr != nil {
 		return nil, mapServiceError(insertErr)
