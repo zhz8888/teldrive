@@ -442,12 +442,16 @@ func partCleanupContext(ctx context.Context) (context.Context, context.CancelFun
 // deleteUploaded removes the Telegram message published for a part whose catalog
 // write will not happen. It does nothing when the part carries no message, and
 // otherwise wraps the storage error so it can be reported next to the original
-// failure.
+// failure. The delete runs on a context detached from ctx and bounded by
+// partCleanupTimeout, because a client that disconnects while the catalog write
+// fails must not turn the compensation into an orphan message.
 func (p *Pipeline) deleteUploaded(ctx context.Context, userID int64, part telegramstore.StoredPart) error {
 	if part.ChannelID == 0 || part.MessageID <= 0 {
 		return nil
 	}
-	if err := p.storage.DeleteMessages(ctx, userID, part.ChannelID, []int64{part.MessageID}); err != nil {
+	cleanupCtx, cancel := partCleanupContext(ctx)
+	defer cancel()
+	if err := p.storage.DeleteMessages(cleanupCtx, userID, part.ChannelID, []int64{part.MessageID}); err != nil {
 		return fmt.Errorf("compensate Telegram upload: %w", err)
 	}
 	return nil
