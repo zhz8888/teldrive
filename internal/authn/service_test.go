@@ -87,3 +87,32 @@ func TestServiceValidationAndHelpers(t *testing.T) {
 		t.Fatalf("ttlSeconds() = %d", ttlSeconds(time.Minute))
 	}
 }
+
+// TestSlotLimiterCapsConcurrentLoginFlows checks that the login-flow semaphore is
+// shared and bounded, and that a caller which cannot take a slot returns without
+// ever touching the pool: the service in this test has a nil pool, so acquiring a
+// connection would panic instead of failing the assertion.
+func TestSlotLimiterCapsConcurrentLoginFlows(t *testing.T) {
+	t.Parallel()
+	s := &Service{now: time.Now}
+	slots := s.slotLimiter()
+	if cap(slots) != maxConcurrentLoginFlows {
+		t.Fatalf("cap(slots) = %d, want %d", cap(slots), maxConcurrentLoginFlows)
+	}
+	if s.slotLimiter() != slots {
+		t.Fatal("slotLimiter() returned a different channel on the second call")
+	}
+	for i := 0; i < maxConcurrentLoginFlows; i++ {
+		slots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < maxConcurrentLoginFlows; i++ {
+			<-slots
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.withFlowLock(ctx, uuid.New(), nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("withFlowLock() error = %v, want context.Canceled", err)
+	}
+}

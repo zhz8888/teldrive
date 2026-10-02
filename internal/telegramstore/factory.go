@@ -35,6 +35,19 @@ import (
 // Callers must test it with errors.Is.
 var ErrTelegramConfiguration = errors.New("Telegram client factory is not configured")
 
+const (
+	// maxFloodWait bounds how long one request may sleep inside the gotd
+	// flood-wait waiter. Telegram can answer FLOOD_WAIT with hours for a login
+	// attempt, and the waiter sleeps inline while the caller's request, its
+	// database connection and its goroutine stay occupied, so an unbounded wait
+	// turns a throttled account into a stalled server. A longer wait is reported
+	// to the caller as an error instead.
+	maxFloodWait = 2 * time.Minute
+	// maxFloodWaitRetries is how many FLOOD_WAIT answers one request follows
+	// before giving up, which keeps the total sleep below a few minutes.
+	maxFloodWaitRetries = 2
+)
+
 // FactoryConfig is the gotd client configuration taken from the application
 // config. AppID and AppHash are the only mandatory fields: NewFactory applies
 // the defaults described below and then validates the result, so a zero valued
@@ -133,7 +146,10 @@ func NewFactory(config FactoryConfig) (*Factory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrTelegramConfiguration, err)
 	}
-	middlewares := []telegram.Middleware{floodwait.NewSimpleWaiter(), retry}
+	middlewares := []telegram.Middleware{
+		floodwait.NewSimpleWaiter().WithMaxRetries(maxFloodWaitRetries).WithMaxWait(maxFloodWait),
+		retry,
+	}
 	if config.RateLimit {
 		if config.RateInterval <= 0 || config.RateBurst < 1 {
 			return nil, fmt.Errorf("%w: rate interval and burst must be positive", ErrTelegramConfiguration)

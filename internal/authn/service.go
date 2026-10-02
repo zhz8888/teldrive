@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -83,6 +84,29 @@ var (
 	// ErrAPIKeyNotFound reports an API key that is unknown, owned by another
 	// user, or already revoked. It maps to HTTP 404.
 	ErrAPIKeyNotFound = errors.New("API key not found")
+
+	// ErrLoginBusy reports that another request is already working on the same
+	// login flow and this call could not take the per-flow lock within
+	// loginFlowLockWait. It maps to HTTP 429 so the client can retry the same
+	// step later instead of starting over.
+	ErrLoginBusy = errors.New("login flow is busy")
+)
+
+const (
+	// maxConcurrentLoginFlows caps how many login-flow calls may hold a pooled
+	// connection at once. The login endpoints are unauthenticated, so without a
+	// cap a handful of concurrent callers could occupy every connection in the
+	// pool and stall the rest of the API.
+	maxConcurrentLoginFlows = 8
+
+	// loginFlowLockWait bounds how long a call waits for another request working
+	// on the same flow before reporting ErrLoginBusy.
+	loginFlowLockWait = 10 * time.Second
+
+	// loginFlowLockRetry is the pause between two attempts at the per-flow lock.
+	// The connection is released before the pause, so waiting for a busy flow
+	// costs no pool slot.
+	loginFlowLockRetry = 25 * time.Millisecond
 )
 
 // Config carries the settings a Service is built from. The values are copied at
@@ -134,6 +158,11 @@ type Service struct {
 	// now supplies the clock used for every expiry decision, so tests can move
 	// time without sleeping.
 	now func() time.Time
+	// loginSlots bounds how many login calls hold a pooled connection at once.
+	// It is built on first use rather than in the constructor because tests
+	// assemble the service from a struct literal.
+	loginSlots     chan struct{}
+	loginSlotsOnce sync.Once
 }
 
 // FlowResult describes a phone login flow that has been started and is waiting
@@ -517,10 +546,13 @@ func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password
 // The lock is session-scoped and keyed by the flow ID, so it also excludes other
 // service instances sharing the database. The flow is read only after the lock
 // is taken and must still be unexpired and unfinished, otherwise ErrFlowNotFound
-// is returned before fn runs. One pooled connection is held for the whole call,
-// including the Telegram round trip; acquisition blocks without a timeout, and
-// the release runs on a background context with a five second deadline so a
-// cancelled request still unlocks.
+// is returned before fn runs.
+//
+// Login endpoints are unauthenticated, so two limits keep that traffic away from
+// the rest of the pool: at most maxConcurrentLoginFlows calls hold a connection
+// at once, and a call waiting for a flow another request already owns returns its
+// connection between attempts and gives up with ErrLoginBusy after
+// loginFlowLockWait instead of queueing on a pool slot.
 //
 // A release that fails leaves the session-level lock on the connection, so the
 // connection is hijacked out of the pool and closed instead of being returned,
@@ -531,20 +563,23 @@ func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password
 // the response and failing here would lose them. The error is only surfaced when
 // the call produced no result for the caller to lose.
 func (s *Service) withFlowLock(ctx context.Context, flowID uuid.UUID, fn func(*pgxpool.Conn, *sqlcgen.TelegramLoginFlow) (*VerifyResult, error)) (result *VerifyResult, err error) {
-	conn, err := s.pool.Acquire(ctx)
+	slots := s.slotLimiter()
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	conn, err := s.lockFlow(ctx, flowLockID(flowID))
 	if err != nil {
-		return nil, fmt.Errorf("acquire login flow connection: %w", err)
+		return nil, err
 	}
 	defer conn.Release()
-	lockID := flowLockID(flowID)
 	queries := sqlcgen.New(conn)
-	if err := queries.AcquireAdvisoryLock(ctx, lockID); err != nil {
-		return nil, fmt.Errorf("lock login flow: %w", err)
-	}
 	defer func() {
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_, unlockErr := queries.ReleaseAdvisoryLock(unlockCtx, lockID)
+		_, unlockErr := queries.ReleaseAdvisoryLock(unlockCtx, flowLockID(flowID))
 		if unlockErr == nil {
 			return
 		}
@@ -565,6 +600,56 @@ func (s *Service) withFlowLock(ctx context.Context, flowID uuid.UUID, fn func(*p
 		return nil, fmt.Errorf("get Telegram login flow: %w", err)
 	}
 	return fn(conn, flow)
+}
+
+// slotLimiter returns the semaphore that caps concurrent login-flow calls, so
+// the unauthenticated login endpoints cannot hold more than
+// maxConcurrentLoginFlows connections between them.
+func (s *Service) slotLimiter() chan struct{} {
+	s.loginSlotsOnce.Do(func() {
+		if s.loginSlots == nil {
+			s.loginSlots = make(chan struct{}, maxConcurrentLoginFlows)
+		}
+	})
+	return s.loginSlots
+}
+
+// lockFlow acquires a pooled connection and takes the session-level advisory lock
+// on it. A connection is held only while the lock is held: when another request
+// already owns the lock, the connection goes back to the pool before the retry
+// pause, so waiting never occupies a pool slot. It reports ErrLoginBusy when the
+// lock is still taken after loginFlowLockWait, or when the caller's own deadline
+// expires first.
+func (s *Service) lockFlow(ctx context.Context, lockID int64) (*pgxpool.Conn, error) {
+	deadline := time.Now().Add(loginFlowLockWait)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	for {
+		conn, err := s.pool.Acquire(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("acquire login flow connection: %w", err)
+		}
+		locked, err := sqlcgen.New(conn).TryAdvisoryLock(ctx, lockID)
+		if err != nil {
+			conn.Release()
+			return nil, fmt.Errorf("lock login flow: %w", err)
+		}
+		if locked {
+			return conn, nil
+		}
+		conn.Release()
+		if !time.Now().Before(deadline) {
+			return nil, ErrLoginBusy
+		}
+		timer := time.NewTimer(loginFlowLockRetry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // decryptFlow opens the sealed state of a stored flow and, for phone flows, the

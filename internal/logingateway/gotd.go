@@ -381,7 +381,11 @@ func (g *GotdTelegramLogin) VerifyPassword(ctx context.Context, encodedState []b
 	var user *tg.User
 	err = client.Run(ctx, func(runCtx context.Context) error {
 		if _, err := client.Auth().Password(runCtx, password); err != nil {
-			if strings.Contains(err.Error(), "PASSWORD_HASH_INVALID") {
+			// gotd already maps PASSWORD_HASH_INVALID to auth.ErrPasswordInvalid,
+			// so the textual code never reaches the old string match; both forms
+			// are accepted so a rejected password keeps mapping to 401 even if
+			// that conversion changes.
+			if errors.Is(err, auth.ErrPasswordInvalid) || tgerr.Is(err, "PASSWORD_HASH_INVALID") {
 				return authn.ErrPasswordInvalid
 			}
 			return err
