@@ -86,6 +86,10 @@ test("the toolbar button switches to the opposite theme", async ({ page }) => {
   await page.goto("/files");
 
   await expect(documentTheme(page)).toHaveClass(/light/);
+  // The file browser has to render, not just the shell: a response the UI
+  // rejects as incompatible used to leave only the theme assertions passing.
+  await expect(page.getByRole("button", { name: "Grid view" })).toBeVisible();
+  await expect(page.getByText("This folder is empty", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Switch to the dark theme" }).click();
   await expect(documentTheme(page)).toHaveClass(/dark/);

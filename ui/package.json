@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "generate:api": "bunx openapi-typescript@7.13.0 ../openapi/teldrive.openapi.yaml -o ./src/api/schema.ts",
-    "lint": "biome lint --write --unsafe src",
+    "lint": "biome lint --write --unsafe src e2e",
     "format": "biome format --write src",
     "typecheck": "tsc",
     "test": "playwright test e2e/file-manager.spec.ts e2e/viewers.spec.ts e2e/source-audit.spec.ts e2e/i18n.spec.ts e2e/theme.spec.ts",

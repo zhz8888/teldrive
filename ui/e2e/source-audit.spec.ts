@@ -3,13 +3,6 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const sourceRoot = join(process.cwd(), "src");
-const exactCopies = new Set([
-  "components/task-launcher.tsx",
-  "components/task-status-chip.tsx",
-  "routes/tasks.tsx",
-  "routes/tasks_.$id.tsx",
-  "routes/_settings.settings.periodic-jobs.tsx",
-]);
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {

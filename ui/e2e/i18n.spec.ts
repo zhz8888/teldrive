@@ -36,7 +36,7 @@ async function installShellApi(page: Page) {
       });
     }
 
-    return route.fulfill({ json: { items: [], nextCursor: null } });
+    return route.fulfill({ json: { items: [] } });
   });
 }
 
