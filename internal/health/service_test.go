@@ -22,15 +22,19 @@ func TestServiceHealth(t *testing.T) {
 	}
 }
 
+// TestServiceReadyFailures pins the distinction between the two degraded causes: an
+// unwired database is reported as ErrNotConfigured, while a database that fails its
+// ping wraps the ping error and is not reported as a configuration gap.
 func TestServiceReadyFailures(t *testing.T) {
 	t.Parallel()
 
-	if got, err := NewService("v2-test", nil).Ready(context.Background()); err == nil || got.State != "degraded" {
+	got, err := NewService("v2-test", nil).Ready(context.Background())
+	if !errors.Is(err, ErrNotConfigured) || got.State != "degraded" || got.Version != "v2-test" {
 		t.Fatalf("nil database readiness = %#v, %v", got, err)
 	}
 	boom := errors.New("boom")
-	got, err := NewService("v2-test", pingerFunc(func(context.Context) error { return boom })).Ready(context.Background())
-	if !errors.Is(err, boom) || got.State != "degraded" {
+	got, err = NewService("v2-test", pingerFunc(func(context.Context) error { return boom })).Ready(context.Background())
+	if !errors.Is(err, boom) || errors.Is(err, ErrNotConfigured) || got.State != "degraded" {
 		t.Fatalf("failed database readiness = %#v, %v", got, err)
 	}
 }

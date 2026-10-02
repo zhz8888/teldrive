@@ -36,14 +36,74 @@ type webUIHandler struct {
 	files fs.FS
 }
 
+const (
+	// webUIAssetsDirectory is the bundle directory Vite writes generated files into.
+	// It is the default build.assetsDir of the UI's vite.config.mts, and the only
+	// directory of the bundle whose names carry a content hash; fonts, images and the
+	// copied pdfjs tree keep stable names.
+	webUIAssetsDirectory = "assets"
+	// webUIAssetHashLength is the number of hash characters Vite (through Rollup)
+	// appends to a generated file name. The bundle shows exactly eight, drawn from the
+	// URL-safe base64 alphabet, for example assets/index-DpMfofu4.js and
+	// assets/epub-p5nIh-Lz.js, where the hash itself contains a hyphen.
+	webUIAssetHashLength = 8
+)
+
+// isHashedUIAsset reports whether the served file name is a Vite content-hashed build
+// artefact, which is what makes a one-year immutable cache safe: a changed asset is
+// published under a new name, so the cached entry can never go stale. The check is
+// deliberately narrow, because a wrong "hashed" verdict would pin a stable file for a
+// year after a deployment replaces it: the name must sit in webUIAssetsDirectory and
+// end in a hyphen followed by exactly webUIAssetHashLength hash characters before its
+// extension. So assets/app-deadbeef.js and assets/epub-p5nIh-Lz.js cache for a year,
+// while assets/logo-dark.svg, images/favicon-16x16.png and pdfjs/wasm/quickjs-eval.wasm
+// do not. A future build that renames the directory or changes the hash length only
+// loses the long cache; it never serves a stale file.
+func isHashedUIAsset(name string) bool {
+	directory, base := path.Split(name)
+	if strings.Trim(directory, "/") != webUIAssetsDirectory {
+		return false
+	}
+	stem := strings.TrimSuffix(base, path.Ext(base))
+	hashStart := len(stem) - webUIAssetHashLength
+	if hashStart < 1 || stem[hashStart-1] != '-' {
+		return false
+	}
+	for _, character := range stem[hashStart:] {
+		if !isUIAssetHashCharacter(character) {
+			return false
+		}
+	}
+	return true
+}
+
+// isUIAssetHashCharacter reports whether character can appear in a Vite asset hash,
+// which is the URL-safe base64 alphabet introduced with the "-" and "_" characters.
+func isUIAssetHashCharacter(character rune) bool {
+	switch {
+	case character >= '0' && character <= '9':
+		return true
+	case character >= 'a' && character <= 'z':
+		return true
+	case character >= 'A' && character <= 'Z':
+		return true
+	case character == '-' || character == '_':
+		return true
+	default:
+		return false
+	}
+}
+
 // ServeHTTP serves one asset of the embedded UI. Only GET and HEAD are accepted
 // and everything else gets 405. Hidden paths (any dot-prefixed segment) are
 // answered with 404 so the bundle cannot be walked for editor or VCS leftovers.
 // A miss on an extensionless path falls back to index.html, which is what makes
 // client-side routes such as /files/123 work on a hard reload; a miss on a path
 // with an extension stays a 404. The response carries a strict CSP, and caching
-// is split by file name: index.html is no-cache, hashed assets (names containing
-// "-") are immutable for a year, and the remaining files are cached for an hour.
+// is split by file name: index.html is no-cache, content-hashed assets (see
+// isHashedUIAsset) are immutable for a year, and the remaining files are cached for
+// an hour, so a stable name such as images/favicon-16x16.png cannot outlive a
+// deployment.
 func (h webUIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -75,7 +135,7 @@ func (h webUIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if stat.Name() == "index.html" {
 		w.Header().Set("Cache-Control", "no-cache")
-	} else if strings.Contains(stat.Name(), "-") {
+	} else if isHashedUIAsset(requested) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")

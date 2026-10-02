@@ -108,6 +108,17 @@ type Dependencies struct {
 	Version string
 }
 
+// globalCacher is the contract of the process-local cache the App owns: the cache
+// operations the services use plus Close. Naming both in one interface is what makes
+// the release path in Shutdown compile only for a cache implementation that can
+// actually be closed, instead of silently skipping one that cannot.
+type globalCacher interface {
+	cache.Cacher
+	// Close releases the resources the cache holds. Shutdown calls it once the
+	// workers have stopped and before the connection pool is closed.
+	Close()
+}
+
 // App owns a fully constructed backend together with the resources it opened. New
 // returns it unstarted; Run or Serve starts serving, and Shutdown or Close
 // releases the resources exactly once. The lifecycle flags make the value safe for
@@ -133,16 +144,27 @@ type App struct {
 	// HTTP has drained but before the job workers stop.
 	telegramDownloads *telegramstore.DownloadClientPool
 	// globalCache is the process-local cache shared by the catalog and the Telegram
-	// storage layer. It is closed after the workers stop.
-	globalCache cache.Cacher
+	// storage layer. It is closed after the workers stop; the interface also
+	// guarantees Close, and Cache exposes it as a plain cache.Cacher.
+	globalCache globalCacher
 
 	// mu guards the lifecycle flags below so Serve and Shutdown cannot interleave.
 	mu sync.Mutex
 	// running reports whether a Serve call currently owns the HTTP server.
 	running bool
-	// closed reports whether Shutdown has already released the resources. It is
+	// closed reports whether Shutdown has already claimed the resource release. It is
 	// never reset, so a closed App cannot be restarted.
 	closed bool
+	// shutdownDone is closed once the single resource release has finished, and is
+	// created under mu when closed flips to true. Every later or concurrent Shutdown
+	// waits on it instead of returning before the resources are gone.
+	shutdownDone chan struct{}
+	// shutdownErr is the result of that release. It is written before shutdownDone is
+	// closed and read only after it, so the two are never observed out of order.
+	shutdownErr error
+	// shutdownOnce runs the release exactly once even when several callers arrive at
+	// the same moment; they all observe the same shutdownErr.
+	shutdownOnce sync.Once
 }
 
 // New builds the complete v2 backend. It upgrades legacy databases and runs all
@@ -299,11 +321,13 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 	}
 	mux := chi.NewRouter()
 	mux.Use(requestIDMiddleware)
-	mux.Use(httpRequestLogger(dependencies.Logger))
 	requestSecurity, err := newRequestSecurity(cfg.HTTP.TrustedProxies)
 	if err != nil {
 		return nil, fmt.Errorf("configure trusted proxies: %w", err)
 	}
+	// The logger needs the trusted proxy list to decide whether the forwarding
+	// headers of a request may be believed when it records the client address.
+	mux.Use(httpRequestLogger(dependencies.Logger, requestSecurity))
 	routeApplication(mux, requestSecurity.middleware(browserCSRFMiddleware(sessionRenewalMiddleware(authService, httpServer))), webUI)
 
 	application := &App{
@@ -480,19 +504,36 @@ func (a *App) Serve(ctx context.Context, listener net.Listener) error {
 }
 
 // Shutdown stops long-lived SSE handlers, closes HTTP and warm Telegram download clients,
-// drains RiverPro workers, and finally closes PostgreSQL. It is safe to call repeatedly.
+// drains RiverPro workers, and finally closes PostgreSQL.
+//
+// It is safe to call repeatedly and from several goroutines at once. The first call
+// performs the release and records its result; every other call waits for that release
+// to finish and returns the same error, so a caller never sees nil while the resources
+// are still being released. Only the first call's ctx bounds the work: a caller that
+// arrives later waits for the release to end rather than reporting a result of its own.
 func (a *App) Shutdown(ctx context.Context) error {
 	if a == nil {
 		return nil
 	}
 	a.mu.Lock()
-	if a.closed {
-		a.mu.Unlock()
-		return nil
+	if !a.closed {
+		a.closed = true
+		a.shutdownDone = make(chan struct{})
 	}
-	a.closed = true
+	done := a.shutdownDone
 	a.mu.Unlock()
 
+	a.shutdownOnce.Do(func() {
+		defer close(done)
+		a.shutdownErr = a.releaseResources(ctx)
+	})
+	<-done
+	return a.shutdownErr
+}
+
+// releaseResources performs the shutdown sequence in the order Shutdown documents and
+// joins every error it collects. Shutdown calls it at most once.
+func (a *App) releaseResources(ctx context.Context) error {
 	var result error
 	if a.events != nil {
 		result = errors.Join(result, a.events.Close(ctx))
@@ -508,8 +549,8 @@ func (a *App) Shutdown(ctx context.Context) error {
 			result = errors.Join(result, err)
 		}
 	}
-	if closer, ok := a.globalCache.(interface{ Close() }); ok {
-		closer.Close()
+	if a.globalCache != nil {
+		a.globalCache.Close()
 	}
 	if a.pool != nil {
 		a.pool.Close()

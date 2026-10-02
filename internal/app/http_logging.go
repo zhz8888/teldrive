@@ -2,7 +2,9 @@ package app
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -15,7 +17,12 @@ import (
 // /v1/, /api/ and /health/ are recorded. A nil logger falls back to slog.Default.
 // The record is written from a deferred call, and its level tracks the response:
 // error for 5xx, warn for other 4xx, info otherwise.
-func httpRequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
+//
+// The client address comes from security, which is the same trusted-proxy decision
+// the rest of the chain uses: the forwarding header is believed only when the
+// immediate peer is a configured trusted proxy, so a client that reaches the server
+// directly cannot choose what the log says. A nil security trusts no proxy.
+func httpRequestLogger(logger *slog.Logger, security *requestSecurity) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -42,7 +49,7 @@ func httpRequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
 					slog.String("query", r.URL.RawQuery),
-					slog.String("ip", r.RemoteAddr),
+					slog.String("ip", clientAddress(r, security)),
 					slog.String("user_agent", r.UserAgent()),
 					slog.Duration("latency", time.Since(started)),
 					slog.String("request_id", middleware.GetReqID(r.Context())),
@@ -52,4 +59,40 @@ func httpRequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r)
 		})
 	}
+}
+
+// clientAddress returns the client address recorded in the request log, without the
+// port. When the immediate peer is a trusted proxy it is the first X-Forwarded-For
+// entry, which is the address the original client used according to the proxy chain;
+// for every other peer, including a direct connection, the header is ignored and the
+// connection peer is reported instead. That is the same stance requestSecurity takes
+// for the scheme: forwarding headers are only ever believed from a trusted proxy, so
+// a client cannot choose its own log entry. Only a well-formed IP is taken from the
+// header, so a malformed value cannot inject arbitrary text into the log, and an
+// absent or unparsable peer address is reported exactly as written.
+func clientAddress(r *http.Request, security *requestSecurity) string {
+	if r == nil {
+		return ""
+	}
+	peer := hostWithoutPort(r.RemoteAddr)
+	if security == nil || !security.isTrustedProxy(r) {
+		return peer
+	}
+	forwarded, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
+	if address, err := netip.ParseAddr(hostWithoutPort(forwarded)); err == nil {
+		return address.String()
+	}
+	return peer
+}
+
+// hostWithoutPort strips the port from an address, returning the address as written
+// when it carries none. Both a bare IP and a bracketed IPv6 host are accepted, so the
+// same helper serves the peer address and a forwarded-for entry.
+func hostWithoutPort(address string) string {
+	address = strings.TrimSpace(address)
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return address
+	}
+	return host
 }

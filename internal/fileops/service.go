@@ -217,13 +217,15 @@ func NewService(pool *pgxpool.Pool, catalogService *catalog.Service, channelServ
 // front so the copies form a self-contained tree. Destination channel capacity is
 // reserved for all parts at once, and each part is then republished with
 // storage.CopyPart, checking that the copied size matches the recorded stored size
-// (telegramstore.ErrSizeMismatch otherwise). Every successfully published message is
-// tracked, and tracking is what makes compensation possible: any later error deletes
-// those messages again on a background context, so cancelling the request does not
-// cancel the cleanup, and the deletes are best effort with errors discarded. The size
-// mismatch is the one gap in that scheme, because storage.CopyPart reports no part for
-// the document it has just published, so that message is left to the orphan cleanup
-// sweep instead.
+// (telegramstore.ErrSizeMismatch otherwise). Every message the storage names is
+// tracked as soon as it is reported, including one returned alongside a failing
+// CopyPart call, because the storage contract reports a size mismatch only after the
+// document was published; tracking is what makes compensation possible, so any later
+// error deletes those messages again on a background context, cancelling the request
+// does not cancel the cleanup, and the deletes are best effort with errors discarded.
+// The one case the scheme cannot cover is a failed copy whose storage response names
+// no message at all, such as a size mismatch reported by an implementation that
+// discards the part it published; that orphan is left to the periodic cleanup sweep.
 //
 // Only then does one transaction run: it takes the destination advisory lock, looks
 // for an active entry with the root's name, applies in.ConflictPolicy, inserts the
@@ -302,38 +304,11 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 	if err != nil {
 		return nil, err
 	}
-	copied := make(map[uuid.UUID][]copiedPart, len(sourceFileIDs))
-	cleanup := make([]telegramstore.StoredPart, 0)
-	compensate := func() {
-		grouped := make(map[int64][]int64)
-		for _, part := range cleanup {
-			if part.ChannelID != 0 && part.MessageID > 0 {
-				grouped[part.ChannelID] = append(grouped[part.ChannelID], part.MessageID)
-			}
-		}
-		for channelID, messageIDs := range grouped {
-			_ = s.storage.DeleteMessages(context.Background(), in.UserID, channelID, messageIDs)
-		}
-	}
-
-	for index, part := range parts {
-		oldID, ok := dbtypes.GoogleUUID(part.FileID)
-		if !ok {
-			compensate()
-			return nil, ErrNotFound
-		}
-		stored, err := s.storage.CopyPart(ctx, in.UserID, part.ChannelID, part.MessageID, destinationChannels[index])
-		if err != nil {
-			compensate()
-			return nil, fmt.Errorf("copy Telegram part %d: %w", part.PartNo, err)
-		}
-		if !part.StoredSize.Valid || stored.Size != part.StoredSize.Int64 {
-			cleanup = append(cleanup, stored)
-			compensate()
-			return nil, telegramstore.ErrSizeMismatch
-		}
-		cleanup = append(cleanup, stored)
-		copied[oldID] = append(copied[oldID], copiedPart{Part: *part, Stored: stored})
+	copied, published, err := s.copyParts(ctx, in.UserID, parts, destinationChannels)
+	compensate := func() { s.deleteCopiedParts(in.UserID, published) }
+	if err != nil {
+		compensate()
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -472,6 +447,79 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 		}
 	}
 	return nil, ErrNotFound
+}
+
+// copyParts republishes every source part into the destination channel reserved for
+// it and returns the new parts grouped by their source file together with every
+// Telegram message that a later failure must delete again. The grouped map is keyed
+// by the Google-format source file ID, which is how the caller links a part to the
+// copied catalog row that will own it.
+//
+// The returned published list is what makes compensation complete: a message is
+// recorded the moment the storage names it, before any error can escape, because the
+// storage contract reports a size mismatch only after the document was published and
+// an implementation that still identifies that document returns it alongside the
+// error. Dropping such a part is what would turn the compensating delete into a
+// no-op. A response that names no message carries nothing to delete and is skipped;
+// its orphan is left to the periodic cleanup sweep, as the Copy documentation
+// describes.
+//
+// Errors surface unwrapped where the caller classifies them: ErrNotFound for a source
+// file ID that cannot be decoded and telegramstore.ErrSizeMismatch for a copied size
+// that contradicts the recorded stored size or a stored size the catalog never
+// recorded. A storage failure is wrapped with the part number so the log says which
+// part failed.
+func (s *Service) copyParts(ctx context.Context, userID int64, parts []*sqlcgen.FilePart, destinationChannels []int64) (map[uuid.UUID][]copiedPart, []telegramstore.StoredPart, error) {
+	copied := make(map[uuid.UUID][]copiedPart, len(parts))
+	published := make([]telegramstore.StoredPart, 0, len(parts))
+	for index, part := range parts {
+		oldID, ok := dbtypes.GoogleUUID(part.FileID)
+		if !ok {
+			return nil, published, ErrNotFound
+		}
+		stored, err := s.storage.CopyPart(ctx, userID, part.ChannelID, part.MessageID, destinationChannels[index])
+		published = trackPublishedPart(published, stored)
+		if err != nil {
+			return nil, published, fmt.Errorf("copy Telegram part %d: %w", part.PartNo, err)
+		}
+		if !part.StoredSize.Valid || stored.Size != part.StoredSize.Int64 {
+			return nil, published, telegramstore.ErrSizeMismatch
+		}
+		copied[oldID] = append(copied[oldID], copiedPart{Part: *part, Stored: stored})
+	}
+	return copied, published, nil
+}
+
+// trackPublishedPart appends a Telegram message the storage reported to the list that
+// a later failure deletes again, and returns the list unchanged when the response
+// names no message. It is applied to every CopyPart result, a failing one included,
+// because the storage contract reports a size mismatch only after the document was
+// published and a part without a channel or message ID has no message to delete.
+func trackPublishedPart(published []telegramstore.StoredPart, part telegramstore.StoredPart) []telegramstore.StoredPart {
+	if part.ChannelID == 0 || part.MessageID <= 0 {
+		return published
+	}
+	return append(published, part)
+}
+
+// deleteCopiedParts removes the Telegram messages one Copy call published, grouped by
+// channel so each channel costs a single DeleteMessages call. It runs on a background
+// context, so cancelling the request does not cancel the cleanup, and the deletes are
+// deliberately best effort: an error is discarded because the caller has to see the
+// original failure, and a message the delete misses is finished by the periodic
+// cleanup sweep. Entries that name no message are skipped, since there is nothing to
+// delete for them.
+func (s *Service) deleteCopiedParts(userID int64, published []telegramstore.StoredPart) {
+	grouped := make(map[int64][]int64)
+	for _, part := range published {
+		if part.ChannelID == 0 || part.MessageID <= 0 {
+			continue
+		}
+		grouped[part.ChannelID] = append(grouped[part.ChannelID], part.MessageID)
+	}
+	for channelID, messageIDs := range grouped {
+		_ = s.storage.DeleteMessages(context.Background(), userID, channelID, messageIDs)
+	}
 }
 
 // optionalText converts a possibly NULL text column into a pointer, reporting nil for
