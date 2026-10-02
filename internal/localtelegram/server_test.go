@@ -3,6 +3,7 @@ package localtelegram_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -118,6 +119,41 @@ func TestServerSupportsBigFileUpload(t *testing.T) {
 		t.Fatalf("Upload(big) error = %v", err)
 	}
 	assertRange(t, storage, stored, int64(len(payload)-2048), 2048, payload[len(payload)-2048:])
+}
+
+// TestDiscoverChannelsPagesPastOneBatch pins that the dialog listing keeps paging
+// the way gotd's iterator expects. The iterator asks in batches of 100 and only
+// stops on a messages.dialogs answer, so a server that reports its first page as
+// the complete list leaves the remaining channels undiscovered.
+func TestDiscoverChannelsPagesPastOneBatch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	server, err := localtelegram.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	runner, err := localtelegram.NewRunner(server)
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
+	storage := telegramstore.NewGotdStorage(runner, nil)
+	const channelCount = 150
+	for i := 0; i < channelCount; i++ {
+		if _, err := storage.CreateChannel(ctx, 1001, fmt.Sprintf("channel-%03d", i)); err != nil {
+			t.Fatalf("CreateChannel(%d) error = %v", i, err)
+		}
+	}
+	account, err := telegramstore.NewGotdAccount(runner)
+	if err != nil {
+		t.Fatalf("NewGotdAccount() error = %v", err)
+	}
+	discovered, err := account.DiscoverChannels(ctx, 1001)
+	if err != nil {
+		t.Fatalf("DiscoverChannels() error = %v", err)
+	}
+	if len(discovered) != channelCount {
+		t.Fatalf("discovered channels = %d, want %d", len(discovered), channelCount)
+	}
 }
 
 func assertRange(t *testing.T, storage telegramstore.Storage, part telegramstore.StoredPart, offset, length int64, want []byte) {

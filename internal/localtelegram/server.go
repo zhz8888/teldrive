@@ -222,15 +222,27 @@ func (s *Server) getChannels(request *tg.ChannelsGetChannelsRequest) *tg.Message
 }
 
 // getDialogs lists the emulated channels as dialogs, oldest identifier first so
-// pagination is deterministic. request.Limit caps the page; a non-positive limit
-// is treated as "all channels", which keeps the emulator usable without the
-// offset bookkeeping the real API requires.
-func (s *Server) getDialogs(request *tg.MessagesGetDialogsRequest) *tg.MessagesDialogs {
+// pagination is deterministic. request.Limit caps the page, a non-positive limit
+// means "everything that is left", and the offset peer the real API uses to
+// continue a listing is honoured, so a client can walk to the end of a listing
+// that holds more channels than one response does.
+//
+// A page that leaves channels over is answered with messages.dialogsSlice, which
+// is what tells the gotd dialog iterator (DiscoverChannels walks it in batches of
+// 100) to keep paging; answering every page with messages.dialogs would report
+// the first page as the complete list, so the rest of the channels would never be
+// discovered. The final page, the one that holds every remaining channel, still
+// uses messages.dialogs so the iteration ends.
+func (s *Server) getDialogs(request *tg.MessagesGetDialogsRequest) tg.MessagesDialogsClass {
 	channels := make([]channelRecord, 0, len(s.state.Channels))
 	for _, channel := range s.state.Channels {
 		channels = append(channels, channel)
 	}
 	slices.SortFunc(channels, func(a, b channelRecord) int { return cmp.Compare(a.ID, b.ID) })
+	total := len(channels)
+	if offsetID, ok := inputPeerChannelID(request.OffsetPeer); ok {
+		channels = slices.DeleteFunc(channels, func(channel channelRecord) bool { return channel.ID <= offsetID })
+	}
 	limit := request.Limit
 	if limit <= 0 || limit > len(channels) {
 		limit = len(channels)
@@ -243,6 +255,9 @@ func (s *Server) getDialogs(request *tg.MessagesGetDialogsRequest) *tg.MessagesD
 			NotifySettings: tg.PeerNotifySettings{},
 		})
 		chats = append(chats, telegramChannel(channel))
+	}
+	if limit < len(channels) {
+		return &tg.MessagesDialogsSlice{Count: total, Dialogs: dialogs, Chats: chats}
 	}
 	return &tg.MessagesDialogs{Dialogs: dialogs, Chats: chats}
 }
@@ -476,9 +491,11 @@ func (s *Server) getMessages(request *tg.ChannelsGetMessagesRequest) *tg.Message
 // Only plain document locations are supported, and the access hash must match,
 // so a wrong handle cannot be used to read arbitrary files. The requested range
 // is clamped to the document length, which lets a downloader ask for a full
-// part without knowing the exact remaining size. A short read at the end of the
-// file is treated as success, matching where the real API returns a truncated
-// payload rather than an error.
+// part without knowing the exact remaining size; the clamp is the remaining
+// length itself rather than offset+limit, so a limit near the maximum integer
+// cannot wrap around it. A short read at the end of the file is treated as
+// success, matching where the real API returns a truncated payload rather than an
+// error.
 func (s *Server) getFile(ctx context.Context, request *tg.UploadGetFileRequest) (bin.Encoder, error) {
 	location, ok := request.Location.(*tg.InputDocumentFileLocation)
 	if !ok {
@@ -499,10 +516,7 @@ func (s *Server) getFile(ctx context.Context, request *tg.UploadGetFileRequest) 
 		return nil, fmt.Errorf("open local Telegram document: %w", err)
 	}
 	defer file.Close()
-	limit := int64(request.Limit)
-	if request.Offset+limit > document.Size {
-		limit = document.Size - request.Offset
-	}
+	limit := min(int64(request.Limit), document.Size-request.Offset)
 	payload := make([]byte, limit)
 	if limit > 0 {
 		if _, err := file.ReadAt(payload, request.Offset); err != nil && !errors.Is(err, io.EOF) {
@@ -516,8 +530,9 @@ func (s *Server) getFile(ctx context.Context, request *tg.UploadGetFileRequest) 
 // document they were the last reference to.
 //
 // Deleting an identifier that is not present is not an error, so a retried
-// deletion is harmless. Collection runs before the state is persisted so the
-// on-disk state never references a document file that has already been removed.
+// deletion is harmless. The pruned state is persisted before the files it
+// released are unlinked, so a restart never resurrects a message whose document
+// bytes are already gone; a crash in between leaves at most an unreferenced file.
 func (s *Server) deleteMessages(request *tg.ChannelsDeleteMessagesRequest) (bin.Encoder, error) {
 	channelID, ok := inputChannelID(request.Channel)
 	if !ok {
@@ -526,10 +541,11 @@ func (s *Server) deleteMessages(request *tg.ChannelsDeleteMessagesRequest) (bin.
 	for _, messageID := range request.ID {
 		delete(s.state.Messages, messageKey(channelID, messageID))
 	}
-	if err := s.garbageCollectDocuments(); err != nil {
+	unreferenced := s.garbageCollectDocuments()
+	if err := saveState(s.statePath, s.state); err != nil {
 		return nil, err
 	}
-	if err := saveState(s.statePath, s.state); err != nil {
+	if err := removeDocumentFiles(unreferenced); err != nil {
 		return nil, err
 	}
 	return &tg.MessagesAffectedMessages{Pts: s.state.NextMessageID, PtsCount: len(request.ID)}, nil
@@ -560,7 +576,9 @@ func (s *Server) createChannel(request *tg.ChannelsCreateChannelRequest) (bin.En
 
 // deleteChannel removes a channel together with every message posted to it, and
 // then collects the documents that losing those messages left unreferenced.
-// Deleting an unknown channel is not an error.
+// Deleting an unknown channel is not an error. Like deleteMessages it persists the
+// pruned state before it unlinks the released files, so a restart cannot bring
+// back a message whose document bytes are already gone.
 func (s *Server) deleteChannel(request *tg.ChannelsDeleteChannelRequest) (bin.Encoder, error) {
 	channelID, ok := inputChannelID(request.Channel)
 	if !ok {
@@ -572,10 +590,11 @@ func (s *Server) deleteChannel(request *tg.ChannelsDeleteChannelRequest) (bin.En
 			delete(s.state.Messages, key)
 		}
 	}
-	if err := s.garbageCollectDocuments(); err != nil {
+	unreferenced := s.garbageCollectDocuments()
+	if err := saveState(s.statePath, s.state); err != nil {
 		return nil, err
 	}
-	if err := saveState(s.statePath, s.state); err != nil {
+	if err := removeDocumentFiles(unreferenced); err != nil {
 		return nil, err
 	}
 	return &tg.Updates{Date: int(time.Now().Unix()), Seq: s.state.NextMessageID}, nil
@@ -596,26 +615,40 @@ func (s *Server) telegramMessage(record messageRecord) *tg.Message {
 	}
 }
 
-// garbageCollectDocuments deletes every stored document that no surviving
-// message references, both from disk and from the state.
+// garbageCollectDocuments drops every stored document that no surviving message
+// references from the state and returns the paths of the document files that must
+// now be unlinked.
 //
 // This is what makes the emulator behave like Telegram, where an unreferenced
-// upload is eventually reclaimed rather than kept forever. A file that is
-// already gone is not an error. The caller must hold mu and is responsible for
-// persisting the state afterwards.
-func (s *Server) garbageCollectDocuments() error {
+// upload is eventually reclaimed rather than kept forever. The caller must hold mu
+// and must persist the pruned state before it unlinks the returned paths, so the
+// on-disk state never lists a message whose bytes are already gone; the reverse
+// order leaves at most a file nobody references.
+func (s *Server) garbageCollectDocuments() []string {
 	referenced := make(map[int64]struct{}, len(s.state.Messages))
 	for _, message := range s.state.Messages {
 		referenced[message.DocumentID] = struct{}{}
 	}
+	paths := make([]string, 0)
 	for key, document := range s.state.Documents {
 		if _, ok := referenced[document.ID]; ok {
 			continue
 		}
-		if err := os.Remove(filepath.Join(s.documentsDir, fmt.Sprintf("%d.bin", document.ID))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		paths = append(paths, filepath.Join(s.documentsDir, fmt.Sprintf("%d.bin", document.ID)))
+		delete(s.state.Documents, key)
+	}
+	return paths
+}
+
+// removeDocumentFiles unlinks the document files at paths and tolerates files that
+// are already gone. Any other failure is returned wrapped; the files it did not
+// reach stay behind as unreferenced garbage, because no later pass rediscovers a
+// document the state no longer lists.
+func removeDocumentFiles(paths []string) error {
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove local Telegram document: %w", err)
 		}
-		delete(s.state.Documents, key)
 	}
 	return nil
 }
