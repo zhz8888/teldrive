@@ -36,7 +36,7 @@ import { FolderPicker } from "../features/files/folder-picker";
 import { absoluteFileDownloadUrl, copyText, startFileDownload } from "../features/files/download";
 import { useFileActions } from "../features/files/mutations";
 import { useInfiniteFilePages } from "../features/files/queries";
-import { useUploadStore } from "../features/uploads/store";
+import { useUploadStore, resolveFolderIdByPath } from "../features/uploads/store";
 
 type FileBrowserView = "list" | "grid";
 type PaneId = "primary" | "secondary";
@@ -128,6 +128,7 @@ function FilesPage() {
   const clipboardMode = useFileClipboardStore((state) => state.mode);
   const clipboardItems = useFileClipboardStore((state) => state.items);
   const clipboardSourceParentId = useFileClipboardStore((state) => state.sourceParentId);
+  const clipboardSourcePath = useFileClipboardStore((state) => state.sourcePath);
   const clipboardSourcePane = useFileClipboardStore((state) => state.sourcePane);
   const setClipboard = useFileClipboardStore((state) => state.set);
   const clearClipboard = useFileClipboardStore((state) => state.clear);
@@ -192,6 +193,16 @@ function FilesPage() {
   const cutIds =
     clipboardMode === "cut" ? new Set(clipboardItems.map((file) => file.id)) : undefined;
   const hasClipboard = Boolean(clipboardMode && clipboardItems.length > 0);
+
+  /**
+   * Whether a pane already shows the folder a cut came from. The path recorded
+   * with the clipboard is authoritative, because breadcrumb navigation keeps no
+   * folder id; the id is the fallback when no path was recorded.
+   */
+  const isClipboardSource = (location: PaneLocation) =>
+    clipboardSourcePath !== undefined
+      ? normalizeFolderPath(clipboardSourcePath) === normalizeFolderPath(location.path)
+      : clipboardSourceParentId !== undefined && clipboardSourceParentId === location.parentId;
 
   const paneLocation = (pane: PaneId) =>
     pane === "secondary" && search.split ? secondaryLocation : primaryLocation;
@@ -353,19 +364,31 @@ function FilesPage() {
   ) => {
     if (!clipboardMode || clipboardItems.length === 0) return;
     const location = paneLocation(pane);
-    if (clipboardMode === "cut" && clipboardSourceParentId === location.parentId) {
+    if (clipboardMode === "cut" && isClipboardSource(location)) {
       toast.info(t("routes.files.toast.alreadyInFolder"));
       return;
     }
+    // A pane reached by breadcrumb records only its path, so the folder id has to
+    // be looked up before pasting: without it the items would land in the root.
+    let targetParentId = location.parentId;
+    if (targetParentId === undefined && location.path !== "/") {
+      targetParentId = await resolveFolderIdByPath(location.path);
+      if (targetParentId === undefined) {
+        toast.error(t("routes.files.toast.pasteFailed"), {
+          description: t("features.uploads.folderMissing", { path: location.path }),
+        });
+        return;
+      }
+    }
     try {
       if (clipboardMode === "copy") {
-        await fileActions.copyMany(clipboardItems, location.parentId, "rename");
+        await fileActions.copyMany(clipboardItems, targetParentId, "rename");
       } else if (clipboardItems.length === 1) {
-        await fileActions.move(clipboardItems[0], location.parentId, cutConflictPolicy);
+        await fileActions.move(clipboardItems[0], targetParentId, cutConflictPolicy);
       } else {
         await fileActions.bulkMove(
           clipboardItems.map((file) => file.id),
-          location.parentId,
+          targetParentId,
           cutConflictPolicy,
         );
       }
@@ -599,8 +622,7 @@ function FilesPage() {
         : "primary";
     const showClipboard = hasClipboard && (!search.split || pane === clipboardTargetPane);
     const canPasteHere =
-      showClipboard &&
-      !(clipboardMode === "cut" && clipboardSourceParentId === paneLocation(pane).parentId);
+      showClipboard && !(clipboardMode === "cut" && isClipboardSource(paneLocation(pane)));
     if (showClipboard) {
       return (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
@@ -998,6 +1020,12 @@ function selectionIds(selection: Selection, files: FileEntry[]) {
 
 function joinPath(parent: string, name: string) {
   return `${parent === "/" ? "" : parent}/${name}`.replace(/\/+/g, "/") || "/";
+}
+
+/** Folder identity ignores a trailing slash, so "/a" and "/a/" are one folder. */
+function normalizeFolderPath(path: string) {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === "" ? "/" : trimmed;
 }
 
 function isEditableTarget(target: EventTarget | null) {

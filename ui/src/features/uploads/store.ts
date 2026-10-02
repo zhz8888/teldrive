@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { apiFetch } from "@/api/client";
-import { invalidResponse, normalizeApiError, userMessage } from "@/api/errors";
+import { ApiError, invalidResponse, normalizeApiError, userMessage } from "@/api/errors";
+import { queryClient } from "@/api/query-client";
 import type { FileEntry, NameConflictPolicy, UploadPart, UploadSession } from "@/api/types";
 import { newClientId } from "@/features/shared/client-id";
 import { newIdempotencyKey } from "@/features/shared/idempotency";
@@ -58,6 +59,12 @@ const legacyStorageKey = "teldrive.uploads.v3";
 const settingsKey = "teldrive.upload-settings.v2";
 const files = new Map<string, File>();
 const controllers = new Map<string, AbortController>();
+/**
+ * Folder resolutions shared by the tasks of one batch, keyed `${batchId}:${path}`.
+ * The promises are created without a task's abort signal, so pausing one upload
+ * cannot cancel the folder creation its siblings are waiting for, and
+ * `releaseBatchResolutions` drops them once no task of the batch can use them.
+ */
 const folderResolutions = new Map<string, Promise<string>>();
 let active = 0;
 
@@ -107,6 +114,12 @@ discardLegacyPersistedTasks();
 export const useUploadStore = create<UploadState>((set, get) => ({
   tasks: [],
   settings: readSettings(),
+  /**
+   * Queues files for the folder a pane shows. Breadcrumb navigation records the
+   * path without a folder id, so a non-root `path` whose `parentId` is missing is
+   * resolved by `resolveTaskParent` before the upload session is created; a path
+   * that no longer resolves fails the task instead of landing in the drive root.
+   */
   enqueue(input, parentId, path = "/") {
     const batchId = newClientId();
     const relativePaths = input.map((file) => file.webkitRelativePath || file.name);
@@ -228,7 +241,7 @@ async function getOrCreateSession(task: UploadTask, signal: AbortSignal): Promis
     }
   }
   const settings = useUploadStore.getState().settings;
-  const parentId = await resolveTaskParent(task, signal);
+  const parentId = await resolveTaskParent(task);
   const created = await jsonRequest<UploadSession>("/v1/uploads", {
     method: "POST",
     headers: {
@@ -256,7 +269,11 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function findExistingFolder(name: string, parentId: string | undefined, signal: AbortSignal) {
+async function findExistingFolder(
+  name: string,
+  parentId: string | undefined,
+  signal?: AbortSignal,
+) {
   const query = new URLSearchParams({
     kind: "folder",
     search: `^${escapeRegex(name)}$`,
@@ -273,7 +290,7 @@ async function findExistingFolder(name: string, parentId: string | undefined, si
 async function createOrMergeFolder(
   name: string,
   parentId: string | undefined,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ) {
   try {
     return await jsonRequest<FileEntry>("/v1/folders", {
@@ -293,30 +310,101 @@ async function createOrMergeFolder(
   }
 }
 
-async function resolveTaskParent(task: UploadTask, signal: AbortSignal) {
-  const segments = task.relativePath.split("/").filter(Boolean).slice(0, -1);
-  if (segments.length === 0) return task.parentId;
+/**
+ * Finds the folder a drive path names by walking its segments from the root.
+ * A pane reached by breadcrumb keeps only this path, so resolving it here is
+ * what keeps an upload or a paste in the folder the user is looking at rather
+ * than in the drive root. Returns `undefined` when a segment is not a folder.
+ */
+export async function resolveFolderIdByPath(path: string): Promise<string | undefined> {
+  let parentId: string | undefined;
+  for (const segment of path.split("/").filter(Boolean)) {
+    const folder = await findExistingFolder(segment, parentId);
+    if (!folder) return undefined;
+    parentId = folder.id;
+  }
+  return parentId;
+}
 
+/**
+ * Resolves one folder for every task of a batch that needs it, so siblings
+ * create a shared folder once. A rejected resolution is dropped to let a retry
+ * try again.
+ */
+async function resolveFolder(task: UploadTask, key: string, resolve: () => Promise<string>) {
+  const cacheKey = `${task.batchId}:${key}`;
+  let resolution = folderResolutions.get(cacheKey);
+  if (!resolution) {
+    resolution = resolve();
+    folderResolutions.set(cacheKey, resolution);
+  }
+  try {
+    return await resolution;
+  } catch (error) {
+    folderResolutions.delete(cacheKey);
+    throw error;
+  }
+}
+
+/** Drops a batch's folder resolutions once none of its tasks can still use them. */
+function releaseBatchResolutions(batchId: string) {
+  const pending = useUploadStore
+    .getState()
+    .tasks.some(
+      (task) => task.batchId === batchId && (task.status === "queued" || task.status === "running"),
+    );
+  if (pending) return;
+  const prefix = `${batchId}:`;
+  for (const key of folderResolutions.keys()) {
+    if (key.startsWith(prefix)) folderResolutions.delete(key);
+  }
+}
+
+/** Refreshes the listings and statistics that a finishing upload has changed. */
+async function invalidateFileViews() {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["get", "/v1/files"] }),
+    queryClient.invalidateQueries({ queryKey: ["get", "/v1/files/{fileId}"] }),
+    queryClient.invalidateQueries({ queryKey: ["get", "/v1/files/statistics/drive"] }),
+  ]);
+}
+
+/**
+ * Resolves the folder a task's files belong in: the destination the interface
+ * recorded, followed by the relative folders a directory upload recreates. The
+ * resolutions are shared per batch and outlive a single task's abort signal, so
+ * pausing one upload never cancels the folder creation of its siblings.
+ */
+async function resolveTaskParent(task: UploadTask) {
   let parentId = task.parentId;
+  let created = false;
+
+  if (parentId === undefined && task.path !== "/") {
+    parentId = await resolveFolder(task, `path:${task.path}`, async () => {
+      const resolved = await resolveFolderIdByPath(task.path);
+      // A failed task is better than a file silently written into the drive root.
+      if (resolved === undefined) {
+        throw new Error(t("features.uploads.folderMissing", { path: task.path }));
+      }
+      return resolved;
+    });
+  }
+
+  const segments = task.relativePath.split("/").filter(Boolean).slice(0, -1);
   let relativeFolderPath = "";
   for (const segment of segments) {
     relativeFolderPath = relativeFolderPath ? `${relativeFolderPath}/${segment}` : segment;
-    const key = `${task.batchId}:${relativeFolderPath}`;
-    let resolution = folderResolutions.get(key);
-    if (!resolution) {
-      const currentParentId = parentId;
-      resolution = createOrMergeFolder(segment, currentParentId, signal).then(
-        (folder) => folder.id,
-      );
-      folderResolutions.set(key, resolution);
-    }
-    try {
-      parentId = await resolution;
-    } catch (error) {
-      folderResolutions.delete(key);
-      throw error;
-    }
+    const currentParentId = parentId;
+    parentId = await resolveFolder(task, relativeFolderPath, () =>
+      createOrMergeFolder(segment, currentParentId).then((folder) => {
+        created = true;
+        return folder.id;
+      }),
+    );
   }
+
+  // The folders above did not exist before, so the open listing is now stale.
+  if (created) await invalidateFileViews();
   return parentId;
 }
 
@@ -357,7 +445,15 @@ function uploadPart(
     });
     request.addEventListener("error", () => {
       signal.removeEventListener("abort", abort);
-      reject(new Error("The upload part could not be transferred."));
+      // The transfer never reached the server, so this is a connectivity
+      // failure rather than a message the interface authored.
+      reject(
+        new ApiError({
+          status: 0,
+          code: "network_error",
+          message: "The upload part could not be transferred.",
+        }),
+      );
     });
     request.addEventListener("abort", () => {
       signal.removeEventListener("abort", abort);
@@ -408,6 +504,7 @@ async function runTask(taskId: string) {
         uploadId: session.id,
         fileId: session.fileId,
       });
+      await invalidateFileViews();
       return;
     }
     if (session.state !== "open") throw new Error(`Upload session is ${session.state}.`);
@@ -456,6 +553,8 @@ async function runTask(taskId: string) {
       fileId: completed.id,
       error: undefined,
     });
+    // The upload changed a listing the user may be looking at right now.
+    await invalidateFileViews();
   } catch (error) {
     if (controller.signal.aborted) {
       const current = useUploadStore.getState().tasks.find((item) => item.id === taskId);
@@ -464,6 +563,7 @@ async function runTask(taskId: string) {
   } finally {
     controllers.delete(taskId);
     active--;
+    releaseBatchResolutions(task.batchId);
     queueMicrotask(schedule);
   }
 }
