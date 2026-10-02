@@ -30,7 +30,8 @@ func TestParse(t *testing.T) {
 
 func TestParseRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
-	for _, value := range []string{"", "-1MB", "many", "1XB", "999999999999999999999TB"} {
+	// "8388608TB" is exactly 2^63, the first float64 past the largest int64.
+	for _, value := range []string{"", "-1MB", "many", "1XB", "999999999999999999999TB", "8388608TB"} {
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
 			if _, err := Parse(value); err == nil {

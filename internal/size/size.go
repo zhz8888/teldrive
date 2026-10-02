@@ -12,7 +12,6 @@ package size
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 )
@@ -80,7 +79,10 @@ func Parse(value string) (Size, error) {
 		return 0, errorsf("unknown size suffix %q", suffix)
 	}
 	bytes := number * multiplier
-	if bytes > math.MaxInt64 {
+	// The largest int64 converts to the float64 2^63, so comparing against
+	// math.MaxInt64 would admit exactly 2^63 and leave the conversion below
+	// implementation-defined. 2^63 is the first float64 past the int64 range.
+	if bytes >= 9223372036854775808.0 {
 		return 0, errorsf("size overflows int64")
 	}
 	return Size(bytes), nil
