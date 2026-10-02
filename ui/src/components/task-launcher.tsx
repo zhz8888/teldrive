@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import CloseIcon from "~icons/gravity-ui/xmark";
 import type { components } from "@/api/schema";
 import { fetchClient } from "@/api/client";
+import { type MessageKey, useI18n } from "@/lib/i18n";
 import { useAppForm } from "../forms/app-form";
 
 type JobCreate = components["schemas"]["JobCreate"];
@@ -18,22 +19,27 @@ type TaskFormValues = {
 };
 
 const GROUPS: {
-  label: string;
-  items: { key: TaskType; label: string; description: string; defaultQueue: string }[];
+  labelKey: MessageKey;
+  items: {
+    key: TaskType;
+    labelKey: MessageKey;
+    descriptionKey: MessageKey;
+    defaultQueue: string;
+  }[];
 }[] = [
   {
-    label: "Maintenance",
+    labelKey: "components.taskLauncher.groupMaintenance",
     items: [
       {
         key: "teldrive_upload_cleanup",
-        label: "Clean stale uploads",
-        description: "Finalize or remove abandoned multipart upload sessions.",
+        labelKey: "components.taskLauncher.uploadCleanup",
+        descriptionKey: "components.taskLauncher.uploadCleanupDescription",
         defaultQueue: "maintenance",
       },
       {
         key: "teldrive_pending_file_purge",
-        label: "Purge pending files",
-        description: "Remove expired pending files and associated Telegram data.",
+        labelKey: "components.taskLauncher.pendingPurge",
+        descriptionKey: "components.taskLauncher.pendingPurgeDescription",
         defaultQueue: "maintenance",
       },
     ],
@@ -49,6 +55,7 @@ const DEFAULT_VALUES: TaskFormValues = {
 };
 
 export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onClose: () => void }) {
+  const { t } = useI18n();
   const form = useAppForm({
     defaultValues: DEFAULT_VALUES,
     validators: {
@@ -68,10 +75,10 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
       };
       const { error } = await fetchClient.POST("/v1/jobs", { body });
       if (error) {
-        toast.error("Failed to queue task");
+        toast.error(t("components.taskLauncher.queueFailed"));
         throw new Error("Failed to queue task");
       }
-      toast.success("Task queued");
+      toast.success(t("components.taskLauncher.queued"));
       onQueued();
     },
   });
@@ -95,7 +102,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
         <Button
           type="button"
           variant="ghost"
-          aria-label="Close task launcher"
+          aria-label={t("components.taskLauncher.close")}
           className="absolute inset-0 h-full w-full rounded-none bg-black/40 backdrop-blur-[1px]"
           onPress={onClose}
         />
@@ -108,14 +115,14 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
         >
           <div className="flex items-start justify-between border-border border-b px-5 py-4 sm:px-6">
             <div>
-              <h2 className="text-lg font-semibold">New task</h2>
-              <p className="mt-0.5 text-xs text-muted">Choose a task and configure its inputs.</p>
+              <h2 className="text-lg font-semibold">{t("components.taskLauncher.title")}</h2>
+              <p className="mt-0.5 text-xs text-muted">{t("components.taskLauncher.subtitle")}</p>
             </div>
             <Button
               isIconOnly
               size="sm"
               variant="tertiary"
-              aria-label="Close task launcher"
+              aria-label={t("components.taskLauncher.close")}
               onPress={onClose}
             >
               <CloseIcon className="size-4" />
@@ -125,11 +132,11 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
           <div className="min-h-0 flex-1 overflow-hidden">
             <div className="border-border border-b p-4 md:hidden">
               <Select
-                aria-label="Task type"
+                aria-label={t("components.taskLauncher.taskType")}
                 selectedKey={values.taskType}
                 onSelectionChange={(key) => chooseTask(String(key) as TaskType)}
               >
-                <Label>Task type</Label>
+                <Label>{t("components.taskLauncher.taskType")}</Label>
                 <Select.Trigger>
                   <Select.Value />
                   <Select.Indicator />
@@ -137,10 +144,12 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                 <Select.Popover>
                   <ListBox>
                     {GROUPS.flatMap((group) => group.items).map((item) => (
-                      <ListBox.Item key={item.key} id={item.key} textValue={item.label}>
+                      <ListBox.Item key={item.key} id={item.key} textValue={t(item.labelKey)}>
                         <div className="min-w-0">
-                          <div className="text-sm font-medium">{item.label}</div>
-                          <div className="truncate text-xs text-muted">{item.description}</div>
+                          <div className="text-sm font-medium">{t(item.labelKey)}</div>
+                          <div className="truncate text-xs text-muted">
+                            {t(item.descriptionKey)}
+                          </div>
                         </div>
                       </ListBox.Item>
                     ))}
@@ -152,12 +161,12 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
             <div className="grid h-full min-h-0 md:grid-cols-[12rem_minmax(0,1fr)]">
               <nav
                 className="hidden overflow-y-auto border-border border-r px-3 py-4 md:block"
-                aria-label="Task type"
+                aria-label={t("components.taskLauncher.taskType")}
               >
                 {GROUPS.map((group) => (
-                  <div key={group.label} className="mb-5 last:mb-0">
+                  <div key={group.labelKey} className="mb-5 last:mb-0">
                     <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-                      {group.label}
+                      {t(group.labelKey)}
                     </div>
                     <div className="grid gap-0.5">
                       {group.items.map((item) => {
@@ -176,7 +185,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                             }`}
                             onPress={() => chooseTask(item.key)}
                           >
-                            {item.label}
+                            {t(item.labelKey)}
                           </Button>
                         );
                       })}
@@ -189,10 +198,10 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                 <div className="grid gap-5">
                   <div>
                     <Typography type="h3" className="text-base font-semibold">
-                      {selected.label}
+                      {t(selected.labelKey)}
                     </Typography>
                     <Typography.Paragraph className="mt-1 text-sm text-muted">
-                      {selected.description}
+                      {t(selected.descriptionKey)}
                     </Typography.Paragraph>
                   </div>
 
@@ -203,7 +212,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                       maxValue={1000}
                       onChange={(value) => form.setFieldValue("batchSize", value ?? 1)}
                     >
-                      <Label>Batch size</Label>
+                      <Label>{t("components.taskLauncher.batchSize")}</Label>
                       <NumberField.Group>
                         <NumberField.DecrementButton />
                         <NumberField.Input />
@@ -213,8 +222,8 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                     <form.AppField name="queue">
                       {(field) => (
                         <field.TextField
-                          label="Queue"
-                          description="River queue used for this task."
+                          label={t("components.taskLauncher.queue")}
+                          description={t("components.taskLauncher.queueDescription")}
                         />
                       )}
                     </form.AppField>
@@ -225,7 +234,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                         maxValue={4}
                         onChange={(value) => form.setFieldValue("priority", value ?? 1)}
                       >
-                        <Label>Priority</Label>
+                        <Label>{t("components.taskLauncher.priority")}</Label>
                         <NumberField.Group>
                           <NumberField.DecrementButton />
                           <NumberField.Input />
@@ -237,7 +246,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
                         minValue={1}
                         onChange={(value) => form.setFieldValue("maxAttempts", value ?? 1)}
                       >
-                        <Label>Max attempts</Label>
+                        <Label>{t("components.taskLauncher.maxAttempts")}</Label>
                         <NumberField.Group>
                           <NumberField.DecrementButton />
                           <NumberField.Input />
@@ -253,10 +262,10 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
 
           <div className="flex items-center justify-end gap-2 border-border border-t px-5 py-4 sm:px-6">
             <Button type="button" variant="tertiary" isDisabled={submitting} onPress={onClose}>
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <form.SubmitButton variant="primary">
-              Queue {selected.label.toLowerCase()}
+              {t("components.taskLauncher.queueTask", { task: t(selected.labelKey).toLowerCase() })}
             </form.SubmitButton>
           </div>
         </form>

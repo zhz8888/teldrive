@@ -5,6 +5,7 @@ import { fileContentUrl, startFileDownload } from "@/features/files/download";
 import { previewMedia, supportsCodePreview } from "@/features/files/preview-support";
 import { readerKind } from "@/features/files/reader-support";
 type ViewerKind = "image" | "video" | "audio" | "pdf" | "ebook" | "text";
+import { type MessageKey, useI18n } from "@/lib/i18n";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
 import RotateIcon from "~icons/gravity-ui/arrow-rotate-left";
 import ZoomOutIcon from "~icons/gravity-ui/magnifier-minus";
@@ -29,6 +30,7 @@ export function FilePreviewDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const closeFrame = useRef<number>(undefined);
+  const { t } = useI18n();
   const contentUrl = file ? fileContentUrl(file) : "";
   const kind = file ? viewerKind(file) : undefined;
   const isReader = kind === "pdf" || kind === "ebook";
@@ -59,7 +61,9 @@ export function FilePreviewDialog({
         <Modal.Container size="full" scroll="inside" className="h-dvh max-h-dvh p-0">
           <Modal.Dialog className="h-dvh max-h-dvh w-screen max-w-none overflow-hidden rounded-none bg-background p-0 text-foreground">
             <Modal.Heading className="sr-only">{file.name}</Modal.Heading>
-            <Suspense fallback={<ViewerLoading label="Loading PDF engine" />}>
+            <Suspense
+              fallback={<ViewerLoading label={t("components.filePreview.loadingEngine")} />}
+            >
               <PdfReader
                 key={file.id}
                 file={file}
@@ -85,7 +89,7 @@ export function FilePreviewDialog({
         <Modal.Container size="full" scroll="inside" className="h-dvh max-h-dvh p-0">
           <Modal.Dialog className="h-dvh max-h-dvh w-screen max-w-none overflow-hidden rounded-none bg-background p-0 text-foreground">
             <Modal.Heading className="sr-only">{file.name}</Modal.Heading>
-            <Suspense fallback={<ViewerLoading label="Loading EPUB reader" />}>
+            <Suspense fallback={<ViewerLoading label={t("components.filePreview.loadingEpub")} />}>
               <EpubReader
                 key={file.id}
                 file={file}
@@ -121,7 +125,7 @@ export function FilePreviewDialog({
               isIconOnly
               variant="ghost"
               size="sm"
-              aria-label="Close viewer"
+              aria-label={t("components.filePreview.close")}
               onPress={() => changeOpen(false)}
             >
               <CloseIcon className="size-5" />
@@ -131,7 +135,7 @@ export function FilePreviewDialog({
                 {file.name}
               </Modal.Heading>
               <p className="truncate text-[11px] text-muted">
-                {formatLabel(kind)} · {formatBytes(file.size || 0)}
+                {t(formatLabelKey(kind))} · {formatBytes(file.size || 0)}
               </p>
             </div>
             <Button
@@ -140,7 +144,7 @@ export function FilePreviewDialog({
               onPress={() => startFileDownload(file)}
             >
               <DownloadIcon className="size-4" />
-              <span className="hidden sm:inline">Download</span>
+              <span className="hidden sm:inline">{t("common.action.download")}</span>
             </Button>
           </Modal.Header>
           <Modal.Body
@@ -153,7 +157,9 @@ export function FilePreviewDialog({
           >
             {kind === "image" ? <ImageViewer file={file} url={contentUrl} /> : null}
             {kind === "video" ? (
-              <Suspense fallback={<ViewerLoading label="Loading video player" />}>
+              <Suspense
+                fallback={<ViewerLoading label={t("components.filePreview.loadingVideo")} />}
+              >
                 <VideoViewer file={file} url={contentUrl} />
               </Suspense>
             ) : null}
@@ -167,6 +173,7 @@ export function FilePreviewDialog({
 }
 
 function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
+  const { t } = useI18n();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   return (
@@ -183,7 +190,7 @@ function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Zoom out"
+          aria-label={t("components.filePreview.zoomOut")}
           onPress={() => setZoom((value) => Math.max(0.25, value - 0.25))}
         >
           <ZoomOutIcon className="size-4" />
@@ -195,7 +202,7 @@ function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Zoom in"
+          aria-label={t("components.filePreview.zoomIn")}
           onPress={() => setZoom((value) => Math.min(5, value + 0.25))}
         >
           <ZoomInIcon className="size-4" />
@@ -204,7 +211,7 @@ function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Rotate image"
+          aria-label={t("components.filePreview.rotate")}
           onPress={() => setRotation((value) => value + 90)}
         >
           <RotateIcon className="size-4" />
@@ -230,6 +237,7 @@ function AudioViewer({ file, url }: { file: FileEntry; url: string }) {
 }
 
 function TextViewer({ url }: { url: string }) {
+  const { t } = useI18n();
   const [text, setText] = useState<string>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -239,12 +247,15 @@ function TextViewer({ url }: { url: string }) {
       .then((value) => setText(value.slice(0, 1_000_000)))
       .catch((reason: unknown) => {
         if (!controller.signal.aborted)
-          setError(reason instanceof Error ? reason.message : "Preview failed");
+          setError(
+            reason instanceof Error ? reason.message : t("components.filePreview.errorFallback"),
+          );
       });
     return () => controller.abort();
-  }, [url]);
+  }, [t, url]);
   if (error) return <ViewerError message={error} />;
-  if (text === undefined) return <ViewerLoading label="Loading document" />;
+  if (text === undefined)
+    return <ViewerLoading label={t("components.filePreview.loadingDocument")} />;
   return (
     <div className="h-full overflow-auto p-4 sm:p-8">
       <pre className="mx-auto min-h-full max-w-5xl whitespace-pre-wrap rounded-2xl border border-border bg-surface p-5 font-mono text-xs leading-6 shadow-xl sm:p-8">
@@ -264,10 +275,11 @@ function ViewerLoading({ label }: { label: string }) {
   );
 }
 function ViewerError({ message }: { message: string }) {
+  const { t } = useI18n();
   return (
     <div className="grid h-full place-items-center p-6 text-center">
       <div>
-        <p className="font-semibold">Unable to open this file</p>
+        <p className="font-semibold">{t("components.filePreview.errorTitle")}</p>
         <p className="mt-2 max-w-lg text-sm text-muted">{message}</p>
       </div>
     </div>
@@ -280,15 +292,18 @@ function viewerKind(file: FileEntry): ViewerKind | undefined {
   if (media) return media.kind;
   if (supportsCodePreview(file)) return "text";
 }
-function formatLabel(kind: ViewerKind) {
-  return {
-    image: "Image",
-    video: "Video",
-    audio: "Audio",
-    pdf: "PDF document",
-    ebook: "Ebook",
-    text: "Text document",
-  }[kind];
+/** Catalog key of the label shown next to the file size in the header. */
+const KIND_LABEL_KEYS = {
+  image: "components.filePreview.kindImage",
+  video: "components.filePreview.kindVideo",
+  audio: "components.filePreview.kindAudio",
+  pdf: "components.filePreview.kindPdf",
+  ebook: "components.filePreview.kindEbook",
+  text: "components.filePreview.kindText",
+} as const;
+
+function formatLabelKey(kind: ViewerKind): MessageKey {
+  return KIND_LABEL_KEYS[kind];
 }
 function formatBytes(value: number) {
   if (!value) return "0 B";

@@ -1,4 +1,5 @@
 import { AlertDialog, Button } from "@heroui/react";
+import { useI18n } from "@/lib/i18n";
 import TrashBinIcon from "~icons/gravity-ui/trash-bin";
 
 interface ConfirmDialogProps {
@@ -17,9 +18,11 @@ export function ConfirmDialog({
   onConfirm,
   title,
   message,
-  confirmLabel = "Delete",
+  confirmLabel,
   isPending = false,
 }: ConfirmDialogProps) {
+  const { t } = useI18n();
+
   return (
     <AlertDialog.Backdrop isOpen={open} onOpenChange={onOpenChange}>
       <AlertDialog.Container>
@@ -36,7 +39,7 @@ export function ConfirmDialog({
           </AlertDialog.Body>
           <AlertDialog.Footer>
             <Button slot="close" variant="tertiary">
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -45,7 +48,7 @@ export function ConfirmDialog({
                 onConfirm();
               }}
             >
-              {confirmLabel}
+              {confirmLabel ?? t("common.action.delete")}
             </Button>
           </AlertDialog.Footer>
         </AlertDialog.Dialog>

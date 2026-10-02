@@ -19,11 +19,36 @@ import {
   openPublication,
   type ReaderPreferences,
 } from "@/features/files/foliate-reader";
+// `translate` resolves against the locale that is active when it is called. The
+// publication loader below uses it because its effect must not re-run on a locale
+// change: reloading the book would lose the reading position.
+import { type MessageKey, t as translate, useI18n } from "@/lib/i18n";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
 import MenuIcon from "~icons/gravity-ui/bars";
 import LeftIcon from "~icons/gravity-ui/chevron-left";
 import RightIcon from "~icons/gravity-ui/chevron-right";
 import CloseIcon from "~icons/gravity-ui/xmark";
+
+/** Theme, font, layout and column choices offered by the reading settings. */
+const THEME_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
+  ["components.epubReader.themeWhite", "white"],
+  ["components.epubReader.themePaper", "paper"],
+  ["components.epubReader.themeGray", "gray"],
+  ["components.epubReader.themeNight", "night"],
+];
+const FONT_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
+  ["components.epubReader.fontOriginal", "publisher"],
+  ["components.epubReader.fontSerif", "serif"],
+  ["components.epubReader.fontSans", "sans"],
+];
+const FLOW_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
+  ["components.epubReader.layoutPages", "paginated"],
+  ["components.epubReader.layoutScroll", "scrolled"],
+];
+const COLUMN_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
+  ["components.epubReader.columnsSingle", "1"],
+  ["components.epubReader.columnsDouble", "2"],
+];
 
 export type EpubReaderProps = {
   file: FileEntry;
@@ -54,6 +79,7 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   onCloseRef.current = onClose;
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const drawerState = useOverlayState();
+  const { t } = useI18n();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [ready, setReady] = useState(false);
@@ -197,7 +223,9 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
     openingRef.current = open().catch((reason: unknown) => {
       if (activeRef.current) {
         setError(
-          reason instanceof Error ? reason.message : "This publication could not be opened.",
+          reason instanceof Error
+            ? reason.message
+            : translate("components.epubReader.openFailedFallback"),
         );
       }
     });
@@ -284,7 +312,7 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Open ebook navigation"
+          aria-label={t("components.epubReader.openNavigation")}
           onPress={toggleNavigation}
         >
           <MenuIcon className="size-5" />
@@ -292,7 +320,9 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
 
         <div className="min-w-0 flex-1 px-1 sm:px-2">
           <p className="truncate text-sm font-semibold tracking-[-0.01em]">{title}</p>
-          <p className="truncate text-[11px] text-(--reader-muted)">{chapter || "EPUB reader"}</p>
+          <p className="truncate text-[11px] text-(--reader-muted)">
+            {chapter || t("components.epubReader.subtitle")}
+          </p>
         </div>
 
         <div className="hidden min-w-28 text-center text-[11px] text-(--reader-muted) md:block">
@@ -322,7 +352,7 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Download ebook"
+          aria-label={t("components.epubReader.download")}
           className="hidden sm:inline-flex"
           onPress={() => startFileDownload(file)}
         >
@@ -332,7 +362,7 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Close ebook reader"
+          aria-label={t("components.epubReader.close")}
           onPress={requestClose}
         >
           <CloseIcon className="size-5" />
@@ -356,15 +386,17 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
           {!ready && !error && !closing ? (
             <div className="absolute inset-0 z-10 grid place-items-center bg-(--reader-canvas)/90">
               <div className="text-center">
-                <Spinner size="lg" aria-label="Loading ebook" />
-                <p className="mt-3 text-xs text-(--reader-muted)">Opening book</p>
+                <Spinner size="lg" aria-label={t("components.epubReader.loading")} />
+                <p className="mt-3 text-xs text-(--reader-muted)">
+                  {t("components.epubReader.opening")}
+                </p>
               </div>
             </div>
           ) : null}
           {error ? (
             <div className="absolute inset-0 z-10 grid place-items-center p-6 text-center">
               <div className="max-w-lg">
-                <p className="font-semibold">Unable to open this ebook</p>
+                <p className="font-semibold">{t("components.epubReader.openFailed")}</p>
                 <p className="mt-2 text-sm text-(--reader-muted)">{error}</p>
               </div>
             </div>
@@ -382,13 +414,13 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
         <Button
           size="sm"
           variant="ghost"
-          aria-label="Previous page"
+          aria-label={t("components.epubReader.previousAria")}
           className="justify-self-start"
           isDisabled={!ready}
           onPress={() => navigate("previous")}
         >
           <LeftIcon className="size-4" />
-          <span className="hidden sm:inline">Previous</span>
+          <span className="hidden sm:inline">{t("components.epubReader.previous")}</span>
         </Button>
         <div className="max-w-[52vw] text-center text-[10px] tabular-nums text-(--reader-muted) sm:text-[11px]">
           <p className="truncate">
@@ -399,12 +431,12 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
         <Button
           size="sm"
           variant="ghost"
-          aria-label="Next page"
+          aria-label={t("components.epubReader.nextAria")}
           className="justify-self-end"
           isDisabled={!ready}
           onPress={() => navigate("next")}
         >
-          <span className="hidden sm:inline">Next</span>
+          <span className="hidden sm:inline">{t("components.epubReader.next")}</span>
           <RightIcon className="size-4" />
         </Button>
       </footer>
@@ -415,7 +447,7 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
             <Drawer.Content placement="left" className="w-[min(88vw,22rem)]">
               <Drawer.Dialog data-reader-theme={theme} className="reader-chrome">
                 <Drawer.Header className="border-b border-(--reader-border)">
-                  <Drawer.Heading>Book navigation</Drawer.Heading>
+                  <Drawer.Heading>{t("components.epubReader.navigation")}</Drawer.Heading>
                   <Drawer.CloseTrigger />
                 </Drawer.Header>
                 <Drawer.Body className="p-0">{navigation}</Drawer.Body>
@@ -439,29 +471,30 @@ function EpubNavigation({
   activeChapter?: string;
   onNavigate: (href: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-(--reader-border) px-5 py-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-(--reader-muted)">
-          Library
+          {t("components.epubReader.library")}
         </p>
         <p className="mt-1 truncate text-sm font-semibold">{file.name}</p>
       </div>
       <Tabs defaultSelectedKey="contents" className="flex min-h-0 flex-1 flex-col px-3 pt-3">
         <Tabs.ListContainer>
-          <Tabs.List aria-label="Ebook navigation" className="w-full">
+          <Tabs.List aria-label={t("components.epubReader.tabsAria")} className="w-full">
             <Tabs.Tab id="contents" className="flex-1">
-              Contents
+              {t("components.epubReader.tabContents")}
             </Tabs.Tab>
             <Tabs.Tab id="details" className="flex-1">
-              Details
+              {t("components.epubReader.tabDetails")}
             </Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>
         <Tabs.Panel id="contents" className="min-h-0 flex-1 overflow-y-auto py-3">
           {toc.length ? (
             <ListBox
-              aria-label="Table of contents"
+              aria-label={t("components.epubReader.tocAria")}
               selectionMode="none"
               className="w-full gap-1 p-0"
               onAction={(key) => {
@@ -486,14 +519,17 @@ function EpubNavigation({
             </ListBox>
           ) : (
             <p className="px-2 py-4 text-xs text-(--reader-muted)">
-              This book has no table of contents.
+              {t("components.epubReader.noToc")}
             </p>
           )}
         </Tabs.Panel>
         <Tabs.Panel id="details" className="space-y-4 overflow-y-auto px-2 py-5 text-sm">
-          <Detail label="Title" value={file.name} />
-          <Detail label="Format" value="EPUB" />
-          <Detail label="File size" value={formatBytes(file.size || 0)} />
+          <Detail label={t("components.epubReader.detailTitle")} value={file.name} />
+          <Detail label={t("components.epubReader.detailFormat")} value="EPUB" />
+          <Detail
+            label={t("components.epubReader.detailFileSize")}
+            value={formatBytes(file.size || 0)}
+          />
         </Tabs.Panel>
       </Tabs>
     </div>
@@ -537,12 +573,13 @@ function EpubSettings({
   onMargin: (value: number) => void;
   onColumns: (value: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Popover isOpen={isOpen} onOpenChange={onOpenChange}>
       <Button
         size="sm"
         variant="ghost"
-        aria-label="Reading settings"
+        aria-label={t("components.epubReader.settingsAria")}
         className="min-w-9 px-2 font-serif text-base"
       >
         Aa
@@ -552,38 +589,31 @@ function EpubSettings({
           <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
             <div>
               <Popover.Heading className="text-sm font-semibold">
-                Reading appearance
+                {t("components.epubReader.appearance")}
               </Popover.Heading>
-              <p className="mt-0.5 text-xs text-muted">Typography and page layout</p>
+              <p className="mt-0.5 text-xs text-muted">
+                {t("components.epubReader.appearanceDescription")}
+              </p>
             </div>
             <Button size="sm" variant="ghost" onPress={() => onOpenChange(false)}>
-              Done
+              {t("common.action.done")}
             </Button>
           </div>
           <div className="max-h-[min(72vh,36rem)] space-y-5 overflow-y-auto p-4">
             <SettingButtons
-              label="Theme"
+              label="components.epubReader.theme"
               value={theme}
-              options={[
-                ["White", "white"],
-                ["Paper", "paper"],
-                ["Gray", "gray"],
-                ["Night", "night"],
-              ]}
+              options={THEME_OPTIONS}
               onChange={onTheme}
             />
             <SettingButtons
-              label="Font"
+              label="components.epubReader.font"
               value={font}
-              options={[
-                ["Original", "publisher"],
-                ["Serif", "serif"],
-                ["Sans", "sans"],
-              ]}
+              options={FONT_OPTIONS}
               onChange={onFont}
             />
             <SettingSlider
-              label="Text size"
+              label="components.epubReader.textSize"
               value={fontSize}
               min={80}
               max={180}
@@ -592,7 +622,7 @@ function EpubSettings({
               onChange={onFontSize}
             />
             <SettingSlider
-              label="Line spacing"
+              label="components.epubReader.lineSpacing"
               value={lineHeight}
               min={1.2}
               max={2}
@@ -601,7 +631,7 @@ function EpubSettings({
               onChange={onLineHeight}
             />
             <SettingSlider
-              label="Page margins"
+              label="components.epubReader.pageMargins"
               value={margin}
               min={16}
               max={96}
@@ -610,21 +640,15 @@ function EpubSettings({
               onChange={onMargin}
             />
             <SettingButtons
-              label="Layout"
+              label="components.epubReader.layout"
               value={flow}
-              options={[
-                ["Pages", "paginated"],
-                ["Scroll", "scrolled"],
-              ]}
+              options={FLOW_OPTIONS}
               onChange={onFlow}
             />
             <SettingButtons
-              label="Columns"
+              label="components.epubReader.columns"
               value={String(columns)}
-              options={[
-                ["Single", "1"],
-                ["Double", "2"],
-              ]}
+              options={COLUMN_OPTIONS}
               onChange={(value) => onColumns(Number(value))}
             />
           </div>
@@ -640,23 +664,24 @@ function SettingButtons({
   options,
   onChange,
 }: {
-  label: string;
+  label: MessageKey;
   value: string;
-  options: Array<[string, string]>;
+  options: ReadonlyArray<readonly [MessageKey, string]>;
   onChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div>
-      <p className="mb-2 text-xs font-medium">{label}</p>
+      <p className="mb-2 text-xs font-medium">{t(label)}</p>
       <div className="grid grid-cols-2 gap-1.5">
-        {options.map(([name, option]) => (
+        {options.map(([labelKey, option]) => (
           <Button
             key={option}
             size="sm"
             variant={value === option ? "primary" : "secondary"}
             onPress={() => onChange(option)}
           >
-            {name}
+            {t(labelKey)}
           </Button>
         ))}
       </div>
@@ -673,7 +698,7 @@ function SettingSlider({
   output,
   onChange,
 }: {
-  label: string;
+  label: MessageKey;
   value: number;
   min: number;
   max: number;
@@ -681,9 +706,10 @@ function SettingSlider({
   output: string;
   onChange: (value: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Slider
-      aria-label={label}
+      aria-label={t(label)}
       value={value}
       minValue={min}
       maxValue={max}
@@ -691,7 +717,7 @@ function SettingSlider({
       onChange={(next) => onChange(Number(next))}
     >
       <div className="mb-2 flex justify-between text-xs">
-        <span>{label}</span>
+        <span>{t(label)}</span>
         <span className="tabular-nums text-muted">{output}</span>
       </div>
       <Slider.Track>
@@ -722,7 +748,10 @@ function flattenToc(
 
 function locationLabel(location: Location, progress: number) {
   if (location.current !== undefined && location.total)
-    return `Page ${location.current + 1} of ${location.total}`;
+    return translate("components.epubReader.pageLocation", {
+      current: location.current + 1,
+      total: location.total,
+    });
   return `${Math.round(progress * 100)}%`;
 }
 

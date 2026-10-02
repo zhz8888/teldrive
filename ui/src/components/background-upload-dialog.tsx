@@ -14,11 +14,15 @@ import PlusIcon from "~icons/gravity-ui/plus";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 import type { components } from "@/api/schema";
 import { fetchClient } from "@/api/client";
+import { type MessageKey, type MessageParams, useI18n } from "@/lib/i18n";
 import { newClientId } from "@/features/shared/client-id";
 import { AppDialog } from "./dialogs/app-dialog";
 
 type ImportSource = components["schemas"]["UploadImportSource"];
 type ImportRequest = components["schemas"]["UploadImportRequest"];
+
+/** Translator shape, so the module-level header parser can receive one. */
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 type SourceDraft = {
   id: string;
@@ -47,6 +51,7 @@ export function BackgroundUploadDialog({
   onOpenChange: (open: boolean) => void;
   currentPath: string;
 }) {
+  const { t } = useI18n();
   const [destination, setDestination] = useState(currentPath);
   const [sources, setSources] = useState<SourceDraft[]>([newSource()]);
   const [exclude, setExclude] = useState("");
@@ -86,31 +91,34 @@ export function BackgroundUploadDialog({
   const queueUpload = async () => {
     try {
       const target = destination.trim();
-      if (!target) throw new Error("Destination is required");
+      if (!target) throw new Error(t("components.backgroundUpload.destinationRequired"));
       if (!target.startsWith("/") && !isUUID(target)) {
-        throw new Error("Destination must be an absolute drive path or folder UUID");
+        throw new Error(t("components.backgroundUpload.destinationInvalid"));
       }
       const bodySources = sources.map<ImportSource>((source, index) => {
         const location = source.location.trim();
-        if (!location) throw new Error(`Source ${index + 1} is empty`);
+        if (!location)
+          throw new Error(t("components.backgroundUpload.sourceEmpty", { index: index + 1 }));
         if (source.type === "local" && !location.startsWith("/")) {
-          throw new Error(`Local source ${index + 1} must use an absolute path`);
+          throw new Error(t("components.backgroundUpload.sourceAbsolute", { index: index + 1 }));
         }
         if (source.type === "http") {
           const url = new URL(location);
           if (url.protocol !== "http:" && url.protocol !== "https:") {
-            throw new Error(`HTTP source ${index + 1} must use http or https`);
+            throw new Error(t("components.backgroundUpload.sourceProtocol", { index: index + 1 }));
           }
         }
         const destinationPath = source.destinationPath.trim();
         if (destinationPath.startsWith("/") || destinationPath.split("/").includes("..")) {
-          throw new Error(`Destination ${index + 1} must be a relative path`);
+          throw new Error(
+            t("components.backgroundUpload.destinationRelative", { index: index + 1 }),
+          );
         }
         const item: ImportSource = {
           type: source.type,
           destinationPath: destinationPath || undefined,
           exclude: lines(source.exclude),
-          headers: parseHeaders(source.headers),
+          headers: parseHeaders(source.headers, t),
         };
         if (source.type === "local") item.path = location;
         else item.url = location;
@@ -119,7 +127,7 @@ export function BackgroundUploadDialog({
       const body: ImportRequest = {
         destination: target,
         sources: bodySources,
-        headers: parseHeaders(headers),
+        headers: parseHeaders(headers, t),
         exclude: lines(exclude),
         minSize: minSize.trim() || undefined,
         maxSize: maxSize.trim() || undefined,
@@ -129,12 +137,14 @@ export function BackgroundUploadDialog({
       };
       setSubmitting(true);
       const { error } = await fetchClient.POST("/v1/uploads/imports", { body });
-      if (error) throw new Error("The server rejected the background upload");
-      toast.success("Background upload queued");
+      if (error) throw new Error(t("components.backgroundUpload.serverRejected"));
+      toast.success(t("components.backgroundUpload.queued"));
       reset();
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to queue background upload");
+      toast.error(
+        error instanceof Error ? error.message : t("components.backgroundUpload.queueFailed"),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -145,27 +155,27 @@ export function BackgroundUploadDialog({
       open={open}
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
       isDismissable={!submitting}
-      title="Background upload"
-      description={`Import server paths and remote URLs into ${currentPath}.`}
+      title={t("components.backgroundUpload.title")}
+      description={t("components.backgroundUpload.description", { path: currentPath })}
       className="min-w-0 sm:w-[min(94vw,46rem)] sm:max-w-none bg-surface"
       bodyClassName="p-0"
       footer={
         <>
           <Button variant="secondary" isDisabled={submitting} onPress={close}>
-            Cancel
+            {t("common.action.cancel")}
           </Button>
           <Button variant="primary" isPending={submitting} onPress={() => void queueUpload()}>
-            Queue upload
+            {t("components.backgroundUpload.queue")}
           </Button>
         </>
       }
     >
       <div className="grid gap-4 p-4 sm:p-5">
         <TextField value={destination} onChange={setDestination} isRequired>
-          <Label>Destination</Label>
-          <Input placeholder="/Movies/Incoming or a folder UUID" />
+          <Label>{t("components.backgroundUpload.destination")}</Label>
+          <Input placeholder={t("components.backgroundUpload.destinationPlaceholder")} />
           <div className="mt-1 text-xs text-muted">
-            Enter an absolute drive path from root or an existing folder UUID.
+            {t("components.backgroundUpload.destinationHint")}
           </div>
         </TextField>
 
@@ -178,17 +188,19 @@ export function BackgroundUploadDialog({
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-                    Source {index + 1}
+                    {t("components.backgroundUpload.source", { index: index + 1 })}
                   </div>
                   <div className="mt-0.5 text-xs text-muted">
-                    {source.type === "local" ? "Read from this server" : "Fetch over HTTP"}
+                    {source.type === "local"
+                      ? t("components.backgroundUpload.sourceLocalHint")
+                      : t("components.backgroundUpload.sourceHttpHint")}
                   </div>
                 </div>
                 <Button
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  aria-label={`Remove source ${index + 1}`}
+                  aria-label={t("components.backgroundUpload.removeSource", { index: index + 1 })}
                   isDisabled={sources.length === 1}
                   onPress={() =>
                     setSources((items) => items.filter((item) => item.id !== source.id))
@@ -206,7 +218,9 @@ export function BackgroundUploadDialog({
                     variant={source.type === type ? "secondary" : "ghost"}
                     onPress={() => patchSource(source.id, { type, location: "" })}
                   >
-                    {type === "local" ? "Local path" : "HTTP URL"}
+                    {type === "local"
+                      ? t("components.backgroundUpload.typeLocal")
+                      : t("components.backgroundUpload.typeHttp")}
                   </Button>
                 ))}
               </div>
@@ -216,7 +230,11 @@ export function BackgroundUploadDialog({
                   value={source.location}
                   onChange={(value) => patchSource(source.id, { location: value })}
                 >
-                  <Label>{source.type === "local" ? "Absolute server path" : "URL"}</Label>
+                  <Label>
+                    {source.type === "local"
+                      ? t("components.backgroundUpload.absolutePath")
+                      : t("components.backgroundUpload.url")}
+                  </Label>
                   <Input
                     placeholder={
                       source.type === "local"
@@ -229,8 +247,10 @@ export function BackgroundUploadDialog({
                   value={source.destinationPath}
                   onChange={(value) => patchSource(source.id, { destinationPath: value })}
                 >
-                  <Label>Destination path</Label>
-                  <Input placeholder="Optional relative path" />
+                  <Label>{t("components.backgroundUpload.destinationPath")}</Label>
+                  <Input
+                    placeholder={t("components.backgroundUpload.destinationPathPlaceholder")}
+                  />
                 </TextField>
               </div>
 
@@ -238,7 +258,7 @@ export function BackgroundUploadDialog({
                 <Accordion.Item id={`source-options-${source.id}`}>
                   <Accordion.Heading>
                     <Accordion.Trigger className="rounded-lg text-xs font-medium text-muted hover:text-foreground">
-                      Source options
+                      {t("components.backgroundUpload.sourceOptions")}
                       <Accordion.Indicator />
                     </Accordion.Trigger>
                   </Accordion.Heading>
@@ -246,7 +266,7 @@ export function BackgroundUploadDialog({
                     <Accordion.Body>
                       <div className="grid gap-3 border-border border-t pt-3 sm:grid-cols-2">
                         <TextField>
-                          <Label>Exclude patterns</Label>
+                          <Label>{t("components.backgroundUpload.excludePatterns")}</Label>
                           <TextArea
                             value={source.exclude}
                             onChange={(event) =>
@@ -257,7 +277,7 @@ export function BackgroundUploadDialog({
                           />
                         </TextField>
                         <TextField isDisabled={source.type !== "http"}>
-                          <Label>HTTP headers</Label>
+                          <Label>{t("components.backgroundUpload.httpHeaders")}</Label>
                           <TextArea
                             value={source.headers}
                             onChange={(event) =>
@@ -277,7 +297,7 @@ export function BackgroundUploadDialog({
         </div>
 
         <Button variant="secondary" onPress={() => setSources((items) => [...items, newSource()])}>
-          <PlusIcon className="size-3.5" /> Add source
+          <PlusIcon className="size-3.5" /> {t("components.backgroundUpload.addSource")}
         </Button>
 
         <Accordion
@@ -288,7 +308,7 @@ export function BackgroundUploadDialog({
           <Accordion.Item id="advanced-settings">
             <Accordion.Heading>
               <Accordion.Trigger className="rounded-xl py-3 text-sm font-semibold">
-                Advanced settings
+                {t("components.backgroundUpload.advancedSettings")}
                 <Accordion.Indicator />
               </Accordion.Trigger>
             </Accordion.Heading>
@@ -297,15 +317,15 @@ export function BackgroundUploadDialog({
                 <div className="grid gap-4 border-border border-t py-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <TextField value={minSize} onChange={setMinSize}>
-                      <Label>Minimum size</Label>
-                      <Input placeholder="For example 10 MiB" />
+                      <Label>{t("components.backgroundUpload.minSize")}</Label>
+                      <Input placeholder={t("components.backgroundUpload.minSizePlaceholder")} />
                     </TextField>
                     <TextField value={maxSize} onChange={setMaxSize}>
-                      <Label>Maximum size</Label>
-                      <Input placeholder="For example 20 GiB" />
+                      <Label>{t("components.backgroundUpload.maxSize")}</Label>
+                      <Input placeholder={t("components.backgroundUpload.maxSizePlaceholder")} />
                     </TextField>
                     <NumberField
-                      aria-label="Chunk size in MiB"
+                      aria-label={t("components.backgroundUpload.chunkSizeAria")}
                       value={chunkSizeMiB}
                       minValue={64}
                       maxValue={2000}
@@ -313,7 +333,7 @@ export function BackgroundUploadDialog({
                         setChunkSizeMiB(Math.max(64, Math.min(2000, value ?? 512)))
                       }
                     >
-                      <Label>Chunk size (MiB)</Label>
+                      <Label>{t("components.backgroundUpload.chunkSize")}</Label>
                       <NumberField.Group>
                         <NumberField.DecrementButton />
                         <NumberField.Input />
@@ -322,7 +342,7 @@ export function BackgroundUploadDialog({
                       </NumberField.Group>
                     </NumberField>
                     <NumberField
-                      aria-label="Concurrent upload parts"
+                      aria-label={t("components.backgroundUpload.concurrentPartsAria")}
                       value={partConcurrency}
                       minValue={1}
                       maxValue={16}
@@ -330,7 +350,7 @@ export function BackgroundUploadDialog({
                         setPartConcurrency(Math.max(1, Math.min(16, value ?? 4)))
                       }
                     >
-                      <Label>Concurrent parts</Label>
+                      <Label>{t("components.backgroundUpload.concurrentParts")}</Label>
                       <NumberField.Group>
                         <NumberField.DecrementButton />
                         <NumberField.Input />
@@ -340,7 +360,7 @@ export function BackgroundUploadDialog({
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <TextField>
-                      <Label>Batch exclusions</Label>
+                      <Label>{t("components.backgroundUpload.batchExclusions")}</Label>
                       <TextArea
                         value={exclude}
                         onChange={(event) => setExclude(event.currentTarget.value)}
@@ -349,7 +369,7 @@ export function BackgroundUploadDialog({
                       />
                     </TextField>
                     <TextField>
-                      <Label>Default HTTP headers</Label>
+                      <Label>{t("components.backgroundUpload.defaultHeaders")}</Label>
                       <TextArea
                         value={headers}
                         onChange={(event) => setHeaders(event.currentTarget.value)}
@@ -363,7 +383,7 @@ export function BackgroundUploadDialog({
                       <Switch.Control>
                         <Switch.Thumb />
                       </Switch.Control>
-                      <Label>Encrypt uploaded files</Label>
+                      <Label>{t("components.backgroundUpload.encrypt")}</Label>
                     </Switch.Content>
                   </Switch>
                 </div>
@@ -384,14 +404,15 @@ function lines(value: string) {
   return result.length ? result : undefined;
 }
 
-function parseHeaders(value: string) {
+function parseHeaders(value: string, t: Translate) {
   const result: Record<string, string> = {};
   for (const line of lines(value) ?? []) {
     const separator = line.indexOf(":");
-    if (separator < 1) throw new Error(`Invalid header: ${line}`);
+    if (separator < 1) throw new Error(t("components.backgroundUpload.invalidHeader", { line }));
     const name = line.slice(0, separator).trim();
     const headerValue = line.slice(separator + 1).trim();
-    if (!name || !headerValue) throw new Error(`Invalid header: ${line}`);
+    if (!name || !headerValue)
+      throw new Error(t("components.backgroundUpload.invalidHeader", { line }));
     result[name] = headerValue;
   }
   return Object.keys(result).length ? result : undefined;

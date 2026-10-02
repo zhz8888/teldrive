@@ -6,10 +6,12 @@ import FolderIcon from "~icons/gravity-ui/folder";
 import SearchIcon from "~icons/gravity-ui/magnifier";
 import { $api } from "@/api/client";
 import type { FileEntry } from "@/api/types";
+import { useI18n } from "@/lib/i18n";
 import { useCommandPalette } from "./command-palette-context";
 
 export function SearchOverlay() {
   const { isOpen, close } = useCommandPalette();
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -87,28 +89,28 @@ export function SearchOverlay() {
       <Button
         type="button"
         variant="ghost"
-        aria-label="Close search"
+        aria-label={t("components.searchOverlay.close")}
         className="absolute inset-0 h-full w-full rounded-none bg-black/60 backdrop-blur-sm"
         onPress={close}
       />
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Search files"
+        aria-label={t("components.searchOverlay.dialogLabel")}
         className="relative z-10 flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
       >
         <div className="flex items-center gap-3 border-b border-border px-4 py-3">
           <SearchIcon className="size-5 shrink-0 text-muted" />
           <Input
             ref={inputRef}
-            aria-label="Search files and folders"
+            aria-label={t("components.searchOverlay.inputLabel")}
             value={query}
             onChange={(event) => {
               setQuery(event.currentTarget.value);
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Search files and folders..."
+            placeholder={t("components.searchOverlay.placeholder")}
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
           />
           {query && (
@@ -118,7 +120,7 @@ export function SearchOverlay() {
               className="h-auto min-w-0 p-0 text-xs text-muted hover:text-foreground"
               onPress={() => setQuery("")}
             >
-              Clear
+              {t("common.action.clear")}
             </Button>
           )}
           <Kbd key="esc" className="text-[10px]">
@@ -128,14 +130,16 @@ export function SearchOverlay() {
         <div className="max-h-[50vh] overflow-y-auto py-2">
           {query.trim().length < 2 ? (
             <div className="px-4 py-8 text-center text-xs text-muted">
-              Type at least 2 characters to search
+              {t("components.searchOverlay.hint")}
             </div>
           ) : isFetching ? (
             <div className="flex items-center justify-center py-8">
               <Spinner size="sm" />
             </div>
           ) : items.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-muted">No results for “{query}”</div>
+            <div className="px-4 py-8 text-center text-xs text-muted">
+              {t("components.searchOverlay.noResults", { query })}
+            </div>
           ) : (
             items.map((item, index) => {
               const Icon = item.kind === "folder" ? FolderIcon : FileIcon;
@@ -153,11 +157,17 @@ export function SearchOverlay() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{item.name}</p>
                     <p className="truncate text-xs text-muted">
-                      {item.kind === "folder" ? "Folder" : item.mimeType || "File"}
+                      {item.kind === "folder"
+                        ? t("components.searchOverlay.kindFolder")
+                        : item.mimeType || t("components.searchOverlay.kindFile")}
                     </p>
                   </div>
                   <Chip size="sm" variant="tertiary" className="shrink-0 capitalize">
-                    {item.kind}
+                    {t(
+                      item.kind === "folder"
+                        ? "components.searchOverlay.kindFolder"
+                        : "components.searchOverlay.kindFile",
+                    )}
                   </Chip>
                 </Button>
               );
