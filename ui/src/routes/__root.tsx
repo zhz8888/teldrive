@@ -40,25 +40,36 @@ import { UploadShelf } from "../components/upload-shelf";
 import { currentUserQueryOptions } from "../auth/queries";
 import { $api } from "../api/client";
 import { isUnauthorized, userMessage } from "../api/errors";
+import { useI18n, type MessageKey } from "../lib/i18n";
 import { getQueryClient } from "../lib/queryClient";
 
 const mainNav = [
-  { label: "Files", icon: GridIcon, path: "/files" },
-  { label: "Shared", icon: FolderIcon, path: "/shared" },
-  { label: "Shared with me", icon: FolderIcon, path: "/shared-with-me" },
-  { label: "Storage", icon: StorageIcon, path: "/storage" },
-  { label: "Tasks", icon: TasksIcon, path: "/tasks", capability: "system.manageJobs" },
-  { label: "Trash", icon: GridIcon, path: "/trash" },
-] as const;
+  { labelKey: "routes.root.nav.files", icon: GridIcon, path: "/files" },
+  { labelKey: "routes.root.nav.shared", icon: FolderIcon, path: "/shared" },
+  { labelKey: "routes.root.nav.sharedWithMe", icon: FolderIcon, path: "/shared-with-me" },
+  { labelKey: "routes.root.nav.storage", icon: StorageIcon, path: "/storage" },
+  {
+    labelKey: "routes.root.nav.tasks",
+    icon: TasksIcon,
+    path: "/tasks",
+    capability: "system.manageJobs",
+  },
+  { labelKey: "routes.root.nav.trash", icon: GridIcon, path: "/trash" },
+] as const satisfies readonly {
+  labelKey: MessageKey;
+  icon: unknown;
+  path: string;
+  capability?: string;
+}[];
 
 const DESKTOP_BREAKPOINT = 1024;
 
-function getPageTitle(pathname: string) {
-  if (pathname.startsWith("/settings")) return "Settings";
+function getPageTitle(pathname: string, t: (key: MessageKey) => string) {
+  if (pathname.startsWith("/settings")) return t("routes.root.title.settings");
   const item = mainNav.find(
     (entry) => pathname === entry.path || pathname.startsWith(`${entry.path}/`),
   );
-  return item?.label ?? "Teldrive";
+  return item ? t(item.labelKey) : t("common.app.name");
 }
 
 function Sidebar({
@@ -71,6 +82,7 @@ function Sidebar({
   onNavigate?: () => void;
 }) {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { data: user } = useQuery(currentUserQueryOptions());
   const logout = $api.useMutation("post", "/v1/auth/cookie/logout");
   const visibleMainNav = mainNav.filter(
@@ -80,12 +92,14 @@ function Sidebar({
   const displayName =
     user?.displayName?.trim() ||
     user?.username?.trim() ||
-    (user ? `User ${user.userId}` : "Account");
+    (user
+      ? t("routes.root.account.userFallback", { id: user.userId })
+      : t("routes.root.account.fallback"));
   const secondaryLabel = user?.username
     ? `@${user.username}`
     : user?.premium
-      ? "Telegram Premium"
-      : "Telegram";
+      ? t("routes.root.account.telegramPremium")
+      : t("routes.root.account.telegram");
   const initials =
     displayName
       .split(/\s+/)
@@ -100,13 +114,13 @@ function Sidebar({
       onNavigate?.();
       await navigate({ to: "/login", search: { redirect: "/files" }, replace: true });
     } catch (error) {
-      toast.error("Unable to log out", { description: userMessage(error) });
+      toast.error(t("routes.root.toast.logoutFailed"), { description: userMessage(error) });
     }
   };
   const renderItem = (item: (typeof mainNav)[number]) => {
     const link = (
       <Link
-        key={item.label}
+        key={item.labelKey}
         to={item.path}
         preload="intent"
         activeOptions={{ exact: true }}
@@ -129,7 +143,7 @@ function Sidebar({
             collapsed && !mobile ? "ml-0 max-w-0 opacity-0" : "ml-3 max-w-52 opacity-100",
           )}
         >
-          {item.label}
+          {t(item.labelKey)}
         </span>
       </Link>
     );
@@ -155,8 +169,10 @@ function Sidebar({
             collapsed && !mobile ? "max-w-0 opacity-0" : "max-w-40 opacity-100",
           )}
         >
-          <p className="text-base font-semibold tracking-tight">Teldrive</p>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-muted">Cloud drive</p>
+          <p className="text-base font-semibold tracking-tight">{t("common.app.name")}</p>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-muted">
+            {t("routes.root.brand.tagline")}
+          </p>
         </div>
       </div>
 
@@ -176,7 +192,7 @@ function Sidebar({
           ) : (
             <Button
               variant="ghost"
-              aria-label={`Open account menu for ${displayName}`}
+              aria-label={t("routes.root.account.openMenu", { name: displayName })}
               className="flex h-14 w-full items-center justify-start gap-3 rounded-xl px-2 text-muted hover:bg-default/30 hover:text-foreground"
             >
               <Avatar className="size-9 shrink-0">
@@ -191,14 +207,14 @@ function Sidebar({
           )}
           <Dropdown.Popover placement="top start" className="min-w-52">
             <Dropdown.Menu
-              aria-label="Account"
+              aria-label={t("routes.root.account.menu")}
               onAction={(key) => {
                 if (key === "logout") void signOut();
               }}
             >
               <Dropdown.Item
                 id="settings"
-                textValue="Settings"
+                textValue={t("routes.root.account.settings")}
                 render={({ ref, ...itemProps }) => {
                   return (
                     // @ts-expect-error HeroUI types render props for a menu item div; this render target is an anchor.
@@ -216,11 +232,19 @@ function Sidebar({
                 }}
               >
                 <SettingsIcon className="size-4" />
-                <Label>Settings</Label>
+                <Label>{t("routes.root.account.settings")}</Label>
               </Dropdown.Item>
-              <Dropdown.Item id="logout" textValue="Log out" isDisabled={logout.isPending}>
+              <Dropdown.Item
+                id="logout"
+                textValue={t("routes.root.account.logout")}
+                isDisabled={logout.isPending}
+              >
                 <LogoutIcon className="size-4" />
-                <Label>{logout.isPending ? "Logging out…" : "Log out"}</Label>
+                <Label>
+                  {logout.isPending
+                    ? t("routes.root.account.loggingOut")
+                    : t("routes.root.account.logout")}
+                </Label>
               </Dropdown.Item>
             </Dropdown.Menu>
           </Dropdown.Popover>
@@ -242,9 +266,10 @@ function TopBar({
   onOpenMobile: () => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const { t } = useI18n();
   const commandPalette = useCommandPalette();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const title = getPageTitle(pathname);
+  const title = getPageTitle(pathname, t);
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-3 backdrop-blur-xl sm:px-5">
@@ -255,7 +280,11 @@ function TopBar({
         className="size-9 rounded-xl"
         onPress={desktop ? onToggleSidebar : onOpenMobile}
         aria-label={
-          desktop ? (collapsed ? "Expand sidebar" : "Collapse sidebar") : "Open navigation"
+          desktop
+            ? collapsed
+              ? t("routes.root.nav.expandSidebar")
+              : t("routes.root.nav.collapseSidebar")
+            : t("routes.root.nav.open")
         }
       >
         {desktop ? (
@@ -280,7 +309,7 @@ function TopBar({
       >
         <span className="flex items-center gap-2">
           <SearchIcon className="size-3.5" />
-          Search files
+          {t("routes.root.search.label")}
         </span>
         <kbd className="rounded-md border border-border bg-default/30 px-1.5 py-0.5 text-[10px]">
           Ctrl K
@@ -291,7 +320,7 @@ function TopBar({
         variant="ghost"
         className="size-9 rounded-xl md:hidden"
         onPress={commandPalette.open}
-        aria-label="Search files"
+        aria-label={t("routes.root.search.label")}
       >
         <SearchIcon className="size-4" />
       </Button>
@@ -300,7 +329,7 @@ function TopBar({
         variant="ghost"
         className="size-9 rounded-xl"
         onPress={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        aria-label="Toggle color theme"
+        aria-label={t("routes.root.theme.toggle")}
       >
         {resolvedTheme === "dark" ? (
           <SunIcon className="size-4" />
@@ -314,6 +343,7 @@ function TopBar({
 
 function Layout() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const pathname = useLocation({ select: (location) => location.pathname });
   const [collapsed, setCollapsed] = useState(false);
   const [desktop, setDesktop] = useState(() =>
@@ -353,12 +383,12 @@ function Layout() {
             className="fixed inset-0 z-50 flex"
             role="dialog"
             aria-modal="true"
-            aria-label="Navigation"
+            aria-label={t("routes.root.nav.dialog")}
           >
             <Button
               type="button"
               variant="ghost"
-              aria-label="Close navigation"
+              aria-label={t("routes.root.nav.close")}
               className="absolute inset-0 h-full w-full rounded-none bg-black/55 backdrop-blur-sm"
               onPress={() => setMobileOpen(false)}
             />
@@ -369,7 +399,7 @@ function Layout() {
                 variant="ghost"
                 className="absolute right-3 top-3 size-9 rounded-xl"
                 onPress={() => setMobileOpen(false)}
-                aria-label="Close navigation"
+                aria-label={t("routes.root.nav.close")}
               >
                 <CloseIcon className="size-4" />
               </Button>

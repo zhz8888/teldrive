@@ -7,32 +7,34 @@ import { queryClient } from "@/api/query-client";
 import type { components } from "@/api/schema";
 import { LinkButton } from "@/components/link-button";
 import { Page, PageHeader } from "@/components/page";
+import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
 
 type StorageActivity = components["schemas"]["StorageActivity"];
 type StorageGrowthPoint = components["schemas"]["StorageGrowthPoint"];
+type Translate = (key: MessageKey, params?: MessageParams) => string;
 
-const CATEGORY_LABELS: Record<string, string> = {
-  archive: "Archives",
-  audio: "Audio",
-  document: "Documents",
-  image: "Images",
-  video: "Video",
-  other: "Other",
+const CATEGORY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
+  archive: "routes.storage.category.archive",
+  audio: "routes.storage.category.audio",
+  document: "routes.storage.category.document",
+  image: "routes.storage.category.image",
+  video: "routes.storage.category.video",
+  other: "routes.storage.category.other",
 };
 
-const ACTIVITY_LABELS: Record<string, string> = {
-  "file.created": "File added",
-  "file.trashed": "File moved to Trash",
-  "file.restored": "File restored",
-  "file.purged": "File permanently deleted",
-  "upload.completed": "Upload completed",
-  "upload.aborted": "Upload aborted",
-  "upload.expired": "Upload expired",
-  "share.created": "Share created",
-  "share.deleted": "Share removed",
-  "channel.created": "Storage channel added",
-  "channel.updated": "Storage channel updated",
-  "channel.deleted": "Storage channel removed",
+const ACTIVITY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
+  "file.created": "routes.storage.activityType.fileCreated",
+  "file.trashed": "routes.storage.activityType.fileTrashed",
+  "file.restored": "routes.storage.activityType.fileRestored",
+  "file.purged": "routes.storage.activityType.filePurged",
+  "upload.completed": "routes.storage.activityType.uploadCompleted",
+  "upload.aborted": "routes.storage.activityType.uploadAborted",
+  "upload.expired": "routes.storage.activityType.uploadExpired",
+  "share.created": "routes.storage.activityType.shareCreated",
+  "share.deleted": "routes.storage.activityType.shareDeleted",
+  "channel.created": "routes.storage.activityType.channelCreated",
+  "channel.updated": "routes.storage.activityType.channelUpdated",
+  "channel.deleted": "routes.storage.activityType.channelDeleted",
 };
 
 export const Route = createFileRoute("/storage")({
@@ -46,6 +48,7 @@ export const Route = createFileRoute("/storage")({
 });
 
 function StoragePage() {
+  const { t } = useI18n();
   const { data } = $api.useSuspenseQuery("get", "/v1/storage/stats");
   const summary = data.summary;
   const configuredChannels = data.channels.length;
@@ -54,36 +57,39 @@ function StoragePage() {
 
   return (
     <Page>
-      <PageHeader
-        title="Storage"
-        description="Telegram-backed storage usage, growth, distribution, cleanup, and recent activity."
-      />
+      <PageHeader title={t("routes.storage.title")} description={t("routes.storage.description")} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Total stored"
+          label={t("routes.storage.stat.totalStored")}
           value={formatBytes(summary.logicalBytes)}
-          detail={`${formatBytes(data.growth.at(-1)?.addedBytes ?? 0)} added today`}
+          detail={t("routes.storage.stat.addedToday", {
+            size: formatBytes(data.growth.at(-1)?.addedBytes ?? 0),
+          })}
         />
         <StatCard
-          label="Active files"
+          label={t("routes.storage.stat.activeFiles")}
           value={summary.activeFiles.toLocaleString()}
-          detail={`${summary.activeFolders.toLocaleString()} folders`}
+          detail={t("routes.storage.stat.folders", {
+            count: summary.activeFolders.toLocaleString(),
+          })}
         />
         <StatCard
-          label="Trash"
+          label={t("routes.storage.stat.trash")}
           value={formatBytes(summary.trashBytes)}
-          detail={`${summary.trashedFiles.toLocaleString()} files`}
+          detail={t("routes.storage.stat.files", { count: summary.trashedFiles.toLocaleString() })}
         />
         <StatCard
-          label="Channels"
+          label={t("routes.storage.stat.channels")}
           value={configuredChannels.toLocaleString()}
-          detail={`${selectedChannels.toLocaleString()} selected`}
+          detail={t("routes.storage.stat.selected", { count: selectedChannels.toLocaleString() })}
         />
         <StatCard
-          label="Reclaimable"
+          label={t("routes.storage.stat.reclaimable")}
           value={formatBytes(data.cleanup.totalReclaimableBytes)}
-          detail={`${data.cleanup.staleUploads.toLocaleString()} stale uploads`}
+          detail={t("routes.storage.stat.staleUploads", {
+            count: data.cleanup.staleUploads.toLocaleString(),
+          })}
         />
       </div>
 
@@ -91,13 +97,13 @@ function StoragePage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <Typography type="h2" className="text-base font-semibold">
-              Storage growth
+              {t("routes.storage.growth.title")}
             </Typography>
             <Typography.Paragraph className="text-sm text-muted">
-              Logical bytes stored over the last 30 days.
+              {t("routes.storage.growth.description")}
             </Typography.Paragraph>
           </div>
-          <Chip variant="tertiary">30 days</Chip>
+          <Chip variant="tertiary">{t("routes.storage.growth.range")}</Chip>
         </div>
         <StorageGrowthChart points={data.growth} />
       </Card>
@@ -106,32 +112,42 @@ function StoragePage() {
         <Card className="gap-5 p-5">
           <div>
             <Typography type="h2" className="text-base font-semibold">
-              Storage composition
+              {t("routes.storage.composition.title")}
             </Typography>
             <Typography.Paragraph className="text-sm text-muted">
-              Active file bytes grouped by content category.
+              {t("routes.storage.composition.description")}
             </Typography.Paragraph>
           </div>
           <div className="grid gap-4">
             {data.categories.map((category) => {
               const percent =
                 summary.logicalBytes > 0 ? (category.totalSize / summary.logicalBytes) * 100 : 0;
+              const categoryKey = CATEGORY_LABEL_KEYS[category.category];
               return (
                 <div key={category.category} className="grid gap-2">
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">
-                      {CATEGORY_LABELS[category.category] ?? category.category}
+                      {categoryKey ? t(categoryKey) : category.category}
                     </span>
                     <span className="text-muted">
-                      {formatBytes(category.totalSize)} · {category.totalFiles.toLocaleString()}{" "}
-                      files
+                      {t("routes.storage.composition.row", {
+                        size: formatBytes(category.totalSize),
+                        count: category.totalFiles.toLocaleString(),
+                      })}
                     </span>
                   </div>
-                  <ProgressTrack value={percent} label={`${category.category} storage`} />
+                  <ProgressTrack
+                    value={percent}
+                    label={t("routes.storage.composition.progress", {
+                      category: category.category,
+                    })}
+                  />
                 </div>
               );
             })}
-            {data.categories.length === 0 && <EmptyCopy>No active files are stored yet.</EmptyCopy>}
+            {data.categories.length === 0 && (
+              <EmptyCopy>{t("routes.storage.composition.empty")}</EmptyCopy>
+            )}
           </div>
         </Card>
 
@@ -139,14 +155,14 @@ function StoragePage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <Typography type="h2" className="text-base font-semibold">
-                Telegram channel distribution
+                {t("routes.storage.channels.title")}
               </Typography>
               <Typography.Paragraph className="text-sm text-muted">
-                Stored Telegram parts across configured channels.
+                {t("routes.storage.channels.description")}
               </Typography.Paragraph>
             </div>
             <LinkButton to="/settings/channels" size="sm" variant="tertiary">
-              Manage channels
+              {t("routes.storage.channels.manage")}
             </LinkButton>
           </div>
           <div className="divide-y divide-border rounded-xl border border-border">
@@ -162,21 +178,27 @@ function StoragePage() {
                         <span className="truncate text-sm font-semibold">{channel.name}</span>
                         {channel.selected && (
                           <Chip size="sm" variant="tertiary">
-                            Selected
+                            {t("routes.storage.channels.selected")}
                           </Chip>
                         )}
                       </div>
                       <div className="mt-1 text-xs text-muted">
-                        {channel.partCount.toLocaleString()} parts · {percent.toFixed(1)}%
+                        {t("routes.storage.channels.parts", {
+                          parts: channel.partCount.toLocaleString(),
+                          percent: percent.toFixed(1),
+                        })}
                       </div>
                     </div>
                   </div>
-                  <ProgressTrack value={percent} label={`${channel.name} storage distribution`} />
+                  <ProgressTrack
+                    value={percent}
+                    label={t("routes.storage.channels.progress", { name: channel.name })}
+                  />
                 </div>
               );
             })}
             {data.channels.length === 0 && (
-              <EmptyCopy>No storage channels are configured.</EmptyCopy>
+              <EmptyCopy>{t("routes.storage.channels.empty")}</EmptyCopy>
             )}
           </div>
         </Card>
@@ -187,33 +209,36 @@ function StoragePage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <Typography type="h2" className="text-base font-semibold">
-                Cleanup opportunities
+                {t("routes.storage.cleanup.title")}
               </Typography>
               <Typography.Paragraph className="text-sm text-muted">
-                Storage that can be reviewed for permanent cleanup.
+                {t("routes.storage.cleanup.description")}
               </Typography.Paragraph>
             </div>
             <CleanupIcon className="size-5 text-muted" />
           </div>
           <div className="divide-y divide-border rounded-xl border border-border">
-            <MetricRow label="Trash" value={formatBytes(data.cleanup.trashBytes)} />
             <MetricRow
-              label="Stale multipart uploads"
-              value={formatBytes(data.cleanup.staleUploadBytes)}
-              detail={`${data.cleanup.staleUploads.toLocaleString()} sessions`}
+              label={t("routes.storage.cleanup.trash")}
+              value={formatBytes(data.cleanup.trashBytes)}
             />
             <MetricRow
-              label="Total reclaimable"
+              label={t("routes.storage.cleanup.staleUploads")}
+              value={formatBytes(data.cleanup.staleUploadBytes)}
+              detail={t("routes.storage.cleanup.sessions", {
+                count: data.cleanup.staleUploads.toLocaleString(),
+              })}
+            />
+            <MetricRow
+              label={t("routes.storage.cleanup.totalReclaimable")}
               value={formatBytes(data.cleanup.totalReclaimableBytes)}
               strong
             />
           </div>
           <div className="flex items-center justify-between gap-4">
-            <p className="text-xs text-muted">
-              Nothing is deleted automatically from this dashboard.
-            </p>
+            <p className="text-xs text-muted">{t("routes.storage.cleanup.note")}</p>
             <LinkButton to="/trash" size="sm" variant="primary">
-              Review cleanup
+              {t("routes.storage.cleanup.review")}
             </LinkButton>
           </div>
         </Card>
@@ -221,17 +246,19 @@ function StoragePage() {
         <Card className="gap-5 p-5">
           <div>
             <Typography type="h2" className="text-base font-semibold">
-              Recent storage activity
+              {t("routes.storage.activity.title")}
             </Typography>
             <Typography.Paragraph className="text-sm text-muted">
-              Durable file, upload, share, and channel events.
+              {t("routes.storage.activity.description")}
             </Typography.Paragraph>
           </div>
           <div className="divide-y divide-border rounded-xl border border-border">
             {data.activity.map((activity) => (
               <ActivityRow key={activity.id} activity={activity} />
             ))}
-            {data.activity.length === 0 && <EmptyCopy>No recent storage activity.</EmptyCopy>}
+            {data.activity.length === 0 && (
+              <EmptyCopy>{t("routes.storage.activity.empty")}</EmptyCopy>
+            )}
           </div>
         </Card>
       </div>
@@ -292,21 +319,24 @@ function MetricRow({
 }
 
 function ActivityRow({ activity }: { activity: StorageActivity }) {
+  const { t } = useI18n();
+  const labelKey = ACTIVITY_LABEL_KEYS[activity.type];
   return (
     <div className="flex items-start justify-between gap-4 px-4 py-3">
       <div className="min-w-0">
-        <div className="text-sm font-medium">{ACTIVITY_LABELS[activity.type] ?? activity.type}</div>
+        <div className="text-sm font-medium">{labelKey ? t(labelKey) : activity.type}</div>
         <div className="truncate text-xs text-muted">{activity.label}</div>
       </div>
       <time className="shrink-0 text-xs text-muted" dateTime={activity.occurredAt}>
-        {formatRelative(activity.occurredAt)}
+        {formatRelative(activity.occurredAt, t)}
       </time>
     </div>
   );
 }
 
 function StorageGrowthChart({ points }: { points: StorageGrowthPoint[] }) {
-  if (points.length === 0) return <EmptyCopy>No storage history is available.</EmptyCopy>;
+  const { t } = useI18n();
+  if (points.length === 0) return <EmptyCopy>{t("routes.storage.growth.empty")}</EmptyCopy>;
   const width = 960;
   const height = 220;
   const padding = 18;
@@ -329,10 +359,10 @@ function StorageGrowthChart({ points }: { points: StorageGrowthPoint[] }) {
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="img"
-          aria-label="Logical storage growth over 30 days"
+          aria-label={t("routes.storage.growth.chartLabel")}
           className="h-56 w-full"
         >
-          <title>Logical storage growth over 30 days</title>
+          <title>{t("routes.storage.growth.chartLabel")}</title>
           {[0.25, 0.5, 0.75].map((ratio) => (
             <line
               key={ratio}
@@ -383,13 +413,15 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 100 || power === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[power]}`;
 }
 
-function formatRelative(value: string) {
+function formatRelative(value: string, t: Translate) {
   const delta = Math.max(0, Date.now() - new Date(value).getTime());
   const minutes = Math.floor(delta / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t("routes.storage.relative.justNow");
+  if (minutes < 60) return t("routes.storage.relative.minutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("routes.storage.relative.hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d ago` : new Date(value).toLocaleDateString();
+  return days < 7
+    ? t("routes.storage.relative.daysAgo", { count: days })
+    : new Date(value).toLocaleDateString();
 }

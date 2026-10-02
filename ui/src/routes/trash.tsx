@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/dialogs/confirm-dialog";
 import { EmptyState, Page, PageContent, PageHeader } from "@/components/page";
 import { useFileActions } from "@/features/files/mutations";
 import { useFilePage } from "@/features/files/queries";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export const Route = createFileRoute("/trash")({
   component: TrashPage,
@@ -23,7 +24,13 @@ export const Route = createFileRoute("/trash")({
   ),
 });
 
+const KIND_LABEL_KEYS: Record<string, MessageKey | undefined> = {
+  file: "routes.trash.kind.file",
+  folder: "routes.trash.kind.folder",
+};
+
 function TrashPage() {
+  const { t } = useI18n();
   const query = useFilePage(
     {
       path: "/",
@@ -40,35 +47,35 @@ function TrashPage() {
   const restore = async (file: FileEntry) => {
     try {
       await actions.restore(file.id);
-      toast.success(`${file.name} restored`);
+      toast.success(t("routes.trash.toast.restored", { name: file.name }));
     } catch (error) {
-      toast.error("File could not be restored", { description: userMessage(error) });
+      toast.error(t("routes.trash.toast.restoreFailed"), { description: userMessage(error) });
     }
   };
 
   const purge = async (file: FileEntry) => {
     try {
       await actions.purge(file.id);
-      toast.success(`${file.name} permanently deleted`);
+      toast.success(t("routes.trash.toast.purged", { name: file.name }));
     } catch (error) {
-      toast.error("File could not be permanently deleted", { description: userMessage(error) });
+      toast.error(t("routes.trash.toast.purgeFailed"), { description: userMessage(error) });
     }
   };
 
   const cleanTrash = async () => {
     try {
       await actions.cleanTrash();
-      toast.success("Trash cleaned");
+      toast.success(t("routes.trash.toast.cleaned"));
     } catch (error) {
-      toast.error("Trash could not be cleaned", { description: userMessage(error) });
+      toast.error(t("routes.trash.toast.cleanFailed"), { description: userMessage(error) });
     }
   };
 
   return (
     <Page>
       <PageHeader
-        title="Trash"
-        description="Restore deleted items or permanently remove them from Teldrive."
+        title={t("routes.trash.title")}
+        description={t("routes.trash.description")}
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -77,7 +84,7 @@ function TrashPage() {
               isDisabled={query.data.items.length === 0 || actions.pending}
               onPress={() => setCleaningTrash(true)}
             >
-              <TrashIcon className="size-4" /> Clean trash
+              <TrashIcon className="size-4" /> {t("routes.trash.action.clean")}
             </Button>
             <Button
               size="sm"
@@ -85,7 +92,7 @@ function TrashPage() {
               isDisabled={actions.pending}
               onPress={() => void query.refetch()}
             >
-              <RefreshIcon className="size-4" /> Refresh
+              <RefreshIcon className="size-4" /> {t("common.action.refresh")}
             </Button>
           </div>
         }
@@ -93,13 +100,14 @@ function TrashPage() {
       <PageContent>
         {query.data.items.length === 0 ? (
           <EmptyState
-            title="Trash is empty"
-            description="Deleted files and folders will appear here."
+            title={t("routes.trash.empty.title")}
+            description={t("routes.trash.empty.description")}
           />
         ) : (
           <Card className="gap-0 overflow-hidden border border-border bg-surface/80 shadow-sm">
             {query.data.items.map((file) => {
               const Icon = file.kind === "folder" ? FolderIcon : FileIcon;
+              const kindKey = KIND_LABEL_KEYS[file.kind];
               return (
                 <div
                   key={file.id}
@@ -112,12 +120,14 @@ function TrashPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{file.name}</p>
                       <p className="mt-0.5 text-xs text-muted">
-                        Deleted {new Date(file.updatedAt).toLocaleString()}
+                        {t("routes.trash.deletedAt", {
+                          date: new Date(file.updatedAt).toLocaleString(),
+                        })}
                       </p>
                     </div>
                   </div>
                   <Chip size="sm" variant="tertiary" className="w-fit capitalize">
-                    {file.kind}
+                    {kindKey ? t(kindKey) : file.kind}
                   </Chip>
                   <div className="flex justify-end gap-2">
                     <Button
@@ -126,7 +136,7 @@ function TrashPage() {
                       isDisabled={actions.pending}
                       onPress={() => void restore(file)}
                     >
-                      <RestoreIcon className="size-4" /> Restore
+                      <RestoreIcon className="size-4" /> {t("routes.trash.action.restore")}
                     </Button>
                     <Button
                       size="sm"
@@ -134,7 +144,7 @@ function TrashPage() {
                       isDisabled={actions.pending}
                       onPress={() => setPurging(file)}
                     >
-                      <TrashIcon className="size-4" /> Delete forever
+                      <TrashIcon className="size-4" /> {t("routes.trash.action.deleteForever")}
                     </Button>
                   </div>
                 </div>
@@ -149,9 +159,9 @@ function TrashPage() {
         onOpenChange={(open) => {
           if (!open) setPurging(undefined);
         }}
-        title="Permanently delete this item?"
-        message="This removes the file record and schedules its Telegram data for physical cleanup. This action cannot be undone."
-        confirmLabel="Delete forever"
+        title={t("routes.trash.confirm.purge.title")}
+        message={t("routes.trash.confirm.purge.message")}
+        confirmLabel={t("routes.trash.action.deleteForever")}
         isPending={actions.pending}
         onConfirm={() => {
           if (!purging) return;
@@ -162,9 +172,9 @@ function TrashPage() {
       <ConfirmDialog
         open={cleaningTrash}
         onOpenChange={setCleaningTrash}
-        title="Clean all trash?"
-        message="This permanently deletes every item in trash and schedules its Telegram data for physical cleanup. This action cannot be undone."
-        confirmLabel="Clean trash"
+        title={t("routes.trash.confirm.clean.title")}
+        message={t("routes.trash.confirm.clean.message")}
+        confirmLabel={t("routes.trash.action.clean")}
         isPending={actions.pending}
         onConfirm={() => {
           void cleanTrash().finally(() => setCleaningTrash(false));

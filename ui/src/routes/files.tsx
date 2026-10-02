@@ -28,6 +28,7 @@ import { BackgroundUploadDialog } from "../components/background-upload-dialog";
 import { FilePreviewDialog, isPreviewable } from "../components/file-preview-dialog";
 import { Page, PageContent } from "../components/page";
 import { FileBrowser } from "../features/files/file-browser";
+import { useI18n } from "../lib/i18n";
 
 import { useFileClipboardStore } from "../features/files/clipboard-store";
 import { ShareDialog } from "../features/files/share-dialog";
@@ -85,6 +86,7 @@ export const Route = createFileRoute("/files")({
 function FilesPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const { t } = useI18n();
   const { data: currentUser } = useQuery(currentUserQueryOptions());
   const canLocalImport = Boolean(currentUser?.capabilities.includes("system.localImport"));
 
@@ -268,9 +270,9 @@ function FilesPage() {
       await fileActions.createFolder(name, activeLocation.parentId);
       setFolderName("");
       setFolderDialogOpen(false);
-      toast.success("Folder created");
+      toast.success(t("routes.files.toast.folderCreated"));
     } catch (error) {
-      toast.error("Folder could not be created", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.folderCreateFailed"), { description: userMessage(error) });
     }
   };
 
@@ -279,9 +281,9 @@ function FilesPage() {
     try {
       await fileActions.bulkTrash(ids);
       setPaneSelectedKeys(pane, new Set());
-      toast.success(`${ids.length} item${ids.length === 1 ? "" : "s"} moved to trash`);
+      toast.success(t("routes.files.toast.trashed", { count: ids.length }));
     } catch (error) {
-      toast.error("Items could not be moved to trash", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.trashFailed"), { description: userMessage(error) });
     }
   };
 
@@ -300,9 +302,9 @@ function FilesPage() {
       setRenameFile(undefined);
       setRenameName("");
       setPaneSelectedKeys(activePane, new Set());
-      toast.success("Item renamed");
+      toast.success(t("routes.files.toast.renamed"));
     } catch (error) {
-      toast.error("Item could not be renamed", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.renameFailed"), { description: userMessage(error) });
     }
   };
 
@@ -310,9 +312,9 @@ function FilesPage() {
     try {
       await fileActions.copy(file, paneLocation(pane).parentId, `${file.name} copy`, "rename");
       setPaneSelectedKeys(pane, new Set());
-      toast.success("Item duplicated");
+      toast.success(t("routes.files.toast.duplicated"));
     } catch (error) {
-      toast.error("Item could not be duplicated", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.duplicateFailed"), { description: userMessage(error) });
     }
   };
 
@@ -331,11 +333,9 @@ function FilesPage() {
       }
       setMoveDialogOpen(false);
       setPaneSelectedKeys(activePane, new Set());
-      toast.success(
-        `${activeSelectedFiles.length} item${activeSelectedFiles.length === 1 ? "" : "s"} moved`,
-      );
+      toast.success(t("routes.files.toast.moved", { count: activeSelectedFiles.length }));
     } catch (error) {
-      toast.error("Selected items could not be moved", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.moveFailed"), { description: userMessage(error) });
     }
   };
 
@@ -354,7 +354,7 @@ function FilesPage() {
     if (!clipboardMode || clipboardItems.length === 0) return;
     const location = paneLocation(pane);
     if (clipboardMode === "cut" && clipboardSourceParentId === location.parentId) {
-      toast.info("Items are already in this folder");
+      toast.info(t("routes.files.toast.alreadyInFolder"));
       return;
     }
     try {
@@ -370,18 +370,21 @@ function FilesPage() {
         );
       }
       const count = clipboardItems.length;
-      const action = clipboardMode === "copy" ? "copied" : "moved";
       setPasteConflictPane(undefined);
       if (clipboardMode === "cut") clearClipboard();
       setPaneSelectedKeys(pane, new Set());
-      toast.success(`${count} item${count === 1 ? "" : "s"} ${action}`);
+      toast.success(
+        t(clipboardMode === "copy" ? "routes.files.toast.copied" : "routes.files.toast.moved", {
+          count,
+        }),
+      );
     } catch (error) {
       const normalized = normalizeApiError(error);
       if (clipboardMode === "cut" && cutConflictPolicy === "fail" && normalized.status === 409) {
         setPasteConflictPane(pane);
         return;
       }
-      toast.error("Clipboard items could not be pasted", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.pasteFailed"), { description: userMessage(error) });
     }
   };
 
@@ -481,11 +484,9 @@ function FilesPage() {
     const selectedFiles = paneSelectedFiles(pane);
     try {
       await copyText(selectedFiles.map(absoluteFileDownloadUrl).join("\n"));
-      toast.success(
-        `${selectedFiles.length} download link${selectedFiles.length === 1 ? "" : "s"} copied`,
-      );
+      toast.success(t("routes.files.toast.linksCopied", { count: selectedFiles.length }));
     } catch (error) {
-      toast.error("Download links could not be copied", { description: userMessage(error) });
+      toast.error(t("routes.files.toast.linksCopyFailed"), { description: userMessage(error) });
     }
   };
 
@@ -502,7 +503,7 @@ function FilesPage() {
             isIconOnly
             size="sm"
             variant="secondary"
-            aria-label="Open split view"
+            aria-label={t("routes.files.action.openSplit")}
             onPress={openSplitView}
           >
             <SplitIcon className="size-4" />
@@ -512,7 +513,7 @@ function FilesPage() {
             isIconOnly
             size="sm"
             variant="ghost"
-            aria-label="Close split view"
+            aria-label={t("routes.files.action.closeSplit")}
             onPress={closeSplitView}
           >
             <SplitIcon className="size-4" />
@@ -522,7 +523,7 @@ function FilesPage() {
           isIconOnly
           size="sm"
           variant="secondary"
-          aria-label="New folder"
+          aria-label={t("routes.files.action.newFolder")}
           onPress={() => {
             setActivePane(pane);
             setFolderDialogOpen(true);
@@ -531,12 +532,12 @@ function FilesPage() {
           <PlusIcon className="size-4" />
         </Button>
         <Dropdown>
-          <Button isIconOnly size="sm" variant="primary" aria-label="Upload">
+          <Button isIconOnly size="sm" variant="primary" aria-label={t("common.action.upload")}>
             <UploadIcon className="size-4" />
           </Button>
           <Dropdown.Popover className="min-w-52">
             <Dropdown.Menu
-              aria-label="Upload"
+              aria-label={t("common.action.upload")}
               onAction={(key) => {
                 setActivePane(pane);
                 if (key === "files") uploadFilesTriggerRef.current?.click();
@@ -544,18 +545,18 @@ function FilesPage() {
                 if (key === "background") setBackgroundUploadOpen(true);
               }}
             >
-              <Dropdown.Item id="files" textValue="Upload files">
+              <Dropdown.Item id="files" textValue={t("routes.files.upload.files")}>
                 <FileIcon className="size-4" />
-                <Label>Upload files</Label>
+                <Label>{t("routes.files.upload.files")}</Label>
               </Dropdown.Item>
-              <Dropdown.Item id="folder" textValue="Upload folder">
+              <Dropdown.Item id="folder" textValue={t("routes.files.upload.folder")}>
                 <FolderIcon className="size-4" />
-                <Label>Upload folder</Label>
+                <Label>{t("routes.files.upload.folder")}</Label>
               </Dropdown.Item>
               {canLocalImport ? (
-                <Dropdown.Item id="background" textValue="Background upload">
+                <Dropdown.Item id="background" textValue={t("routes.files.upload.background")}>
                   <UploadIcon className="size-4" />
-                  <Label>Background upload</Label>
+                  <Label>{t("routes.files.upload.background")}</Label>
                 </Dropdown.Item>
               ) : null}
             </Dropdown.Menu>
@@ -568,7 +569,7 @@ function FilesPage() {
               if (list?.length) enqueue(Array.from(list), location.parentId, location.path);
             }}
           >
-            <Button ref={uploadFilesTriggerRef}>Choose upload files</Button>
+            <Button ref={uploadFilesTriggerRef}>{t("routes.files.upload.chooseFiles")}</Button>
           </FileTrigger>
           <FileTrigger
             acceptDirectory
@@ -577,7 +578,7 @@ function FilesPage() {
               if (list?.length) enqueue(Array.from(list), location.parentId, location.path);
             }}
           >
-            <Button ref={uploadFolderTriggerRef}>Choose upload folder</Button>
+            <Button ref={uploadFolderTriggerRef}>{t("routes.files.upload.chooseFolder")}</Button>
           </FileTrigger>
         </span>
       </>
@@ -605,13 +606,18 @@ function FilesPage() {
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
           <div className="pointer-events-auto flex max-w-full items-center gap-1.5 rounded-full border border-border bg-surface/95 p-1.5 shadow-xl backdrop-blur">
             <span className="shrink-0 rounded-full bg-default/40 px-3 py-2 text-sm font-medium text-foreground">
-              {clipboardItems.length} {clipboardMode === "cut" ? "cut" : "copied"}
+              {t(
+                clipboardMode === "cut"
+                  ? "routes.files.clipboard.cut"
+                  : "routes.files.clipboard.copied",
+                { count: clipboardItems.length },
+              )}
             </span>
             <Button
               isIconOnly
               size="sm"
               variant="ghost"
-              aria-label={`Paste ${clipboardItems.length} clipboard item${clipboardItems.length === 1 ? "" : "s"}`}
+              aria-label={t("routes.files.clipboard.paste", { count: clipboardItems.length })}
               isDisabled={fileActions.pending || !canPasteHere}
               onPress={() => void pasteClipboard(pane)}
             >
@@ -621,7 +627,11 @@ function FilesPage() {
               isIconOnly
               size="sm"
               variant="ghost"
-              aria-label={clipboardMode === "cut" ? "Cancel cut" : "Clear copied items"}
+              aria-label={
+                clipboardMode === "cut"
+                  ? t("routes.files.clipboard.cancelCut")
+                  : t("routes.files.clipboard.clearCopied")
+              }
               onPress={clearClipboard}
             >
               <CloseIcon className="size-4" />
@@ -636,7 +646,7 @@ function FilesPage() {
         <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-border bg-surface/95 p-1.5 shadow-xl backdrop-blur">
           {selectedCount > 0 ? (
             <span className="shrink-0 rounded-full bg-accent/10 px-3 py-2 text-sm font-medium text-accent">
-              {selectedCount} selected
+              {t("routes.files.selected", { count: selectedCount })}
             </span>
           ) : null}
           {selectedCount > 0 ? (
@@ -645,7 +655,7 @@ function FilesPage() {
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Cut selected items"
+                aria-label={t("routes.files.action.cut")}
                 isDisabled={fileActions.pending}
                 onPress={() => stageClipboard("cut", pane)}
               >
@@ -655,7 +665,7 @@ function FilesPage() {
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Copy selected items"
+                aria-label={t("routes.files.action.copy")}
                 isDisabled={fileActions.pending}
                 onPress={() => stageClipboard("copy", pane)}
               >
@@ -669,7 +679,7 @@ function FilesPage() {
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Rename selected item"
+                aria-label={t("routes.files.action.rename")}
                 isDisabled={fileActions.pending}
                 onPress={() => {
                   setActivePane(pane);
@@ -683,7 +693,7 @@ function FilesPage() {
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Duplicate selected item"
+                aria-label={t("routes.files.action.duplicate")}
                 isDisabled={fileActions.pending}
                 onPress={() => void duplicateSelected(pane)}
               >
@@ -693,7 +703,7 @@ function FilesPage() {
                 isIconOnly
                 size="sm"
                 variant="ghost"
-                aria-label="Share selected item"
+                aria-label={t("routes.files.action.share")}
                 onPress={() => {
                   setActivePane(pane);
                   setShareFile(singleSelectedFile);
@@ -706,7 +716,7 @@ function FilesPage() {
                   isIconOnly
                   size="sm"
                   variant="ghost"
-                  aria-label="Download selected file"
+                  aria-label={t("routes.files.action.download")}
                   onPress={() => startFileDownload(singleSelectedFile)}
                 >
                   <DownloadIcon className="size-4" />
@@ -721,8 +731,8 @@ function FilesPage() {
               variant="ghost"
               aria-label={
                 selectedFiles.length === 1
-                  ? "Copy selected file download link"
-                  : "Copy selected files download links"
+                  ? t("routes.files.action.copyLinkOne")
+                  : t("routes.files.action.copyLinkMany")
               }
               onPress={() => void copyDownloadLinks(pane)}
             >
@@ -733,7 +743,7 @@ function FilesPage() {
             isIconOnly
             size="sm"
             variant="ghost"
-            aria-label="Move selected items"
+            aria-label={t("routes.files.action.move")}
             isDisabled={fileActions.pending}
             onPress={() => {
               setActivePane(pane);
@@ -746,7 +756,7 @@ function FilesPage() {
             isIconOnly
             size="sm"
             variant="danger"
-            aria-label="Move selected items to trash"
+            aria-label={t("routes.files.action.trash")}
             isDisabled={fileActions.pending}
             onPress={() => void trashSelected(pane)}
           >
@@ -756,7 +766,7 @@ function FilesPage() {
             isIconOnly
             size="sm"
             variant="ghost"
-            aria-label="Clear selection"
+            aria-label={t("routes.files.action.clearSelection")}
             onPress={() => setPaneSelectedKeys(pane, new Set())}
           >
             <CloseIcon className="size-4" />
@@ -775,7 +785,7 @@ function FilesPage() {
       <div data-testid={`file-pane-${pane}`} className="flex min-h-0 min-w-0 flex-1 rounded-xl">
         <DropZone
           data-testid={pane === "primary" ? "file-drop-zone" : "file-drop-zone-secondary"}
-          aria-label={`Upload files into ${location.path}`}
+          aria-label={t("routes.files.dropzone.label", { path: location.path })}
           getDropOperation={() => "copy"}
           className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden outline-none"
           onDrop={async (event) => {
@@ -789,13 +799,13 @@ function FilesPage() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden">
               {isDropTarget ? (
                 <div className="shrink-0 rounded-xl border-2 border-dashed border-accent bg-accent/10 px-4 py-4 text-center text-sm font-medium text-accent sm:px-6 sm:py-6">
-                  Drop files to upload into {location.path}
+                  {t("routes.files.dropzone.hint", { path: location.path })}
                 </div>
               ) : null}
               <FileBrowser
                 files={files}
                 path={location.path}
-                rootLabel="My files"
+                rootLabel={t("routes.files.rootLabel")}
                 view={location.view}
                 loading={fileQuery.isPending}
                 onNavigatePath={(path) =>
@@ -847,20 +857,20 @@ function FilesPage() {
       <AppDialog
         open={folderDialogOpen}
         onOpenChange={setFolderDialogOpen}
-        title="Create folder"
-        description={`Create a folder inside ${activeLocation.path}.`}
+        title={t("routes.files.folder.title")}
+        description={t("routes.files.folder.description", { path: activeLocation.path })}
         size="md"
         footer={
           <>
             <Button variant="secondary" onPress={() => setFolderDialogOpen(false)}>
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <Button
               variant="primary"
               isDisabled={!folderName.trim() || fileActions.pending}
               onPress={() => void createFolder()}
             >
-              Create folder
+              {t("routes.files.folder.submit")}
             </Button>
           </>
         }
@@ -873,8 +883,8 @@ function FilesPage() {
             if (event.key === "Enter") void createFolder();
           }}
         >
-          <Label>Folder name</Label>
-          <Input placeholder="New folder" />
+          <Label>{t("routes.files.folder.name")}</Label>
+          <Input placeholder={t("routes.files.folder.placeholder")} />
         </TextField>
       </AppDialog>
 
@@ -889,19 +899,19 @@ function FilesPage() {
         onOpenChange={(open) => {
           if (!open) setRenameFile(undefined);
         }}
-        title="Rename item"
+        title={t("routes.files.rename.title")}
         size="md"
         footer={
           <>
             <Button variant="secondary" onPress={() => setRenameFile(undefined)}>
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <Button
               variant="primary"
               isDisabled={!renameName.trim() || fileActions.pending}
               onPress={() => void renameSelected()}
             >
-              Rename
+              {t("common.action.rename")}
             </Button>
           </>
         }
@@ -914,7 +924,7 @@ function FilesPage() {
             if (event.key === "Enter") void renameSelected();
           }}
         >
-          <Label>New name</Label>
+          <Label>{t("routes.files.rename.label")}</Label>
           <Input />
         </TextField>
       </AppDialog>
@@ -922,8 +932,8 @@ function FilesPage() {
       <AppDialog
         open={moveDialogOpen}
         onOpenChange={setMoveDialogOpen}
-        title={`Move ${activeSelectedCount} item${activeSelectedCount === 1 ? "" : "s"}`}
-        description="Choose the destination folder."
+        title={t("routes.files.move.title", { count: activeSelectedCount })}
+        description={t("routes.files.move.description")}
       >
         <FolderPicker initialPath="/" onConfirm={(parentId) => void moveSelected(parentId)} />
       </AppDialog>
@@ -933,13 +943,13 @@ function FilesPage() {
         onOpenChange={(open) => {
           if (!open) setPasteConflictPane(undefined);
         }}
-        title="Item already exists"
-        description="The destination already contains an item with the same name."
+        title={t("routes.files.conflict.title")}
+        description={t("routes.files.conflict.description")}
         size="md"
         footer={
           <>
             <Button variant="secondary" onPress={() => setPasteConflictPane(undefined)}>
-              Cancel
+              {t("common.action.cancel")}
             </Button>
             <Button
               variant="secondary"
@@ -948,7 +958,7 @@ function FilesPage() {
                 if (pasteConflictPane) void pasteClipboard(pasteConflictPane, "rename");
               }}
             >
-              Keep both
+              {t("routes.files.conflict.keepBoth")}
             </Button>
             <Button
               variant="danger"
@@ -957,14 +967,12 @@ function FilesPage() {
                 if (pasteConflictPane) void pasteClipboard(pasteConflictPane, "replace");
               }}
             >
-              Replace
+              {t("routes.files.conflict.replace")}
             </Button>
           </>
         }
       >
-        <p className="text-sm text-muted">
-          Replace the existing item, or keep both by giving the moved item a new name.
-        </p>
+        <p className="text-sm text-muted">{t("routes.files.conflict.hint")}</p>
       </AppDialog>
 
       <ShareDialog

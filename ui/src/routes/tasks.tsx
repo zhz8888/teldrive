@@ -15,6 +15,7 @@ import type { components } from "@/api/schema";
 import { $api as api, fetchClient } from "@/api/client";
 import { queryClient } from "@/api/query-client";
 import { invalidateTaskQueries } from "@/api/tasks";
+import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
 
 type TaskOut = components["schemas"]["Job"];
 type TaskCounts = components["schemas"]["JobStatistics"];
@@ -24,19 +25,21 @@ type TaskSearch = {
   query: string;
 };
 
+type Translate = (key: MessageKey, params?: MessageParams) => string;
+
 const PAGE_SIZE = 20;
 const CANCELLABLE_STATUSES = ["pending", "scheduled", "available", "running", "retryable"];
 
 const STATUS_TABS = [
-  { key: "pending", label: "Pending" },
-  { key: "scheduled", label: "Scheduled" },
-  { key: "available", label: "Available" },
-  { key: "running", label: "Running" },
-  { key: "retryable", label: "Retryable" },
-  { key: "cancelled", label: "Cancelled" },
-  { key: "discarded", label: "Discarded" },
-  { key: "completed", label: "Completed" },
-] as const;
+  { key: "pending", labelKey: "routes.tasks.status.pending" },
+  { key: "scheduled", labelKey: "routes.tasks.status.scheduled" },
+  { key: "available", labelKey: "routes.tasks.status.available" },
+  { key: "running", labelKey: "routes.tasks.status.running" },
+  { key: "retryable", labelKey: "routes.tasks.status.retryable" },
+  { key: "cancelled", labelKey: "routes.tasks.status.cancelled" },
+  { key: "discarded", labelKey: "routes.tasks.status.discarded" },
+  { key: "completed", labelKey: "routes.tasks.status.completed" },
+] as const satisfies readonly { key: string; labelKey: MessageKey }[];
 
 export const Route = createFileRoute("/tasks")({
   validateSearch: (search: Record<string, unknown>): TaskSearch => ({
@@ -89,6 +92,7 @@ export const Route = createFileRoute("/tasks")({
 function TasksPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const { t } = useI18n();
   const qc = queryClient;
   const [cursor, setCursor] = useState<string | undefined>();
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([]);
@@ -214,10 +218,10 @@ function TasksPage() {
     });
     setRetryingId(null);
     if (error) {
-      toast.error("Failed to retry task");
+      toast.error(t("routes.tasks.toast.retryFailed"));
       return;
     }
-    toast.success("Task queued for retry");
+    toast.success(t("routes.tasks.toast.retryQueued"));
     refreshTasks();
   };
 
@@ -233,14 +237,20 @@ function TasksPage() {
     setDeletingId(null);
     if (error) {
       toast.error(
-        CANCELLABLE_STATUSES.includes(task.status)
-          ? "Failed to cancel task"
-          : "Failed to remove task",
+        t(
+          CANCELLABLE_STATUSES.includes(task.status)
+            ? "routes.tasks.toast.cancelFailed"
+            : "routes.tasks.toast.removeFailed",
+        ),
       );
       return;
     }
     toast.success(
-      CANCELLABLE_STATUSES.includes(task.status) ? "Task cancellation requested" : "Task removed",
+      t(
+        CANCELLABLE_STATUSES.includes(task.status)
+          ? "routes.tasks.toast.cancelRequested"
+          : "routes.tasks.toast.removed",
+      ),
     );
     refreshTasks();
   };
@@ -253,7 +263,7 @@ function TasksPage() {
     });
     setCleaning(false);
     if (error) {
-      toast.error(`Failed to clean ${cleanupStatus} tasks`);
+      toast.error(t("routes.tasks.toast.cleanFailed", { status: cleanupStatus }));
       return;
     }
 
@@ -261,15 +271,15 @@ function TasksPage() {
     setCleanupStatus(null);
     setCursor(undefined);
     setCursorHistory([]);
-    toast.success(`Removed ${response.count} ${status} task${response.count === 1 ? "" : "s"}`);
+    toast.success(t("routes.tasks.toast.cleaned", { count: response.count, status }));
     refreshTasks();
   };
 
   return (
     <Page>
       <PageHeader
-        title="Tasks"
-        description="Create, monitor, retry, and inspect background work."
+        title={t("routes.tasks.title")}
+        description={t("routes.tasks.description")}
         actions={
           <Button
             size="sm"
@@ -277,7 +287,7 @@ function TasksPage() {
             className="bg-accent text-accent-foreground"
             onPress={() => setComposerOpen(true)}
           >
-            <AddIcon className="size-3.5" /> New Task
+            <AddIcon className="size-3.5" /> {t("routes.tasks.action.new")}
           </Button>
         }
       />
@@ -295,8 +305,8 @@ function TasksPage() {
       <PageToolbar className="items-stretch">
         <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center">
           <Input
-            aria-label="Search tasks"
-            placeholder="Search tasks by type, queue, path, or ID"
+            aria-label={t("routes.tasks.search.label")}
+            placeholder={t("routes.tasks.search.placeholder")}
             value={search.query}
             onChange={(event) => setSearch({ query: event.currentTarget.value })}
             className="min-w-0 flex-1"
@@ -321,7 +331,7 @@ function TasksPage() {
                     isDisabled={(taskStats?.[purgeStatus] ?? 0) === 0}
                     onPress={() => setCleanupStatus(purgeStatus)}
                   >
-                    <TrashIcon className="size-3.5" /> Clean
+                    <TrashIcon className="size-3.5" /> {t("routes.tasks.action.clean")}
                   </Button>
                 ) : null;
               })()}
@@ -332,17 +342,17 @@ function TasksPage() {
 
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-border border-b px-4 py-3">
-          <div className="text-sm font-semibold">Task activity</div>
+          <div className="text-sm font-semibold">{t("routes.tasks.activity.title")}</div>
           {hasActiveTasks && (
             <span className="flex items-center gap-2 text-xs text-muted">
               <span className="size-2 animate-pulse rounded-full bg-accent" />
-              Live updates
+              {t("routes.tasks.activity.live")}
             </span>
           )}
         </div>
         {filteredTasks.length > 0 ? (
           <ListBox
-            aria-label="Tasks"
+            aria-label={t("routes.tasks.title")}
             selectionMode="none"
             className="w-full min-w-0 divide-y divide-border overflow-hidden p-0"
           >
@@ -359,11 +369,11 @@ function TasksPage() {
           </ListBox>
         ) : (
           <EmptyState
-            title="No tasks match these filters"
-            description="Adjust the active filters or queue a new task."
+            title={t("routes.tasks.empty.title")}
+            description={t("routes.tasks.empty.description")}
             action={
               <Button size="sm" variant="primary" onPress={() => setComposerOpen(true)}>
-                New Task
+                {t("routes.tasks.action.new")}
               </Button>
             }
           />
@@ -378,13 +388,13 @@ function TasksPage() {
             isDisabled={cursorHistory.length === 0}
             onPress={goPrevious}
           >
-            <PrevIcon className="size-3.5" /> Previous
+            <PrevIcon className="size-3.5" /> {t("routes.tasks.pagination.previous")}
           </Button>
           <span className="min-w-20 text-center text-xs text-muted">
-            Page {cursorHistory.length + 1}
+            {t("routes.tasks.pagination.page", { page: cursorHistory.length + 1 })}
           </span>
           <Button size="sm" variant="tertiary" isDisabled={!meta?.nextCursor} onPress={goNext}>
-            Next <NextIcon className="size-3.5" />
+            {t("common.action.next")} <NextIcon className="size-3.5" />
           </Button>
         </div>
       )}
@@ -393,9 +403,12 @@ function TasksPage() {
         open={cleanupStatus != null}
         onOpenChange={(open) => !open && setCleanupStatus(null)}
         onConfirm={cleanTasks}
-        title={`Clean ${cleanupStatus ?? ""} tasks?`}
-        message={`This permanently removes all ${cleanupStatus ? (taskStats?.[cleanupStatus] ?? 0) : 0} ${cleanupStatus ?? ""} task records. Other task statuses are not affected.`}
-        confirmLabel="Clean"
+        title={t("routes.tasks.confirm.clean.title", { status: cleanupStatus ?? "" })}
+        message={t("routes.tasks.confirm.clean.message", {
+          count: cleanupStatus ? (taskStats?.[cleanupStatus] ?? 0) : 0,
+          status: cleanupStatus ?? "",
+        })}
+        confirmLabel={t("routes.tasks.action.clean")}
         isPending={cleaning}
       />
     </Page>
@@ -415,6 +428,7 @@ function TaskRow({
   retryPending: boolean;
   deletePending: boolean;
 }) {
+  const { t } = useI18n();
   const title = `${task.type} #${task.id}`;
   const canRetry = ["cancelled", "discarded", "retryable"].includes(task.status);
 
@@ -430,7 +444,7 @@ function TaskRow({
             <TaskStatusChip status={task.status} />
             {task.parentId ? (
               <Chip size="sm" variant="tertiary">
-                Child task
+                {t("routes.tasks.row.childTask")}
               </Chip>
             ) : null}
           </div>
@@ -444,21 +458,28 @@ function TaskRow({
           </Link>
 
           <div className="mt-1.5 flex min-w-0 items-center gap-2 overflow-hidden text-[11px] text-muted sm:flex-wrap sm:gap-x-3 sm:gap-y-1">
-            <span className="shrink-0">{task.queue || "default"} queue</span>
+            <span className="shrink-0">
+              {t("routes.tasks.row.queue", { queue: task.queue || "default" })}
+            </span>
             <span className="shrink-0">{taskDuration(task)}</span>
             <span className="truncate" title={formatDate(task.createdAt)}>
-              {formatRelativeDate(task.createdAt)}
+              {formatRelativeDate(task.createdAt, t)}
             </span>
             {(task.attempt ?? 0) > 0 ? (
               <span className="hidden shrink-0 sm:inline lg:hidden">
-                Attempt {task.attempt} of {task.maxAttempts || "—"}
+                {t("routes.tasks.row.attemptOf", {
+                  attempt: task.attempt,
+                  total: task.maxAttempts || "—",
+                })}
               </span>
             ) : null}
           </div>
         </div>
 
         <div className="hidden lg:block">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted">Attempts</div>
+          <div className="text-[10px] font-medium uppercase tracking-wide text-muted">
+            {t("routes.tasks.row.attempts")}
+          </div>
           <div className="mt-1 text-xs font-semibold tabular-nums">
             {task.attempt ?? 0} / {task.maxAttempts || "—"}
           </div>
@@ -471,9 +492,9 @@ function TaskRow({
               variant="primary"
               isPending={retryPending}
               onPress={onRetry}
-              aria-label={`Retry ${title}`}
+              aria-label={t("routes.tasks.row.retryLabel", { title })}
             >
-              Retry
+              {t("common.action.retry")}
             </Button>
           ) : null}
           {task.status === "running" ? (
@@ -482,9 +503,9 @@ function TaskRow({
               variant="danger-soft"
               isPending={deletePending}
               onPress={onDelete}
-              aria-label={`Cancel ${title}`}
+              aria-label={t("routes.tasks.row.cancelLabel", { title })}
             >
-              Cancel
+              {t("common.action.cancel")}
             </Button>
           ) : (
             <Button
@@ -493,7 +514,7 @@ function TaskRow({
               isIconOnly
               isPending={deletePending}
               onPress={onDelete}
-              aria-label={`Delete ${title}`}
+              aria-label={t("routes.tasks.row.deleteLabel", { title })}
             >
               <TrashIcon className="size-3.5" />
             </Button>
@@ -513,11 +534,12 @@ function TaskStatusSelect({
   counts?: TaskCounts;
   onChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const selected = STATUS_TABS.find((item) => item.key === value) ?? STATUS_TABS[0];
 
   return (
     <Select
-      aria-label="Task status"
+      aria-label={t("routes.tasks.status.label")}
       selectedKey={value}
       onSelectionChange={(key) => onChange(String(key))}
       className="w-44 shrink-0"
@@ -525,7 +547,7 @@ function TaskStatusSelect({
       <Select.Trigger className="h-8 min-h-8 py-1.5">
         <Select.Value>
           <div className="flex min-w-0 items-center justify-between gap-3">
-            <span className="truncate">{selected.label}</span>
+            <span className="truncate">{t(selected.labelKey)}</span>
             <span className="text-xs tabular-nums text-muted">{counts?.[selected.key] ?? 0}</span>
           </div>
         </Select.Value>
@@ -534,7 +556,7 @@ function TaskStatusSelect({
       <Select.Popover>
         <ListBox>
           {STATUS_TABS.map((item) => (
-            <ListBox.Item key={item.key} id={item.key} textValue={item.label}>
+            <ListBox.Item key={item.key} id={item.key} textValue={t(item.labelKey)}>
               <div className="flex w-full items-center justify-between gap-4">
                 <TaskStatusChip status={item.key} />
                 <span className="text-xs font-medium tabular-nums text-muted">
@@ -550,6 +572,7 @@ function TaskStatusSelect({
 }
 
 function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged: () => void }) {
+  const { t } = useI18n();
   const [pendingQueue, setPendingQueue] = useState<string | null>(null);
 
   const toggleQueue = async (queue: TaskQueueOut) => {
@@ -560,25 +583,36 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
     const { error } = await fetchClient.POST(endpoint, { params: { path: { queue: queue.name } } });
     setPendingQueue(null);
     if (error) {
-      toast.error(`Failed to ${queue.paused ? "resume" : "pause"} ${queue.name}`);
+      toast.error(
+        t(
+          queue.paused
+            ? "routes.tasks.queues.toast.resumeFailed"
+            : "routes.tasks.queues.toast.pauseFailed",
+          { name: queue.name },
+        ),
+      );
       return;
     }
-    toast.success(`${queue.name} ${queue.paused ? "resumed" : "paused"}`);
+    toast.success(
+      t(queue.paused ? "routes.tasks.queues.toast.resumed" : "routes.tasks.queues.toast.paused", {
+        name: queue.name,
+      }),
+    );
     onChanged();
   };
 
   return (
     <Popover>
       <Button size="sm" variant="tertiary">
-        <FilterIcon className="size-3.5" /> Queues
+        <FilterIcon className="size-3.5" /> {t("routes.tasks.queues.button")}
       </Button>
       <Popover.Content placement="bottom end" offset={8} className="w-[min(92vw,28rem)]">
         <Popover.Dialog className="p-0">
           <div className="border-border border-b px-4 py-3">
-            <Popover.Heading className="text-sm font-semibold">Worker queues</Popover.Heading>
-            <p className="mt-0.5 text-xs text-muted">
-              Pause or resume River queues without stopping workers.
-            </p>
+            <Popover.Heading className="text-sm font-semibold">
+              {t("routes.tasks.queues.heading")}
+            </Popover.Heading>
+            <p className="mt-0.5 text-xs text-muted">{t("routes.tasks.queues.description")}</p>
           </div>
           <div className="max-h-80 divide-y divide-border overflow-y-auto">
             {queues.length > 0 ? (
@@ -591,12 +625,14 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
                         className={`size-2 rounded-full ${queue.paused ? "bg-warning" : "bg-success"}`}
                       />
                       <span className="text-[10px] text-muted">
-                        {queue.paused ? "Paused" : "Active"}
+                        {queue.paused
+                          ? t("routes.tasks.queues.paused")
+                          : t("routes.tasks.queues.active")}
                       </span>
                     </div>
                     <div className="mt-1 flex gap-3 text-[11px] text-muted">
-                      <span>{queue.available} available</span>
-                      <span>{queue.running} running</span>
+                      <span>{t("routes.tasks.queues.available", { count: queue.available })}</span>
+                      <span>{t("routes.tasks.queues.running", { count: queue.running })}</span>
                     </div>
                   </div>
                   <Button
@@ -605,13 +641,15 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
                     isPending={pendingQueue === queue.name}
                     onPress={() => toggleQueue(queue)}
                   >
-                    {queue.paused ? "Resume" : "Pause"}
+                    {queue.paused
+                      ? t("routes.tasks.queues.resume")
+                      : t("routes.tasks.queues.pause")}
                   </Button>
                 </div>
               ))
             ) : (
               <div className="px-4 py-8 text-center text-sm text-muted">
-                No active River queues.
+                {t("routes.tasks.queues.empty")}
               </div>
             )}
           </div>
@@ -624,15 +662,17 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
-function formatRelativeDate(value: string) {
+function formatRelativeDate(value: string, t: Translate) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return t("routes.tasks.relative.justNow");
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t("routes.tasks.relative.minutesAgo", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t("routes.tasks.relative.hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d ago` : new Date(value).toLocaleDateString();
+  return days < 7
+    ? t("routes.tasks.relative.daysAgo", { count: days })
+    : new Date(value).toLocaleDateString();
 }
 
 function taskDuration(task: TaskOut) {

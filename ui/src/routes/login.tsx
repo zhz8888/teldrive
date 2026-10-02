@@ -9,6 +9,7 @@ import ShieldIcon from "~icons/gravity-ui/shield-check";
 import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { newIdempotencyKey } from "@/features/shared/idempotency";
+import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import { currentUserQueryOptions } from "@/auth/queries";
 
@@ -39,6 +40,7 @@ function isSession(value: unknown): value is CookieSession {
 
 function LoginPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { redirect } = Route.useSearch();
   const [method, setMethod] = useState<"phone" | "qr">("phone");
   const [step, setStep] = useState<Step>("phone");
@@ -62,7 +64,7 @@ function LoginPage() {
     const qc = getQueryClient();
     await qc.invalidateQueries({ queryKey: query.queryKey });
     await qc.ensureQueryData(query);
-    toast.success("Signed in to Teldrive");
+    toast.success(t("routes.login.toast.signedIn"));
     await navigate({ to: redirect, replace: true });
   };
 
@@ -92,7 +94,7 @@ function LoginPage() {
       });
       if (isSession(result)) await finish();
     } catch (error) {
-      toast.error("Telegram sign-in failed", { description: userMessage(error) });
+      toast.error(t("routes.login.toast.signInFailed"), { description: userMessage(error) });
     }
   };
 
@@ -137,14 +139,14 @@ function LoginPage() {
             if (state.qrExpiresAt) setQrExpiry(state.qrExpiresAt);
           } catch (error) {
             window.clearInterval(timer);
-            toast.error("QR sign-in stopped", { description: userMessage(error) });
+            toast.error(t("routes.login.toast.qrStopped"), { description: userMessage(error) });
           } finally {
             polling = false;
           }
         }, 2500);
       })
       .catch((error) =>
-        toast.error("Unable to create QR sign-in", { description: userMessage(error) }),
+        toast.error(t("routes.login.toast.qrStartFailed"), { description: userMessage(error) }),
       );
     return () => {
       active = false;
@@ -178,31 +180,26 @@ function LoginPage() {
       <section className="hidden border-r border-border bg-sidebar/70 p-12 lg:flex lg:flex-col lg:justify-between">
         <img
           src="/images/apple-touch-icon.png"
-          alt="Teldrive"
+          alt={t("common.app.name")}
           width={44}
           height={44}
           className="size-11 rounded-xl"
         />
         <div className="my-auto max-w-xl">
           <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-accent">
-            Teldrive
+            {t("common.app.name")}
           </p>
-          <h1 className="text-4xl font-semibold tracking-tight">
-            Your Telegram-backed cloud drive.
-          </h1>
+          <h1 className="text-4xl font-semibold tracking-tight">{t("routes.login.hero.title")}</h1>
           <p className="mt-4 max-w-lg text-sm leading-6 text-muted">
-            Manage files, uploads, background jobs, channels, bots, sessions, and API access from
-            one focused interface.
+            {t("routes.login.hero.description")}
           </p>
         </div>
       </section>
       <section className="flex items-center justify-center p-4 sm:p-8 lg:p-12">
         <Card className="w-full max-w-md border border-border bg-surface/90 shadow-xl">
           <Card.Header className="block px-6 pt-6">
-            <Card.Title>Sign in with Telegram</Card.Title>
-            <Card.Description>
-              API keys are reserved for rclone and external clients.
-            </Card.Description>
+            <Card.Title>{t("routes.login.title")}</Card.Title>
+            <Card.Description>{t("routes.login.description")}</Card.Description>
           </Card.Header>
           <Card.Content className="space-y-5 px-6 pb-6">
             <Tabs
@@ -213,12 +210,12 @@ function LoginPage() {
               }}
             >
               <Tabs.ListContainer>
-                <Tabs.List aria-label="Sign-in method">
+                <Tabs.List aria-label={t("routes.login.method.label")}>
                   <Tabs.Tab id="phone">
-                    <PhoneIcon className="size-4" /> Phone
+                    <PhoneIcon className="size-4" /> {t("routes.login.method.phone")}
                   </Tabs.Tab>
                   <Tabs.Tab id="qr">
-                    <QrIcon className="size-4" /> QR code
+                    <QrIcon className="size-4" /> {t("routes.login.method.qr")}
                   </Tabs.Tab>
                 </Tabs.List>
               </Tabs.ListContainer>
@@ -228,7 +225,7 @@ function LoginPage() {
                     next; one-time-code/current-password keep the two apart. */}
                 {step === "phone" && (
                   <TextField className="grid gap-1">
-                    <Label>Telegram phone number</Label>
+                    <Label>{t("routes.login.phone.label")}</Label>
                     <Input
                       autoFocus
                       autoComplete="tel"
@@ -236,12 +233,12 @@ function LoginPage() {
                       value={phone}
                       onChange={(event) => setPhone(event.target.value)}
                     />
-                    <Description>Use E.164 format including the country code.</Description>
+                    <Description>{t("routes.login.phone.description")}</Description>
                   </TextField>
                 )}
                 {step === "code" && (
                   <TextField className="grid gap-1">
-                    <Label>Telegram code</Label>
+                    <Label>{t("routes.login.code.label")}</Label>
                     <Input
                       autoFocus
                       autoComplete="one-time-code"
@@ -253,7 +250,7 @@ function LoginPage() {
                 )}
                 {step === "password" && (
                   <TextField className="grid gap-1">
-                    <Label>Two-step verification password</Label>
+                    <Label>{t("routes.login.password.label")}</Label>
                     <Input
                       autoFocus
                       autoComplete="current-password"
@@ -272,7 +269,9 @@ function LoginPage() {
                   }
                 >
                   {pending ? <Spinner size="sm" /> : <ShieldIcon className="size-4" />}
-                  {step === "phone" ? "Send code" : "Verify and sign in"}
+                  {step === "phone"
+                    ? t("routes.login.action.sendCode")
+                    : t("routes.login.action.verify")}
                 </Button>
                 {step !== "phone" && (
                   <Button
@@ -285,29 +284,27 @@ function LoginPage() {
                       setPassword("");
                     }}
                   >
-                    Start again
+                    {t("routes.login.action.restart")}
                   </Button>
                 )}
               </Tabs.Panel>
               <Tabs.Panel id="qr" className="space-y-4 pt-4">
                 <div className="grid min-h-72 place-items-center rounded-xl border border-border bg-white p-5 text-black">
                   {qrUrl ? (
-                    <QRCodeSVG value={qrUrl} size={220} aria-label="Telegram sign-in QR code" />
+                    <QRCodeSVG value={qrUrl} size={220} aria-label={t("routes.login.qr.label")} />
                   ) : (
                     <Spinner size="lg" />
                   )}
                 </div>
                 <div className="text-center">
-                  <p className="font-medium">Scan with Telegram</p>
-                  <p className="mt-1 text-xs text-muted">
-                    Settings → Devices → Link Desktop Device
-                  </p>
+                  <p className="font-medium">{t("routes.login.qr.scan")}</p>
+                  <p className="mt-1 text-xs text-muted">{t("routes.login.qr.steps")}</p>
                   <p className="mt-2 text-xs text-muted">
                     {qrSecondsLeft === null
-                      ? "Preparing a sign-in code…"
+                      ? t("routes.login.qr.preparing")
                       : qrSecondsLeft > 0
-                        ? `Expires in ${qrSecondsLeft}s`
-                        : "Code expired — a fresh one appears automatically"}
+                        ? t("routes.login.qr.expiresIn", { seconds: qrSecondsLeft })
+                        : t("routes.login.qr.expired")}
                   </p>
                 </div>
               </Tabs.Panel>
