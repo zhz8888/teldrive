@@ -53,6 +53,19 @@ test("the login form keeps its per-step autocomplete semantics", () => {
   expect(source).toContain('autoComplete="current-password"');
 });
 
+test("the document loads every script from a file, never inline", () => {
+  // The server answers the UI with `script-src 'self'`, which refuses inline
+  // scripts outright, so the pre-paint theme script has to stay a separate file
+  // that index.html references by src. An inline script would simply never run
+  // in a production deployment, and the interface would flash the wrong theme.
+  const html = readFileSync(join(process.cwd(), "index.html"), "utf8");
+  const inlineScripts = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+    .map((match) => match[1].trim())
+    .filter((body) => body !== "");
+  expect(inlineScripts).toEqual([]);
+  expect(html).toContain('src="/theme.js"');
+});
+
 // Han, Hangul and kana ranges plus the compatibility ideographs: the characters a
 // translated string is made of. Latin accents are deliberately not included.
 const cjkPattern = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
