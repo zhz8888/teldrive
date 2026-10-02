@@ -188,6 +188,8 @@ type Querier interface {
 	UpdateFilePartSizes(ctx context.Context, arg UpdateFilePartSizesParams) (int64, error)
 	UpdateFilePartSizesMany(ctx context.Context, arg UpdateFilePartSizesManyParams) (int64, error)
 	UpdateFileShare(ctx context.Context, arg UpdateFileShareParams) (*FileShare, error)
+	// The write is scoped to the owner as well, so a session id can never be used to
+	// rewrite another account's stored Telegram session.
 	UpdateSessionTelegramSession(ctx context.Context, arg UpdateSessionTelegramSessionParams) (int64, error)
 	UpdateTelegramLoginFlowState(ctx context.Context, arg UpdateTelegramLoginFlowStateParams) (*TelegramLoginFlow, error)
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (*User, error)

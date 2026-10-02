@@ -252,10 +252,13 @@ WHERE id = sqlc.arg(session_id)
   AND revoked_at IS NULL;
 
 -- name: UpdateSessionTelegramSession :execrows
+-- The write is scoped to the owner as well, so a session id can never be used to
+-- rewrite another account's stored Telegram session.
 UPDATE /* TEMPLATE: schema */sessions
 SET telegram_session = sqlc.arg(telegram_session),
     last_used_at = now()
 WHERE id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
   AND revoked_at IS NULL
   AND expires_at > now();
 

@@ -756,6 +756,7 @@ UPDATE /* TEMPLATE: schema */sessions
 SET telegram_session = $1,
     last_used_at = now()
 WHERE id = $2
+  AND user_id = $3
   AND revoked_at IS NULL
   AND expires_at > now()
 `
@@ -763,10 +764,13 @@ WHERE id = $2
 type UpdateSessionTelegramSessionParams struct {
 	TelegramSession []byte      `json:"telegram_session"`
 	SessionID       pgtype.UUID `json:"session_id"`
+	UserID          int64       `json:"user_id"`
 }
 
+// The write is scoped to the owner as well, so a session id can never be used to
+// rewrite another account's stored Telegram session.
 func (q *Queries) UpdateSessionTelegramSession(ctx context.Context, arg UpdateSessionTelegramSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateSessionTelegramSession, arg.TelegramSession, arg.SessionID)
+	result, err := q.db.Exec(ctx, updateSessionTelegramSession, arg.TelegramSession, arg.SessionID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}

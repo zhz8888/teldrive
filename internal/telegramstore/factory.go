@@ -395,7 +395,7 @@ func (s *databaseSessionStorage) StoreSession(ctx context.Context, data []byte) 
 		return fmt.Errorf("encrypt Telegram session update: %w", err)
 	}
 	count, err := s.queries.UpdateSessionTelegramSession(ctx, sqlcgen.UpdateSessionTelegramSessionParams{
-		TelegramSession: ciphertext, SessionID: s.sessionID,
+		TelegramSession: ciphertext, SessionID: s.sessionID, UserID: s.userID,
 	})
 	if err != nil {
 		return fmt.Errorf("store Telegram session update: %w", err)
