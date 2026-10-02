@@ -169,7 +169,7 @@ SELECT
   count(*) FILTER (WHERE kind = 'file' AND status = 'active')::bigint AS total_files,
   count(*) FILTER (WHERE kind = 'folder' AND status = 'active')::bigint AS total_folders,
   COALESCE(sum(size) FILTER (WHERE kind = 'file' AND status = 'active'), 0)::bigint AS total_bytes,
-  count(*) FILTER (WHERE status = 'trashed')::bigint AS trashed_files,
+  count(*) FILTER (WHERE kind = 'file' AND status = 'trashed')::bigint AS trashed_files,
   (SELECT count(*)::bigint FROM /* TEMPLATE: schema */file_shares WHERE owner_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active_shares,
   (SELECT count(*)::bigint FROM /* TEMPLATE: schema */upload_sessions WHERE user_id = $1 AND state IN ('open', 'completing')) AS open_uploads
 FROM /* TEMPLATE: schema */files
