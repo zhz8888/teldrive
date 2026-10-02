@@ -164,6 +164,14 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
     const onLoad = (event: CustomEvent<{ doc: Document }>) => {
       if (!activeRef.current) return;
       const doc = event.detail.doc;
+      // foliate keeps one chapter frame at a time: the next chapter replaces the
+      // previous document, so dropping the reference here is what stops every
+      // visited chapter (and its blob URL) from staying alive with the reader.
+      for (const previous of loadedDocuments) {
+        if (previous === doc) continue;
+        previous.removeEventListener("keydown", onReaderKeyDown);
+        loadedDocuments.delete(previous);
+      }
       loadedDocuments.add(doc);
       doc.addEventListener("keydown", onReaderKeyDown);
       const updateRenderedContent = () => {
@@ -234,9 +242,19 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
       activeRef.current = false;
       const current = element;
       for (const doc of loadedDocuments) doc.removeEventListener("keydown", onReaderKeyDown);
+      loadedDocuments.clear();
       current?.removeEventListener("load", onLoad as EventListener);
       current?.removeEventListener("relocate", onRelocate as EventListener);
-      if (closedRef.current) current?.remove();
+      if (closedRef.current) {
+        current?.remove();
+        return;
+      }
+      // Leaving the reader by navigation tears it down without the interactive
+      // close, so the publication is destroyed here too: foliate would otherwise
+      // keep the book and its per-chapter blob URLs alive past the last render.
+      closedRef.current = true;
+      viewRef.current = undefined;
+      if (current) closePublication(current);
     };
   }, [file.id, file.mimeType, file.name, trackNavigation, url]);
 

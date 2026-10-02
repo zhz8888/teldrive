@@ -8,6 +8,151 @@ export interface ReaderPreferences {
   columns: number;
 }
 
+/** The slice of a foliate resource descriptor this module inspects. */
+type PublicationResource = {
+  /** Path of the resource inside the publication (`detail.name` in foliate). */
+  name?: string;
+  /** Manifest media type of the resource. */
+  type?: string;
+  data: unknown;
+};
+
+/**
+ * Media types and file extensions whose markup ends up as a chapter document.
+ * Everything else (CSS, images, fonts) is passed through untouched.
+ */
+const MARKUP_MEDIA_TYPES = new Set(["application/xhtml+xml", "text/html"]);
+const MARKUP_PATH_PATTERN = /\.(?:x?html?|xhtm)$/;
+/** Elements that can load or run another document inside the chapter frame. */
+const DANGEROUS_ELEMENTS = "script, iframe, object, embed";
+/** URL schemes that execute markup or script instead of fetching a resource. */
+const DANGEROUS_URL_PREFIXES = ["javascript:", "data:text/html"];
+/** Attributes whose value is a list of comma-separated URLs, not one URL. */
+const URL_LIST_ATTRIBUTES = new Set(["srcset", "imagesrcset"]);
+
+/**
+ * Whether a resource is chapter markup that has to be sanitised before foliate
+ * renders it. Chapters are the only resources that become a document, so they
+ * are the only ones where a `<script>` or an `on*` handler could run.
+ */
+export function isPublicationMarkup(type: unknown, name: unknown): boolean {
+  const mediaType = typeof type === "string" ? mediaTypeOf(type) : "";
+  if (MARKUP_MEDIA_TYPES.has(mediaType)) return true;
+  const path = typeof name === "string" ? (name.split(/[?#]/)[0] ?? "").toLowerCase() : "";
+  return MARKUP_PATH_PATTERN.test(path);
+}
+
+/**
+ * Removes everything a shared publication could use to run script in its
+ * chapter frame: foliate renders each chapter in a same-origin iframe
+ * (`sandbox="allow-same-origin allow-scripts"`), so a chapter that ships a
+ * script element, an inline event handler or a `javascript:` link would run
+ * with the reader's session. Pure function: markup in, sanitised markup out.
+ *
+ * A chapter the XML parser rejects is handled by
+ * {@link sanitizePublicationMarkupFallback} instead of being dropped, because
+ * foliate itself falls back to parsing such chapters as HTML.
+ */
+export function sanitizePublicationMarkup(markup: string): string {
+  const doc = parsePublicationMarkup(markup);
+  if (!doc) return sanitizePublicationMarkupFallback(markup);
+  for (const element of [...doc.querySelectorAll(DANGEROUS_ELEMENTS)]) element.remove();
+  for (const element of doc.querySelectorAll("*")) sanitizeElementAttributes(element);
+  return new XMLSerializer().serializeToString(doc);
+}
+
+/**
+ * String-level counterpart of {@link sanitizePublicationMarkup} for markup the
+ * XML parser refuses. It removes the same constructs textually, which is weaker
+ * than parsing but still keeps the chapter (and nothing else) on screen.
+ */
+export function sanitizePublicationMarkupFallback(markup: string): string {
+  return markup
+    .replace(/<\s*(script|iframe|object|embed)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(?:script|iframe|object|embed)\b[^>]*>/gi, "")
+    .replace(/\son[a-z-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\b(href|src|srcset|imagesrcset|poster|data|action|formaction|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+      (match, name: string, doubleQuoted?: string, singleQuoted?: string) => {
+        const value = doubleQuoted ?? singleQuoted ?? "";
+        const sanitized = sanitizeUrlAttribute(name.toLowerCase(), value);
+        if (sanitized === value) return match;
+        return sanitized ? `${name}="${sanitized}"` : "";
+      },
+    );
+}
+
+function parsePublicationMarkup(markup: string): Document | undefined {
+  try {
+    const doc = new DOMParser().parseFromString(markup, "application/xhtml+xml");
+    // A rejected chapter parses into a `parsererror` document whose root has no
+    // namespace; serialising that back would replace the chapter with the error.
+    if (!doc.documentElement?.namespaceURI || doc.querySelector("parsererror")) return undefined;
+    return doc;
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeElementAttributes(element: Element) {
+  for (const attribute of [...element.attributes]) {
+    const name = attribute.name.toLowerCase();
+    if (name.startsWith("on")) {
+      element.removeAttribute(attribute.name);
+      continue;
+    }
+    if (attribute.namespaceURI) {
+      // Rewriting a namespaced attribute (`xlink:href`) through `setAttribute`
+      // would drop its namespace, so it is only removed when it is dangerous.
+      if (isDangerousUrl(attribute.value)) element.removeAttribute(attribute.name);
+      continue;
+    }
+    const value = attribute.value;
+    const sanitized = sanitizeUrlAttribute(name, value);
+    if (sanitized === value) continue;
+    if (sanitized) element.setAttribute(attribute.name, sanitized);
+    else element.removeAttribute(attribute.name);
+  }
+}
+
+/**
+ * Drops the URL (or URLs) in an attribute value that would execute markup
+ * instead of loading a resource. `srcset`-style attributes hold several
+ * comma-separated candidates; every other URL attribute holds exactly one, and
+ * an inline `style` only has to be dropped when it embeds such a URL at all.
+ */
+function sanitizeUrlAttribute(name: string, value: string): string {
+  if (name === "style") return containsDangerousUrl(value) ? "" : value;
+  if (!URL_LIST_ATTRIBUTES.has(name)) return isDangerousUrl(value) ? "" : value;
+  const candidates = value.split(",");
+  if (!candidates.some(isDangerousUrl)) return value;
+  return candidates.filter((candidate) => !isDangerousUrl(candidate)).join(",");
+}
+
+function containsDangerousUrl(value: string): boolean {
+  return DANGEROUS_URL_PREFIXES.some((prefix) => normalizeUrl(value).includes(prefix));
+}
+
+function isDangerousUrl(value: string): boolean {
+  return DANGEROUS_URL_PREFIXES.some((prefix) => normalizeUrl(value).startsWith(prefix));
+}
+
+function mediaTypeOf(type: string): string {
+  return (type.split(";")[0] ?? "").trim().toLowerCase();
+}
+
+/**
+ * Whitespace and control characters are ignored inside a URL scheme, so
+ * `java\tscript:` still runs: they are dropped before the scheme is compared.
+ */
+function normalizeUrl(value: string): string {
+  let normalized = "";
+  for (const character of value) {
+    if ((character.codePointAt(0) ?? 0) > 0x20) normalized += character;
+  }
+  return normalized.toLowerCase();
+}
+
 export async function openPublication({
   element,
   file,
@@ -25,11 +170,19 @@ export async function openPublication({
 }) {
   const { makeBook } = await import("foliate-js/view.js");
   const book = await makeBook(file);
-  book.transformTarget?.addEventListener("data", ({ detail }: CustomEvent) => {
-    detail.data = Promise.resolve(detail.data).catch((error: unknown) => {
-      console.error(new Error(`Failed to load ${detail.name}`, { cause: error }));
-      return "";
-    });
+  // Chapters reach the reader as a chapter frame's document, so every markup
+  // resource is sanitised here, before foliate turns it into a blob URL.
+  book.transformTarget?.addEventListener("data", ({ detail }: CustomEvent<PublicationResource>) => {
+    detail.data = Promise.resolve(detail.data)
+      .then((data: unknown) =>
+        typeof data === "string" && isPublicationMarkup(detail.type, detail.name)
+          ? sanitizePublicationMarkup(data)
+          : data,
+      )
+      .catch((error: unknown) => {
+        console.error(new Error(`Failed to load ${detail.name}`, { cause: error }));
+        return "";
+      });
   });
 
   element.addEventListener("load", onLoad as EventListener);
