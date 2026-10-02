@@ -12,7 +12,8 @@ export const settings = {
     "The choice is stored locally and applies immediately.",
   "settings.appearance.colorTheme.label": "Theme",
   "settings.appearance.colorTheme.rowDescription":
-    "Choose the light or dark Teldrive visual system.",
+    "Follow the system preference, or pin the light or dark Teldrive visual system.",
+  "settings.appearance.colorTheme.system": "System",
   "settings.appearance.colorTheme.light": "Light",
   "settings.appearance.colorTheme.dark": "Dark",
   "settings.appearance.language.section": "Language",

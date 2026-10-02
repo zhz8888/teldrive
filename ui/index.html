@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark" data-theme="dark" style="color-scheme: dark;">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Teldrive</title>
@@ -11,7 +11,11 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico" />
-    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="theme-color" content="#fafafa" />
+    <!-- Blocks the first paint until the stored colour theme is applied. It is a
+         separate file because the server sends `script-src 'self'`, which
+         refuses inline scripts. -->
+    <script src="/theme.js"></script>
   </head>
   <body class="antialiased bg-background text-foreground">
     <div id="root"></div>

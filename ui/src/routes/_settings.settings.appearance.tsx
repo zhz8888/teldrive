@@ -1,17 +1,26 @@
 import { Button } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
+import DisplayIcon from "~icons/gravity-ui/display";
 import MoonIcon from "~icons/gravity-ui/moon";
 import SunIcon from "~icons/gravity-ui/sun";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
-import { LOCALE_LABELS, LOCALES, useI18n } from "@/lib/i18n";
+import { LOCALE_LABELS, LOCALES, type MessageKey, useI18n } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_settings/settings/appearance")({
   component: AppearanceSettings,
 });
 
+// The colour-theme choices in the order they are shown. Following the system
+// preference comes first because it is the mode a visitor starts in.
+const THEME_OPTIONS = [
+  { value: "system", icon: DisplayIcon, labelKey: "settings.appearance.colorTheme.system" },
+  { value: "light", icon: SunIcon, labelKey: "settings.appearance.colorTheme.light" },
+  { value: "dark", icon: MoonIcon, labelKey: "settings.appearance.colorTheme.dark" },
+] as const satisfies readonly { value: string; icon: unknown; labelKey: MessageKey }[];
+
 function AppearanceSettings() {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();
   return (
     <div className="space-y-6">
@@ -27,21 +36,19 @@ function AppearanceSettings() {
           label={t("settings.appearance.colorTheme.label")}
           description={t("settings.appearance.colorTheme.rowDescription")}
         >
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant={resolvedTheme === "light" ? "primary" : "secondary"}
-              onPress={() => setTheme("light")}
-            >
-              <SunIcon className="size-4" />
-              {t("settings.appearance.colorTheme.light")}
-            </Button>
-            <Button
-              variant={resolvedTheme === "dark" ? "primary" : "secondary"}
-              onPress={() => setTheme("dark")}
-            >
-              <MoonIcon className="size-4" />
-              {t("settings.appearance.colorTheme.dark")}
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {THEME_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                className="min-w-28 flex-1"
+                variant={theme === option.value ? "primary" : "secondary"}
+                aria-pressed={theme === option.value}
+                onPress={() => setTheme(option.value)}
+              >
+                <option.icon className="size-4" />
+                {t(option.labelKey)}
+              </Button>
+            ))}
           </div>
         </SettingsRow>
       </SettingsSection>

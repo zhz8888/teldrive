@@ -329,7 +329,11 @@ function TopBar({
         variant="ghost"
         className="size-9 rounded-xl"
         onPress={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-        aria-label={t("routes.root.theme.toggle")}
+        aria-label={
+          resolvedTheme === "dark"
+            ? t("routes.root.theme.switchToLight")
+            : t("routes.root.theme.switchToDark")
+        }
       >
         {resolvedTheme === "dark" ? (
           <SunIcon className="size-4" />

@@ -13,7 +13,9 @@ export const settings: AreaMessages<typeof enSettings> = {
   "settings.appearance.colorTheme.section": "配色主题",
   "settings.appearance.colorTheme.description": "选择会保存在本地并立即生效。",
   "settings.appearance.colorTheme.label": "主题",
-  "settings.appearance.colorTheme.rowDescription": "选择浅色或深色的 Teldrive 视觉风格。",
+  "settings.appearance.colorTheme.rowDescription":
+    "跟随系统设置，或固定使用浅色 / 深色的 Teldrive 视觉风格。",
+  "settings.appearance.colorTheme.system": "跟随系统",
   "settings.appearance.colorTheme.light": "浅色",
   "settings.appearance.colorTheme.dark": "深色",
   "settings.appearance.language.section": "语言",
