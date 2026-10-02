@@ -44,7 +44,7 @@ func TestServiceRejectsInvalidInputsBeforeDatabaseAccess(t *testing.T) {
 		{name: "create bad policy", call: func() error {
 			_, err := svc.Create(ctx, CreateInput{UserID: 1, Name: "x", ConflictPolicy: "bad"})
 			return err
-		}, want: ErrInvalidInput},
+		}, want: ErrUnsupportedConflictPolicy},
 		{name: "get owner", call: func() error { _, err := svc.Get(ctx, 0, id); return err }, want: ErrInvalidInput},
 		{name: "claim basic", call: func() error { _, err := svc.ClaimPart(ctx, ClaimPartInput{}); return err }, want: ErrInvalidInput},
 		{name: "store basic", call: func() error { _, err := svc.StorePart(ctx, StorePartInput{}); return err }, want: ErrInvalidInput},

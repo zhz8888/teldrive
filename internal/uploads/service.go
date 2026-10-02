@@ -76,11 +76,11 @@ var (
 	// ErrHashMismatch reports that the tree hash recomputed from the stored parts
 	// differs from the hash the session was created with.
 	ErrHashMismatch = errors.New("upload hash does not match expected hash")
-	// ErrUnsupportedConflictPolicy reports a conflict policy an endpoint does not
-	// implement. The uploads package itself accepts every sqlcgen.NameConflictPolicy
-	// value and rejects unknown ones with ErrInvalidInput, so this sentinel is
-	// currently produced by the API layer when folder creation asks for anything
-	// but the fail policy.
+	// ErrUnsupportedConflictPolicy reports a conflict policy that the called
+	// endpoint does not implement: Create and prepareConflictPolicy return it for
+	// any value outside the fail, replace and rename policies the package applies
+	// at completion, and the API layer returns it when folder creation asks for
+	// anything but the fail policy. Retrying with the same policy cannot succeed.
 	ErrUnsupportedConflictPolicy = errors.New("upload conflict policy is not implemented")
 )
 
@@ -176,7 +176,7 @@ type CreateInput struct {
 	EncryptionKeyVersion *int32
 	// ConflictPolicy decides how completion handles an occupied destination name.
 	// The empty value means NameConflictPolicyFail; fail, replace and rename are
-	// accepted, and any other value is rejected with ErrInvalidInput.
+	// accepted, and any other value is rejected with ErrUnsupportedConflictPolicy.
 	ConflictPolicy sqlcgen.NameConflictPolicy
 	// PartSize is the size in bytes every part but the last must have; a
 	// non-positive value selects defaultPartSize.
@@ -186,9 +186,10 @@ type CreateInput struct {
 // Create validates in and inserts a new upload session in the open state, expiring
 // sessionTTL after creation. It returns ErrInvalidInput for a malformed request
 // (non-positive user, size below -1, only one half of the expected hash, an
-// encryption flag that disagrees with the key version, an unknown conflict
-// policy), ErrInvalidParent when ParentID is not an active folder of the user, and
-// otherwise the raw error of CreateUploadSession, with no wrapping added.
+// encryption flag that disagrees with the key version),
+// ErrUnsupportedConflictPolicy for a policy outside fail, replace and rename,
+// ErrInvalidParent when ParentID is not an active folder of the user, and otherwise
+// the raw error of CreateUploadSession, with no wrapping added.
 // Destination name uniqueness is deliberately not checked here: it is enforced at
 // completion.
 func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSession, error) {
@@ -216,7 +217,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSe
 	case sqlcgen.NameConflictPolicyFail, sqlcgen.NameConflictPolicyReplace, sqlcgen.NameConflictPolicyRename:
 		// Applied atomically during publication.
 	default:
-		return nil, ErrInvalidInput
+		return nil, ErrUnsupportedConflictPolicy
 	}
 	if in.ParentID != nil {
 		if _, err := s.queries.GetActiveFolderForUser(ctx, sqlcgen.GetActiveFolderForUserParams{
@@ -731,7 +732,8 @@ func (s *Service) Complete(ctx context.Context, userID int64, uploadID uuid.UUID
 // ErrNameConflict when an active entry occupies the name; replace requires that
 // entry to be a regular file, marks it deletion_pending, revokes its shares and
 // returns its id; rename stores the first free "name (n)" variant on the session.
-// The caller must already hold the session row lock.
+// A policy outside those three is reported as ErrUnsupportedConflictPolicy. The
+// caller must already hold the session row lock.
 func prepareConflictPolicy(ctx context.Context, tx pgx.Tx, session *sqlcgen.UploadSession) (*uuid.UUID, error) {
 	if session == nil {
 		return nil, ErrInvalidInput
@@ -801,7 +803,7 @@ func prepareConflictPolicy(ctx context.Context, tx pgx.Tx, session *sqlcgen.Uplo
 		session.Name = name
 		return nil, nil
 	default:
-		return nil, ErrInvalidInput
+		return nil, ErrUnsupportedConflictPolicy
 	}
 }
 
@@ -867,9 +869,16 @@ func uploadDestinationLockID(session *sqlcgen.UploadSession) int64 {
 // Abort moves an open or completing session to the aborted state and returns the
 // resulting row. Aborting a session that is already aborted or expired is a no-op
 // that returns the current row, which makes retries safe, while a completed
-// session yields ErrInvalidState. The parts already written to storage are not
-// deleted here: the upload cleanup sweep worker later finds them by message id and
-// removes both the stored objects and the part rows.
+// session yields ErrInvalidState.
+//
+// Aborting rewrites only upload_sessions.state and leaves upload_parts untouched,
+// so the session's part leases are not revoked; the same holds for the expiry the
+// upload cleanup sweep applies. StorePart, RenewPart and FailPart authorize on the
+// lease token alone and never re-check the session state, so the holder of a part
+// lease can still renew it, or mark its part stored, while the row stays uploading
+// under its token; a lapsed lease does not by itself close that window. The upload
+// cleanup sweep later finds the parts of aborted and expired sessions by
+// message_id and removes both the stored objects and the part rows.
 func (s *Service) Abort(ctx context.Context, userID int64, uploadID uuid.UUID) (*sqlcgen.UploadSession, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidInput

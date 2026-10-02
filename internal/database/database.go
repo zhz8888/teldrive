@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	prodriver "github.com/divyam234/riverpro/driver"
@@ -92,7 +93,9 @@ func (c Config) validate() error {
 }
 
 // Open creates and verifies a pgx pool. It returns only after PostgreSQL has
-// accepted a ping or the configured connection timeout expires.
+// accepted a ping or the configured connection timeout expires. Every pooled
+// connection pins the session time zone to UTC, so date-based aggregates bucket by
+// UTC days regardless of the server's TimeZone setting.
 func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	cfg = cfg.withDefaults()
 	if err := cfg.validate(); err != nil {
@@ -106,6 +109,17 @@ func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	if cfg.ApplicationName != "" {
 		poolConfig.ConnConfig.RuntimeParams["application_name"] = cfg.ApplicationName
 	}
+	// Pin the session time zone to UTC so date-based aggregates (upload statistics,
+	// storage growth) group by UTC days as the API contract documents, instead of
+	// following the server's TimeZone. A time zone configured in the URL is dropped
+	// first: keeping both spellings would put two values for the same setting in the
+	// startup packet and leave the winner up to map iteration order.
+	for name := range poolConfig.ConnConfig.RuntimeParams {
+		if strings.EqualFold(name, "timezone") {
+			delete(poolConfig.ConnConfig.RuntimeParams, name)
+		}
+	}
+	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
 	if cfg.MaxConnections > 0 {
 		poolConfig.MaxConns = cfg.MaxConnections
 	}

@@ -10,8 +10,9 @@ import (
 
 // DailyStatistic is one calendar day of completed upload activity.
 type DailyStatistic struct {
-	// Date is the day the aggregate grouped by, at midnight; the day boundary comes
-	// from the database session's CURRENT_DATE.
+	// Date is the day the aggregate grouped by, at midnight UTC: the connection
+	// pool pins the session time zone to UTC, so the CURRENT_DATE the query groups
+	// by is the UTC day the API contract documents.
 	Date time.Time
 	// UploadedBytes is the summed plaintext size, in bytes, of the sessions that
 	// completed that day.
