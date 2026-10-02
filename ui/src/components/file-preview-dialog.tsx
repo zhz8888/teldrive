@@ -1,5 +1,6 @@
 import { Button, cn, Modal, Spinner } from "@heroui/react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { normalizeApiError, userMessage } from "@/api/errors";
 import type { FileEntry } from "@/api/types";
 import { fileContentUrl, startFileDownload } from "@/features/files/download";
 import { previewMedia, supportsCodePreview } from "@/features/files/preview-support";
@@ -243,16 +244,21 @@ function TextViewer({ url }: { url: string }) {
   useEffect(() => {
     const controller = new AbortController();
     void fetch(url, { signal: controller.signal })
-      .then((response) => response.text())
+      .then(async (response) => {
+        // A failed request answers with an error envelope; showing it as the
+        // document body would make the reader look like the file's content.
+        if (!response.ok) {
+          const body = await response.json().catch(() => undefined);
+          throw normalizeApiError(body, response);
+        }
+        return response.text();
+      })
       .then((value) => setText(value.slice(0, 1_000_000)))
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted)
-          setError(
-            reason instanceof Error ? reason.message : t("components.filePreview.errorFallback"),
-          );
+        if (!controller.signal.aborted) setError(userMessage(reason));
       });
     return () => controller.abort();
-  }, [t, url]);
+  }, [url]);
   if (error) return <ViewerError message={error} />;
   if (text === undefined)
     return <ViewerLoading label={t("components.filePreview.loadingDocument")} />;
