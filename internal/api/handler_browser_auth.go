@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tgdrive/teldrive/v2/internal/api/gen"
 	"github.com/tgdrive/teldrive/v2/internal/authn"
 )
@@ -106,8 +108,10 @@ func (h *Handler) RefreshCookieSession(ctx context.Context, params gen.RefreshCo
 }
 
 // LogoutCookieSession revokes the session of the authenticated caller and clears
-// both session cookies by returning already expired values. It requires an
-// authenticated request and answers 401 when the context carries no identity.
+// both session cookies by returning already expired values. It needs a credential
+// tied to a login session, so an unauthenticated request and a session-less
+// credential such as an API key both answer 401, the only failure the operation
+// declares.
 func (h *Handler) LogoutCookieSession(ctx context.Context) (gen.LogoutCookieSessionRes, error) {
 	if h.Auth == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -115,6 +119,9 @@ func (h *Handler) LogoutCookieSession(ctx context.Context) (gen.LogoutCookieSess
 	identity, ok := IdentityFromContext(ctx)
 	if !ok {
 		return nil, mapServiceError(ErrUnauthenticated)
+	}
+	if identity.SessionID == uuid.Nil {
+		return nil, problem(http.StatusUnauthorized, "unauthorized", "a cookie or bearer session is required to log out", nil)
 	}
 	if err := h.Auth.Logout(ctx, identity); err != nil {
 		return nil, mapServiceError(err)

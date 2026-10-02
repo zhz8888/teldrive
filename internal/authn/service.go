@@ -1121,7 +1121,7 @@ func (s *Service) SetUserDisabled(ctx context.Context, userID int64, disabled bo
 // RevokeUserAccess revokes every session and API key of an account without
 // disabling it, which is the administrator's "sign out everywhere" operation.
 //
-// Owner accounts are refused with ErrInvalidInput so a deployment cannot lock
+// Owner accounts are refused with ErrOwnerProtected so a deployment cannot lock
 // itself out, and an unknown account reports ErrUserNotFound. The two
 // revocations are separate statements, so a failure between them can revoke
 // sessions while leaving API keys alive, and the account can sign in again
@@ -1138,7 +1138,7 @@ func (s *Service) RevokeUserAccess(ctx context.Context, userID int64) error {
 		return fmt.Errorf("get user for access revoke: %w", err)
 	}
 	if user.Role == sqlcgen.UserRoleOwner {
-		return ErrInvalidInput
+		return ErrOwnerProtected
 	}
 	if _, err := s.queries.RevokeAllSessionsForUser(ctx, userID); err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)

@@ -27,7 +27,9 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 	"github.com/tgdrive/teldrive/v2/internal/events"
 	"github.com/tgdrive/teldrive/v2/internal/fileops"
+	"github.com/tgdrive/teldrive/v2/internal/jobs"
 	"github.com/tgdrive/teldrive/v2/internal/shares"
+	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 	"github.com/tgdrive/teldrive/v2/internal/transfer"
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
 )
@@ -41,7 +43,10 @@ type Problem struct {
 	// falls in the 400-599 range and otherwise keeps its own default.
 	Status int
 	// Code is the machine-readable error code exposed in the response body, for
-	// example "not_found" or "invalid_request".
+	// example "not_found" or "invalid_request". Each code identifies one failure
+	// class: a body that cannot be decoded is reported as "malformed_request"
+	// (400) and is therefore kept apart from the "invalid_request" (422) of a
+	// decoded request that fails validation.
 	Code string
 	// Message is the human-readable message exposed in the response body; it must
 	// stay free of internal details.
@@ -75,13 +80,15 @@ func problem(status int, code, message string, cause error) error {
 //
 // It is the single place where status codes are chosen: 401 for authentication
 // and share-password failures, 403 forbidden, 404 missing resources, 409 state
-// conflicts, 410 expired uploads and login flows, 412 stale generations, 416
-// unsatisfiable ranges, 422 for invalid input, an invalid event cursor, or a hash
-// mismatch, 429 too many event streams, 503 unavailable services, 504 for a
-// deadline that expired, and 500 as the fallback with the cause hidden from the
-// client. Nil and context.Canceled pass through unchanged, because a cancelled
-// request has no client left to answer. The original error stays reachable as
-// Cause.
+// conflicts, 410 for an expired upload session, Telegram login flow or share, 412
+// stale generations, 413 an oversized Telegram profile photo, 416 unsatisfiable
+// ranges, 422 for invalid input, an invalid event cursor, or a hash mismatch, 429
+// too many event streams, 503 an unavailable service or a missing encryption
+// key, 504 for a deadline that expired, and 500 as the fallback with the cause
+// hidden from the client. Each expired resource keeps its own code, so clients
+// can tell an expired upload session from an expired login flow or share. Nil
+// and context.Canceled pass through unchanged, because a cancelled request has
+// no client left to answer. The original error stays reachable as Cause.
 func mapServiceError(err error) error {
 	if err == nil {
 		return nil
@@ -98,27 +105,33 @@ func mapServiceError(err error) error {
 		return problem(http.StatusUnauthorized, "unauthorized", "authentication is required", err)
 	case errors.Is(err, shares.ErrPasswordNeeded), errors.Is(err, shares.ErrInvalidPassword):
 		return problem(http.StatusUnauthorized, "share_password_required", "a valid share password is required", err)
-	case errors.Is(err, shares.ErrForbidden):
+	case errors.Is(err, shares.ErrForbidden), errors.Is(err, authn.ErrOwnerProtected):
 		return problem(http.StatusForbidden, "forbidden", "operation is not permitted", err)
 	case errors.Is(err, events.ErrInvalidCursor):
 		return problem(http.StatusUnprocessableEntity, "invalid_event_cursor", "event cursor is invalid", err)
 	case errors.Is(err, events.ErrTooManyConnections):
 		return problem(http.StatusTooManyRequests, "too_many_event_streams", "too many event streams are open", err)
-	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured):
+	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured), errors.Is(err, transfer.ErrEncryptionKey):
 		return problem(http.StatusServiceUnavailable, "service_unavailable", "operation is not available", err)
-	case errors.Is(err, catalog.ErrNotFound), errors.Is(err, uploads.ErrNotFound), errors.Is(err, authn.ErrSessionNotFound), errors.Is(err, authn.ErrAPIKeyNotFound), errors.Is(err, bots.ErrNotFound), errors.Is(err, channels.ErrInvalidChannel), errors.Is(err, shares.ErrNotFound), errors.Is(err, fileops.ErrNotFound):
+	case errors.Is(err, catalog.ErrNotFound), errors.Is(err, uploads.ErrNotFound), errors.Is(err, authn.ErrSessionNotFound), errors.Is(err, authn.ErrAPIKeyNotFound), errors.Is(err, authn.ErrUserNotFound), errors.Is(err, bots.ErrNotFound), errors.Is(err, channels.ErrInvalidChannel), errors.Is(err, channels.ErrInvalidOwner), errors.Is(err, shares.ErrNotFound), errors.Is(err, fileops.ErrNotFound):
 		return problem(http.StatusNotFound, "not_found", "resource was not found", err)
-	case errors.Is(err, uploads.ErrExpired), errors.Is(err, authn.ErrFlowNotFound), errors.Is(err, shares.ErrExpired):
+	case errors.Is(err, uploads.ErrExpired):
 		return problem(http.StatusGone, "upload_expired", "upload session has expired", err)
-	case errors.Is(err, catalog.ErrConflict), errors.Is(err, catalog.ErrCycle), errors.Is(err, uploads.ErrNameConflict), errors.Is(err, uploads.ErrInvalidState), errors.Is(err, uploads.ErrPartBusy), errors.Is(err, uploads.ErrPartConflict), errors.Is(err, channels.ErrSelectedChannel), errors.Is(err, channels.ErrChannelInUse), errors.Is(err, fileops.ErrNotTrashed):
+	case errors.Is(err, authn.ErrFlowNotFound):
+		return problem(http.StatusGone, "login_flow_expired", "Telegram login flow has expired", err)
+	case errors.Is(err, shares.ErrExpired):
+		return problem(http.StatusGone, "share_expired", "share has expired", err)
+	case errors.Is(err, catalog.ErrConflict), errors.Is(err, catalog.ErrCycle), errors.Is(err, uploads.ErrNameConflict), errors.Is(err, uploads.ErrInvalidState), errors.Is(err, uploads.ErrPartBusy), errors.Is(err, uploads.ErrPartConflict), errors.Is(err, uploads.ErrLeaseLost), errors.Is(err, channels.ErrSelectedChannel), errors.Is(err, channels.ErrChannelInUse), errors.Is(err, channels.ErrChannelUnhealthy), errors.Is(err, channels.ErrChannelFull), errors.Is(err, channels.ErrAutoCreateOff), errors.Is(err, channels.ErrNoSelected), errors.Is(err, jobs.ErrInvalidJobState), errors.Is(err, fileops.ErrNotTrashed):
 		return problem(http.StatusConflict, "conflict", "operation conflicts with current state", err)
 	case errors.Is(err, catalog.ErrPrecondition):
 		return problem(http.StatusPreconditionFailed, "precondition_failed", "resource generation does not match", err)
+	case errors.Is(err, telegramstore.ErrProfilePhotoTooLarge):
+		return problem(http.StatusRequestEntityTooLarge, "profile_photo_too_large", "Telegram profile photo is too large to serve", err)
 	case errors.Is(err, transfer.ErrRangeNotSatisfiable):
 		return problem(http.StatusRequestedRangeNotSatisfiable, "range_not_satisfiable", "requested byte range is not satisfiable", err)
 	case errors.Is(err, uploads.ErrHashMismatch), errors.Is(err, transfer.ErrChecksumMismatch):
 		return problem(http.StatusUnprocessableEntity, "hash_mismatch", "content hash does not match", err)
-	case errors.Is(err, catalog.ErrInvalidName), errors.Is(err, catalog.ErrInvalidParent), errors.Is(err, catalog.ErrInvalidOwner), errors.Is(err, uploads.ErrInvalidInput), errors.Is(err, uploads.ErrInvalidParent), errors.Is(err, uploads.ErrInvalidChannel), errors.Is(err, uploads.ErrUnsupportedConflictPolicy), errors.Is(err, transfer.ErrInvalidUpload), errors.Is(err, transfer.ErrInvalidDownload), errors.Is(err, authn.ErrInvalidInput), errors.Is(err, authn.ErrCodeInvalid), errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrNotBot), errors.Is(err, shares.ErrInvalidInput), errors.Is(err, fileops.ErrInvalidInput):
+	case errors.Is(err, catalog.ErrInvalidName), errors.Is(err, catalog.ErrInvalidParent), errors.Is(err, catalog.ErrInvalidOwner), errors.Is(err, catalog.ErrInvalidFilter), errors.Is(err, catalog.ErrUnsupportedConflictPolicy), errors.Is(err, uploads.ErrInvalidInput), errors.Is(err, uploads.ErrInvalidParent), errors.Is(err, uploads.ErrInvalidChannel), errors.Is(err, uploads.ErrUnsupportedConflictPolicy), errors.Is(err, transfer.ErrInvalidUpload), errors.Is(err, transfer.ErrInvalidDownload), errors.Is(err, authn.ErrInvalidInput), errors.Is(err, authn.ErrCodeInvalid), errors.Is(err, authn.ErrLoginStateInvalid), errors.Is(err, authn.ErrPasswordRequired), errors.Is(err, bots.ErrInvalidInput), errors.Is(err, bots.ErrNotBot), errors.Is(err, shares.ErrInvalidInput), errors.Is(err, fileops.ErrInvalidInput):
 		return problem(http.StatusUnprocessableEntity, "invalid_request", "request is invalid", err)
 	default:
 		return problem(http.StatusInternalServerError, "internal_error", "request failed", err)
@@ -129,9 +142,10 @@ func mapServiceError(err error) error {
 // as the JSON error envelope with the matching status code.
 //
 // It derives the status from an *ogenerrors.SecurityError (401) or a request or
-// parameter decoding error (400), then lets a *Problem override status, code and
-// message. Responses of 500 and above are logged with the request ID. A cancelled
-// request returns without writing anything because the client is already gone.
+// parameter decoding error (400 with the code "malformed_request"), then lets a
+// *Problem override status, code and message. Responses of 500 and above are
+// logged with the request ID. A cancelled request returns without writing
+// anything because the client is already gone.
 func ErrorHandler(ctx context.Context, w http.ResponseWriter, _ *http.Request, err error) {
 	if errors.Is(err, context.Canceled) {
 		return
@@ -150,7 +164,7 @@ func ErrorHandler(ctx context.Context, w http.ResponseWriter, _ *http.Request, e
 		message = "authentication is required"
 	case errors.As(err, &decodeRequestErr), errors.As(err, &decodeParamsErr):
 		status = http.StatusBadRequest
-		code = "invalid_request"
+		code = "malformed_request"
 		message = "request could not be decoded"
 	case errors.Is(err, ErrOperationUnavailable):
 		status = http.StatusServiceUnavailable
@@ -343,8 +357,9 @@ func encodeCursor(value any) gen.OptCursor {
 // decodeCursor decodes a cursor produced by encodeCursor into target. An unset
 // cursor leaves target untouched and reports no error, so the first page needs no
 // special case; malformed base64 or JSON yields a generic "invalid cursor" error,
-// which each caller translates into a domain error of its own, so the response
-// status is decided by mapServiceError for that sentinel rather than here.
+// which every caller answers with 422: most translate it into an invalid-input
+// sentinel that mapServiceError maps there, while the channel and job listings
+// build the problem directly so they can keep a cursor-specific code.
 func decodeCursor(value gen.OptCursor, target any) error {
 	cursor, ok := value.Get()
 	if !ok {

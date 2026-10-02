@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -266,11 +267,15 @@ func (h *Handler) RevokeApiKey(ctx context.Context, params gen.RevokeApiKeyParam
 
 // ListSessions returns a cursor page of the authenticated account's TelDrive
 // sessions and flags the one backing the current credential. A missing identity
-// or auth service is reported as 404 rather than 401.
+// is reported as 404 rather than 401, while an unwired auth service reports 503
+// like every other handler.
 func (h *Handler) ListSessions(ctx context.Context, params gen.ListSessionsParams) (gen.ListSessionsRes, error) {
 	identity, ok := IdentityFromContext(ctx)
-	if !ok || h.Auth == nil {
+	if !ok {
 		return nil, mapServiceError(authn.ErrSessionNotFound)
+	}
+	if h.Auth == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
 	}
 	var cursor datedUUIDCursor
 	if err := decodeCursor(params.Cursor, &cursor); err != nil {
@@ -312,11 +317,15 @@ func (h *Handler) ListSessions(ctx context.Context, params gen.ListSessionsParam
 
 // RevokeSession revokes one TelDrive session of the authenticated account.
 // Revoking the current session invalidates its bearer token immediately; unknown
-// session IDs and a missing identity surface as 404.
+// session IDs and a missing identity surface as 404, while an unwired auth
+// service reports 503.
 func (h *Handler) RevokeSession(ctx context.Context, params gen.RevokeSessionParams) (gen.RevokeSessionRes, error) {
 	identity, ok := IdentityFromContext(ctx)
-	if !ok || h.Auth == nil {
+	if !ok {
 		return nil, mapServiceError(authn.ErrSessionNotFound)
+	}
+	if h.Auth == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
 	}
 	if err := h.Auth.RevokeSession(ctx, identity.UserID, googleUUID(params.SessionId)); err != nil {
 		return nil, mapServiceError(err)
@@ -497,8 +506,8 @@ func (h *Handler) CreateChannel(ctx context.Context, req *gen.ChannelCreateReque
 }
 
 // ListChannels returns a cursor page of the authenticated user's channels, newest
-// first. A malformed cursor is reported as 404 because channels.ErrInvalidChannel
-// maps to not_found in mapServiceError.
+// first. A malformed cursor is reported as 422, the status every other cursor
+// listing uses.
 func (h *Handler) ListChannels(ctx context.Context, params gen.ListChannelsParams) (gen.ListChannelsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -509,7 +518,7 @@ func (h *Handler) ListChannels(ctx context.Context, params gen.ListChannelsParam
 	}
 	var cursor datedInt64Cursor
 	if err := decodeCursor(params.Cursor, &cursor); err != nil {
-		return nil, mapServiceError(channels.ErrInvalidChannel)
+		return nil, problem(http.StatusUnprocessableEntity, "invalid_cursor", "channel cursor is invalid", err)
 	}
 	input := channels.ListInput{UserID: userID, Limit: params.Limit.Or(100)}
 	if cursor.ID != 0 {
@@ -532,8 +541,8 @@ func (h *Handler) ListChannels(ctx context.Context, params gen.ListChannelsParam
 }
 
 // SelectChannel makes one channel the active upload target, clearing any previous
-// selection. Unknown channels map to 404 through channels.ErrInvalidChannel, and
-// an unavailable channel is rejected by the service.
+// selection. Unknown channels map to 404 through channels.ErrInvalidChannel, while
+// an unhealthy or full channel maps to 409 conflict.
 func (h *Handler) SelectChannel(ctx context.Context, params gen.SelectChannelParams) (gen.SelectChannelRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {

@@ -20,7 +20,7 @@ import (
 
 // ListJobs returns the job page visible to the caller: administrators see every
 // user's jobs while ordinary users only see their own. A malformed cursor is
-// reported as 400 rather than through mapServiceError.
+// reported as 422 rather than through mapServiceError.
 func (h *Handler) ListJobs(ctx context.Context, params gen.ListJobsParams) (gen.ListJobsRes, error) {
 	if h.Jobs == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -38,7 +38,7 @@ func (h *Handler) ListJobs(ctx context.Context, params gen.ListJobsParams) (gen.
 	})
 	if err != nil {
 		if errors.Is(err, jobs.ErrInvalidCursor) {
-			return nil, problem(http.StatusBadRequest, "invalid_cursor", "job cursor is invalid", err)
+			return nil, problem(http.StatusUnprocessableEntity, "invalid_cursor", "job cursor is invalid", err)
 		}
 		return nil, mapServiceError(err)
 	}
@@ -182,6 +182,9 @@ func (h *Handler) GetJobStatistics(ctx context.Context) (gen.GetJobStatisticsRes
 // GetJob returns one job after parsing its decimal ID, which must be positive or
 // the request is answered with 404. Non-admins only see their own jobs.
 func (h *Handler) GetJob(ctx context.Context, params gen.GetJobParams) (gen.GetJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -206,6 +209,9 @@ func (h *Handler) GetJob(ctx context.Context, params gen.GetJobParams) (gen.GetJ
 // CancelJob cancels an active job and returns its updated record. The same scoping
 // as GetJob applies, so non-admins can only cancel their own jobs.
 func (h *Handler) CancelJob(ctx context.Context, params gen.CancelJobParams) (gen.CancelJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -230,6 +236,9 @@ func (h *Handler) CancelJob(ctx context.Context, params gen.CancelJobParams) (ge
 // RetryJob schedules a finalized job for another attempt and returns the updated
 // record. Non-admins can only retry their own jobs.
 func (h *Handler) RetryJob(ctx context.Context, params gen.RetryJobParams) (gen.RetryJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -255,6 +264,9 @@ func (h *Handler) RetryJob(ctx context.Context, params gen.RetryJobParams) (gen.
 // refuses to delete running jobs. It returns 204 and reports an active job that
 // cannot be cancelled as 409.
 func (h *Handler) DeleteJob(ctx context.Context, params gen.DeleteJobParams) (gen.DeleteJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -293,6 +305,9 @@ func (h *Handler) DeleteJob(ctx context.Context, params gen.DeleteJobParams) (ge
 // were removed. Non-final states are rejected with 409; administrators purge
 // across all users.
 func (h *Handler) PurgeJobs(ctx context.Context, params gen.PurgeJobsParams) (gen.PurgeJobsRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	userID, err := jobScopeUserID(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -357,6 +372,9 @@ func (h *Handler) ListJobQueues(ctx context.Context) (gen.ListJobQueuesRes, erro
 // PauseJobQueue stops a queue from handing out new work and requires the admin or
 // owner role; unknown queues map to 404 through mapJobError.
 func (h *Handler) PauseJobQueue(ctx context.Context, params gen.PauseJobQueueParams) (gen.PauseJobQueueRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	if !HasAdminRole(ctx) {
 		return nil, problem(http.StatusForbidden, "forbidden", "administrator access is required", nil)
 	}
@@ -369,6 +387,9 @@ func (h *Handler) PauseJobQueue(ctx context.Context, params gen.PauseJobQueuePar
 // ResumeJobQueue lets a paused queue hand out work again and requires the admin or
 // owner role; unknown queues map to 404 through mapJobError.
 func (h *Handler) ResumeJobQueue(ctx context.Context, params gen.ResumeJobQueueParams) (gen.ResumeJobQueueRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	if !HasAdminRole(ctx) {
 		return nil, problem(http.StatusForbidden, "forbidden", "administrator access is required", nil)
 	}

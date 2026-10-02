@@ -17,6 +17,9 @@ import (
 // ListPeriodicJobs returns every configured periodic job with its schedule, queue
 // and pause state. Service failures are mapped by mapServiceError.
 func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	items, err := h.Jobs.ListPeriodicJobs(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -32,6 +35,9 @@ func (h *Handler) ListPeriodicJobs(ctx context.Context) (gen.ListPeriodicJobsRes
 // label, default args, queue and recommended cron expression, which clients use to
 // create periodic jobs.
 func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCatalogRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	templates := h.Jobs.PeriodicJobCatalog()
 	response := gen.PeriodicJobCatalog{Templates: make([]gen.PeriodicJobTemplate, 0, len(templates))}
 	for _, template := range templates {
@@ -47,6 +53,9 @@ func (h *Handler) GetPeriodicJobCatalog(context.Context) (gen.GetPeriodicJobCata
 // ResetPeriodicJobs restores the built-in catalog of schedules and returns the
 // resulting list, discarding any user modifications.
 func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	items, err := h.Jobs.ResetPeriodicJobs(ctx)
 	if err != nil {
 		return nil, mapServiceError(err)
@@ -61,6 +70,9 @@ func (h *Handler) ResetPeriodicJobs(ctx context.Context) (gen.ResetPeriodicJobsR
 // CreatePeriodicJob registers a cron schedule and returns it. A duplicate ID is
 // reported as 409 through mapPeriodicJobError.
 func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCreate) (gen.CreatePeriodicJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.CreatePeriodicJob(ctx, jobs.PeriodicJobInput{
 		ID: req.ID, Kind: req.Kind, Args: jsonRawMap(req.Args), Queue: req.Queue,
@@ -78,6 +90,9 @@ func (h *Handler) CreatePeriodicJob(ctx context.Context, req *gen.PeriodicJobCre
 // UpdatePeriodicJob replaces the schedule identified by the path ID and returns
 // the stored job; unknown IDs map to 404 through mapPeriodicJobError.
 func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpdate, params gen.UpdatePeriodicJobParams) (gen.UpdatePeriodicJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	paused, _ := req.Paused.Get()
 	item, err := h.Jobs.UpdatePeriodicJob(ctx, params.PeriodicJobId, jobs.PeriodicJobInput{
 		ID: params.PeriodicJobId, Kind: req.Kind, Args: jsonRawMap(req.Args), Queue: req.Queue,
@@ -95,6 +110,9 @@ func (h *Handler) UpdatePeriodicJob(ctx context.Context, req *gen.PeriodicJobUpd
 // DeletePeriodicJob removes a schedule, returning 404 through mapPeriodicJobError
 // when the ID does not exist.
 func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriodicJobParams) (gen.DeletePeriodicJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	if err := h.Jobs.DeletePeriodicJob(ctx, params.PeriodicJobId); err != nil {
 		return nil, mapPeriodicJobError(err)
 	}
@@ -104,6 +122,9 @@ func (h *Handler) DeletePeriodicJob(ctx context.Context, params gen.DeletePeriod
 // PausePeriodicJob suspends a schedule, which stops future runs but keeps its
 // configuration, and returns the updated job.
 func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodicJobParams) (gen.PausePeriodicJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	item, err := h.Jobs.PausePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
 		return nil, mapPeriodicJobError(err)
@@ -114,6 +135,9 @@ func (h *Handler) PausePeriodicJob(ctx context.Context, params gen.PausePeriodic
 
 // ResumePeriodicJob reactivates a paused schedule and returns the updated job.
 func (h *Handler) ResumePeriodicJob(ctx context.Context, params gen.ResumePeriodicJobParams) (gen.ResumePeriodicJobRes, error) {
+	if h.Jobs == nil {
+		return nil, mapServiceError(ErrOperationUnavailable)
+	}
 	item, err := h.Jobs.ResumePeriodicJob(ctx, params.PeriodicJobId)
 	if err != nil {
 		return nil, mapPeriodicJobError(err)

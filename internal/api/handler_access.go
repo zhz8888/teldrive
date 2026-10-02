@@ -86,7 +86,7 @@ func (h *Handler) UpdateAdminUser(ctx context.Context, req *gen.UserAdminUpdateR
 }
 
 // RevokeAdminUserAccess revokes every session and API key of one account so it can
-// no longer authenticate. Owner accounts are refused with 422 and unknown accounts
+// no longer authenticate. Owner accounts are refused with 403 and unknown accounts
 // map to 404.
 func (h *Handler) RevokeAdminUserAccess(ctx context.Context, params gen.RevokeAdminUserAccessParams) (gen.RevokeAdminUserAccessRes, error) {
 	if err := requireAdmin(ctx); err != nil {
@@ -498,8 +498,10 @@ func (h *Handler) resolveAuthenticatedFileAccess(ctx context.Context, fileID uui
 
 // resolveAuthenticatedUploadOwner finds the owner of an upload session so the
 // caller can act on it: the caller is either that owner or holds access to the
-// session's parent with matching ownership. Any mismatch yields ErrForbidden,
-// which maps to 403.
+// session's parent with matching ownership. An ownership mismatch yields
+// ErrForbidden (403), while a parent the caller cannot resolve keeps the
+// ResolveAccess error, which is ErrNotFound (404) rather than a distinguishable
+// denial.
 func (h *Handler) resolveAuthenticatedUploadOwner(ctx context.Context, uploadID uuid.UUID, requireEdit bool) (int64, error) {
 	actorID, err := UserIDFromContext(ctx)
 	if err != nil {

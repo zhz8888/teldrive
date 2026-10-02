@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/catalog"
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
+	"github.com/tgdrive/teldrive/v2/internal/health"
 	"github.com/tgdrive/teldrive/v2/internal/shares"
 	"github.com/tgdrive/teldrive/v2/internal/transfer"
 	"github.com/tgdrive/teldrive/v2/internal/uploads"
@@ -28,15 +30,21 @@ func (h *Handler) HealthLive(ctx context.Context) (*gen.HealthStatus, error) {
 	return &gen.HealthStatus{Status: gen.HealthStatusStatus(status.State), Version: status.Version}, nil
 }
 
-// HealthReady probes the service dependencies and reports 503 with the not_ready
-// code as soon as one of them fails. It is unauthenticated and builds its problem
-// directly instead of going through mapServiceError.
+// HealthReady probes the service dependencies and reports 503 as soon as one of
+// them fails: the not_ready code for a dependency that answered badly, and the
+// not_configured code when the probe found no dependency wired up at all
+// (health.ErrNotConfigured), so an operator can tell a misconfigured deployment
+// from a failing database. It is unauthenticated and builds its problem directly
+// instead of going through mapServiceError.
 func (h *Handler) HealthReady(ctx context.Context) (gen.HealthReadyRes, error) {
 	if h.Health == nil {
 		return nil, problem(503, "service_unavailable", "health service is unavailable", ErrOperationUnavailable)
 	}
 	status, err := h.Health.Ready(ctx)
 	if err != nil {
+		if errors.Is(err, health.ErrNotConfigured) {
+			return nil, problem(503, "not_configured", "a required dependency is not configured", err)
+		}
 		return nil, problem(503, "not_ready", "service is not ready", err)
 	}
 	return &gen.HealthStatus{Status: gen.HealthStatusStatus(status.State), Version: status.Version}, nil
@@ -413,9 +421,10 @@ func (h *Handler) ListUploads(ctx context.Context, params gen.ListUploadsParams)
 	return &response, nil
 }
 
-// ListUploadParts pages through the stored parts of one session after checking
-// that the caller may read it. The cursor is the last part number of the previous
-// page.
+// ListUploadParts pages through every recorded part of one session after checking
+// that the caller may read it. The parts service applies no state filter, so
+// uploading and failed rows are returned alongside stored ones. The cursor is the
+// last part number of the previous page.
 func (h *Handler) ListUploadParts(ctx context.Context, params gen.ListUploadPartsParams) (gen.ListUploadPartsRes, error) {
 	if h.Uploads == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -532,7 +541,8 @@ func (h *Handler) AbortUpload(ctx context.Context, params gen.AbortUploadParams)
 
 // HeadFile returns download metadata for a file without a body: length,
 // disposition, modification time and content ETag. Entries that are not sized
-// regular files are reported as 422.
+// regular files are reported as 404, exactly like a missing file, so the two HEAD
+// paths cannot be told apart.
 func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.HeadFileRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
@@ -546,7 +556,7 @@ func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.
 		return nil, mapServiceError(err)
 	}
 	if file.Kind != sqlcgen.FileKindFile || !file.Size.Valid {
-		return nil, mapServiceError(transfer.ErrInvalidDownload)
+		return nil, mapServiceError(catalog.ErrNotFound)
 	}
 	return &gen.HeadFileOK{
 		AcceptRanges: gen.HeadFileOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
@@ -554,8 +564,8 @@ func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.
 	}, nil
 }
 
-// HeadFileLegacy serves the pre-v1 HEAD path. It behaves like HeadFile but
-// reports entries that are not sized regular files as 404 instead of 422.
+// HeadFileLegacy serves the pre-v1 HEAD path. It behaves like HeadFile, including
+// reporting entries that are not sized regular files as 404.
 func (h *Handler) HeadFileLegacy(ctx context.Context, params gen.HeadFileLegacyParams) (gen.HeadFileLegacyRes, error) {
 	if h.Catalog == nil {
 		return nil, mapServiceError(ErrOperationUnavailable)
