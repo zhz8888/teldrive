@@ -52,3 +52,38 @@ test("the login form keeps its per-step autocomplete semantics", () => {
   expect(source).toContain('autoComplete="one-time-code"');
   expect(source).toContain('autoComplete="current-password"');
 });
+
+// Han, Hangul and kana ranges plus the compatibility ideographs: the characters a
+// translated string is made of. Latin accents are deliberately not included.
+const cjkPattern = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+const translationRoot = join(sourceRoot, "lib", "i18n");
+
+test("translated text lives only in the translation module", () => {
+  // Interface copy is keyed, never inlined: a literal Chinese string outside the
+  // catalogs is either a missed translation or a message that belongs in a log.
+  const offenders: string[] = [];
+  for (const path of sourceFiles(sourceRoot)) {
+    if (path.startsWith(translationRoot)) continue;
+    const lines = readFileSync(path, "utf8").split("\n");
+    lines.forEach((line, index) => {
+      if (cjkPattern.test(line)) offenders.push(`${relative(sourceRoot, path)}:${index + 1}`);
+    });
+  }
+  expect(offenders).toEqual([]);
+});
+
+test("log output is never translated", () => {
+  // Console output, job traces and diagnostics are read by operators and pasted
+  // into bug reports, so they stay English whatever the interface language is.
+  const offenders: string[] = [];
+  for (const path of sourceFiles(sourceRoot)) {
+    const lines = readFileSync(path, "utf8").split("\n");
+    lines.forEach((line, index) => {
+      if (!/console\.(log|info|warn|error|debug)\s*\(/.test(line)) return;
+      if (/\bt\(|translate\(|useI18n\(/.test(line)) {
+        offenders.push(`${relative(sourceRoot, path)}:${index + 1}`);
+      }
+    });
+  }
+  expect(offenders).toEqual([]);
+});
