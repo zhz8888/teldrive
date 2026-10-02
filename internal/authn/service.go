@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -520,6 +521,15 @@ func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password
 // including the Telegram round trip; acquisition blocks without a timeout, and
 // the release runs on a background context with a five second deadline so a
 // cancelled request still unlocks.
+//
+// A release that fails leaves the session-level lock on the connection, so the
+// connection is hijacked out of the pool and closed instead of being returned,
+// which ends the server session and drops the lock with it. Such a failure never
+// replaces a result the caller can still use: a login whose flow was already
+// completed and whose token pair was already minted is reported as the success it
+// is, and the unlock failure is logged instead, because the tokens exist only in
+// the response and failing here would lose them. The error is only surfaced when
+// the call produced no result for the caller to lose.
 func (s *Service) withFlowLock(ctx context.Context, flowID uuid.UUID, fn func(*pgxpool.Conn, *sqlcgen.TelegramLoginFlow) (*VerifyResult, error)) (result *VerifyResult, err error) {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
@@ -535,9 +545,17 @@ func (s *Service) withFlowLock(ctx context.Context, flowID uuid.UUID, fn func(*p
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, unlockErr := queries.ReleaseAdvisoryLock(unlockCtx, lockID)
-		if unlockErr != nil && err == nil {
-			err = fmt.Errorf("unlock login flow: %w", unlockErr)
+		if unlockErr == nil {
+			return
 		}
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer closeCancel()
+		_ = conn.Hijack().Close(closeCtx)
+		if result == nil && err == nil {
+			err = fmt.Errorf("unlock login flow: %w", unlockErr)
+			return
+		}
+		slog.WarnContext(ctx, "unlocking a Telegram login flow failed", "flow_id", flowID, "error", unlockErr)
 	}()
 	flow, err := queries.GetTelegramLoginFlow(ctx, dbtypes.UUID(flowID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -711,8 +729,11 @@ func (s *Service) RenewAccess(ctx context.Context, refreshToken string) (*Access
 // The rotation is a compare-and-swap on the stored digest: a token that is
 // unknown, already rotated, revoked or expired reports ErrInvalidCredential, so
 // two concurrent refreshes with the same value cannot both succeed and a replayed
-// token is rejected. Callers must replace the refresh token they sent with the
-// one returned here.
+// token is rejected. The new access token is minted before that swap, so a
+// database failure or an account disabled in between fails the call without
+// consuming the presented token, which the caller can then present again instead
+// of losing the session; only a swap that succeeds retires it. Callers must
+// replace the refresh token they sent with the one returned here.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (*TokenPair, error) {
 	oldHash := hashToken(strings.TrimSpace(refreshToken))
 	if len(oldHash) == 0 {
@@ -729,6 +750,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*TokenPair,
 	if !ok {
 		return nil, ErrSessionNotFound
 	}
+	access, err := s.issueAccessToken(ctx, s.queries, sessionRow.UserID, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	newToken, newHash, err := s.newOpaqueToken("tdr_")
 	if err != nil {
 		return nil, err
@@ -739,10 +764,6 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*TokenPair,
 		return nil, ErrInvalidCredential
 	} else if err != nil {
 		return nil, fmt.Errorf("rotate refresh token: %w", err)
-	}
-	access, err := s.issueAccessToken(ctx, s.queries, sessionRow.UserID, sessionID)
-	if err != nil {
-		return nil, err
 	}
 	return &TokenPair{AccessToken: access, RefreshToken: newToken, ExpiresIn: ttlSeconds(s.config.AccessTokenTTL)}, nil
 }
@@ -780,7 +801,12 @@ func (s *Service) AuthenticateBearer(ctx context.Context, raw string) (principal
 	_ = s.queries.TouchSession(ctx, dbtypes.UUID(claims.SessionID))
 	roles, err := s.rolesForUser(ctx, s.queries, userID)
 	if err != nil {
-		return principal.Identity{}, ErrInvalidCredential
+		// rolesForUser reports a missing or disabled account with
+		// ErrInvalidCredential itself, so only a database failure reaches this
+		// branch as a different error and stays a server error: the browser
+		// renewal middleware clears the session cookies on ErrInvalidCredential
+		// alone, and a transient outage must not log every browser out.
+		return principal.Identity{}, err
 	}
 	return principal.Identity{UserID: userID, SessionID: claims.SessionID, Roles: roles, Source: "bearer"}, nil
 }
@@ -810,7 +836,10 @@ func (s *Service) AuthenticateAPIKey(ctx context.Context, raw string) (principal
 	_ = s.queries.TouchAPIKey(ctx, row.ID)
 	roles, err := s.rolesForUser(ctx, s.queries, row.UserID)
 	if err != nil {
-		return principal.Identity{}, ErrInvalidCredential
+		// rolesForUser reports a missing or disabled account with
+		// ErrInvalidCredential itself; any other error is a database failure and
+		// stays a server error, as everywhere else in this method.
+		return principal.Identity{}, err
 	}
 	return principal.Identity{UserID: row.UserID, Roles: roles, Source: "api_key"}, nil
 }
@@ -1175,11 +1204,19 @@ func Capabilities(role sqlcgen.UserRole) []string {
 // role change and a disabled account both take effect on the next request. The
 // caller supplies the queries handle, which is what lets completeLogin resolve
 // roles through the transaction that just upserted the user. A missing or disabled
-// user reports ErrInvalidCredential, and a database failure while loading the user
-// is reported the same way instead of being propagated.
+// user reports ErrInvalidCredential, while a database failure is returned wrapped
+// with its cause: "the account is gone" and "the database is unavailable" must stay
+// distinguishable, because callers treat ErrInvalidCredential as a dead session
+// and would otherwise log a user out over a transient outage.
 func (s *Service) rolesForUser(ctx context.Context, q *sqlcgen.Queries, userID int64) ([]string, error) {
 	user, err := q.GetUser(ctx, userID)
-	if err != nil || user.DisabledAt.Valid {
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInvalidCredential
+		}
+		return nil, fmt.Errorf("get user for roles: %w", err)
+	}
+	if user.DisabledAt.Valid {
 		return nil, ErrInvalidCredential
 	}
 	roles := []string{"user"}
@@ -1200,7 +1237,8 @@ func (s *Service) rolesForUser(ctx context.Context, q *sqlcgen.Queries, userID i
 // because bearer authentication checks the session row. The caller supplies the
 // queries handle so a login can sign inside its own transaction and see the user
 // row that transaction upserted. A missing or disabled user reports
-// ErrInvalidCredential, and a signing failure is returned wrapped.
+// ErrInvalidCredential, a database failure while loading the user is returned
+// wrapped, and a signing failure is returned wrapped.
 func (s *Service) issueAccessToken(ctx context.Context, q *sqlcgen.Queries, userID int64, sessionID uuid.UUID) (string, error) {
 	roles, err := s.rolesForUser(ctx, q, userID)
 	if err != nil {
