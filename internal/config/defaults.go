@@ -49,7 +49,7 @@ func applyStructDefaults(value reflect.Value, path string) error {
 		if path != "" {
 			fieldPath = path + "." + fieldPath
 		}
-		if isNestedStruct(fieldType.Type) {
+		if IsNestedStruct(fieldType.Type) {
 			if err := applyStructDefaults(field, fieldPath); err != nil {
 				return err
 			}

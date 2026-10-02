@@ -168,10 +168,15 @@ func Migrate(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("inspect database schema: %w", err)
 	}
 	if legacy && !cfg.AllowLegacySchema {
+		// AllowLegacySchema is only set by the legacy migrator for its staging
+		// target, so a configuration-driven run always reaches this branch with
+		// the field false: the v1 schema is still there either because the
+		// operator disabled the automatic migration or because it ran without
+		// clearing the legacy tables.
 		if !cfg.AutoMigrateLegacy {
-			return fmt.Errorf("%w: database.auto-migrate-legacy is disabled; set it to true to migrate during startup", ErrLegacySchema)
+			return fmt.Errorf("%w: the v1 schema is still present and database.auto-migrate-legacy is disabled; set it to true to migrate during startup", ErrLegacySchema)
 		}
-		return fmt.Errorf("%w: automatic legacy migration did not complete", ErrLegacySchema)
+		return fmt.Errorf("%w: automatic legacy migration did not complete and the v1 schema is still present", ErrLegacySchema)
 	}
 	if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{cfg.Schema}.Sanitize()); err != nil {
 		return fmt.Errorf("create database schema: %w", err)

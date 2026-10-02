@@ -28,6 +28,11 @@ import (
 // the user's home directory instead.
 const defaultConfigPath = "$HOME/.teldrive/config.toml"
 
+// ignoredKey is the `koanf` tag value that opts a field out of configuration.
+// mapstructure skips such fields while decoding, so the loader must not expose
+// them as flags, environment variables, or defaults either.
+const ignoredKey = "-"
+
 var (
 	// matchFirstCap matches the boundary in front of a capitalized word, so
 	// "ReadTimeout" becomes "Read-Timeout".
@@ -245,19 +250,23 @@ func (l *Loader) environmentValues() map[string]any {
 // generateEnvMap walks the configuration type and records, for every leaf
 // field, the mapping from its TELDRIVE_ variable name without the prefix to its
 // dotted koanf path. Nested structs extend both sides, so Telegram.AppID yields
-// the entry TELEGRAM_APP_ID for telegram.app-id.
+// the entry TELEGRAM_APP_ID for telegram.app-id. Fields tagged `koanf:"-"` are
+// skipped because mapstructure never decodes them.
 func (l *Loader) generateEnvMap(t reflect.Type, path, envPath string) {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	for field := range t.Fields() {
-		key := fieldKey(field)
+		key := FieldKey(field)
+		if key == ignoredKey {
+			continue
+		}
 		childPath := joinPath(path, key)
 		childEnv := strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
 		if envPath != "" {
 			childEnv = envPath + "_" + childEnv
 		}
-		if isNestedStruct(field.Type) {
+		if IsNestedStruct(field.Type) {
 			l.generateEnvMap(field.Type, childPath, childEnv)
 			continue
 		}
@@ -271,13 +280,18 @@ func (l *Loader) generateEnvMap(t reflect.Type, path, envPath string) {
 // Defaults come from the fully defaulted value, and only the types that occur in
 // the configuration tree are handled: duration, size, encryption keys, string
 // slices, and the string, bool, int, int32, and int64 kinds. Fields of any other
-// type are skipped, so they can only be set from a file or the environment.
+// type are skipped, so they can only be set from a file or the environment, and
+// fields tagged `koanf:"-"` are skipped because mapstructure never decodes them.
 func (l *Loader) registerStruct(flags *pflag.FlagSet, path string, value reflect.Value, t reflect.Type) {
 	for i := range t.NumField() {
 		field := t.Field(i)
 		fieldValue := value.Field(i)
-		key := joinPath(path, fieldKey(field))
-		if isNestedStruct(field.Type) {
+		key := FieldKey(field)
+		if key == ignoredKey {
+			continue
+		}
+		key = joinPath(path, key)
+		if IsNestedStruct(field.Type) {
 			l.registerStruct(flags, key, fieldValue, field.Type)
 			continue
 		}
@@ -319,15 +333,19 @@ func defaultsMap(cfg Config) map[string]any {
 // structMap converts a configuration value into a nested map keyed by koanf
 // path. Durations, sizes, and encryption key maps are rendered as their string
 // forms so koanf holds them in the same representation as the file and flag
-// sources; every other leaf keeps its native value.
+// sources; every other leaf keeps its native value. Fields tagged `koanf:"-"` are
+// omitted because mapstructure never decodes them.
 func structMap(value reflect.Value, t reflect.Type) map[string]any {
 	result := make(map[string]any)
 	for i := range t.NumField() {
 		field := t.Field(i)
 		fieldValue := value.Field(i)
-		key := fieldKey(field)
+		key := FieldKey(field)
+		if key == ignoredKey {
+			continue
+		}
 		switch {
-		case isNestedStruct(field.Type):
+		case IsNestedStruct(field.Type):
 			result[key] = structMap(fieldValue, field.Type)
 		case field.Type == reflect.TypeFor[time.Duration]():
 			result[key] = time.Duration(fieldValue.Int()).String()
@@ -370,7 +388,7 @@ func decodeSize(_ reflect.Type, to reflect.Type, data any) (any, error) {
 // string version keys into the same map. Values destined for another type pass
 // through untouched, while a non-positive or unparsable version and an empty key
 // yield an error wrapping ErrInvalid.
-func decodeEncryptionKeys(from reflect.Type, to reflect.Type, data any) (any, error) {
+func decodeEncryptionKeys(_ reflect.Type, to reflect.Type, data any) (any, error) {
 	if to != reflect.TypeFor[map[int32]string]() {
 		return data, nil
 	}
@@ -389,7 +407,6 @@ func decodeEncryptionKeys(from reflect.Type, to reflect.Type, data any) (any, er
 		}
 		return keys, nil
 	default:
-		_ = from
 		return data, nil
 	}
 }
@@ -410,9 +427,11 @@ func formatEncryptionKeys(keys map[int32]string) string {
 	return strings.Join(parts, ",")
 }
 
-// fieldKey returns the config key of a field: its `koanf` tag when one is set,
-// or the kebab-case form of the field name otherwise.
-func fieldKey(field reflect.StructField) string {
+// FieldKey returns the config key of a field: its `koanf` tag when one is set, or
+// the kebab-case form of the field name otherwise. A field tagged `koanf:"-"`
+// yields "-", which callers must treat as "not configurable". It is exported so
+// internal/tools/docsconfig documents the very names the loader accepts.
+func FieldKey(field reflect.StructField) string {
 	if tag := field.Tag.Get("koanf"); tag != "" {
 		return tag
 	}
@@ -446,10 +465,11 @@ func joinPath(prefix, key string) string {
 	return prefix + "." + key
 }
 
-// isNestedStruct reports whether t is a configuration group rather than a leaf.
+// IsNestedStruct reports whether t is a configuration group rather than a leaf.
 // time.Duration and size.Size are struct types but are treated as scalars, so
-// they are excluded.
-func isNestedStruct(t reflect.Type) bool {
+// they are excluded. It is exported so internal/tools/docsconfig classifies
+// fields exactly as the loader does.
+func IsNestedStruct(t reflect.Type) bool {
 	return t.Kind() == reflect.Struct && t != reflect.TypeFor[time.Duration]() && t != reflect.TypeFor[size.Size]()
 }
 

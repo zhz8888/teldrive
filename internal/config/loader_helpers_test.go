@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,7 +111,66 @@ func TestLoaderProviderAndKeyHelpers(t *testing.T) {
 	if got := joinPath("parent", "key"); got != "parent.key" {
 		t.Fatalf("joinPath nested = %q", got)
 	}
-	if !isNestedStruct(reflect.TypeFor[struct{ Value string }]()) || isNestedStruct(reflect.TypeFor[time.Duration]()) || isNestedStruct(reflect.TypeFor[size.Size]()) {
-		t.Fatal("isNestedStruct() classification is incorrect")
+	if !IsNestedStruct(reflect.TypeFor[struct{ Value string }]()) || IsNestedStruct(reflect.TypeFor[time.Duration]()) || IsNestedStruct(reflect.TypeFor[size.Size]()) {
+		t.Fatal("IsNestedStruct() classification is incorrect")
+	}
+}
+
+func TestKoanfDashTagIsIgnored(t *testing.T) {
+	t.Parallel()
+	type sample struct {
+		Visible string `koanf:"visible" description:"Visible setting"`
+		Hidden  string `koanf:"-"`
+	}
+	value := reflect.ValueOf(sample{Visible: "v", Hidden: "h"})
+	fieldType := reflect.TypeFor[sample]()
+
+	if key := FieldKey(fieldType.Field(1)); key != "-" {
+		t.Fatalf("FieldKey() = %q, want -", key)
+	}
+	if got := structMap(value, fieldType); len(got) != 1 || got["visible"] != "v" {
+		t.Fatalf("structMap() = %#v", got)
+	}
+
+	loader := newLoader(func(string) (string, bool) { return "", false }, func() (string, error) { return "", nil })
+	loader.generateEnvMap(fieldType, "", "")
+	if len(loader.envMap) != 1 || loader.envMap["VISIBLE"] != "visible" {
+		t.Fatalf("generateEnvMap() = %#v", loader.envMap)
+	}
+
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	loader.registerStruct(flags, "", value, fieldType)
+	if flags.Lookup("") != nil || len(loader.flagMap) != 1 || loader.flagMap["visible"] != "visible" {
+		t.Fatalf("registerStruct() flags = %#v, flagMap = %#v", flags.Lookup(""), loader.flagMap)
+	}
+}
+
+func TestIgnoredFieldIsAbsentFromFlagsAndEnvironment(t *testing.T) {
+	t.Parallel()
+	loader := NewLoader()
+	flags := pflag.NewFlagSet("teldrive", pflag.ContinueOnError)
+	loader.RegisterFlags(flags)
+	flags.VisitAll(func(flag *pflag.Flag) {
+		if strings.Contains(flag.Name, "--") {
+			t.Errorf("registered flag %q for a field tagged koanf:\"-\"", flag.Name)
+		}
+	})
+	for name, path := range loader.flagMap {
+		if strings.Contains(name, "--") || strings.Contains(path, ".-") {
+			t.Errorf("flag map entry %q -> %q for a field tagged koanf:\"-\"", name, path)
+		}
+	}
+	loader.generateEnvMap(reflect.TypeFor[Config](), "", "")
+	for name := range loader.envMap {
+		if strings.HasSuffix(name, "_") {
+			t.Errorf("generated environment variable TELDRIVE_%s for a field tagged koanf:\"-\"", name)
+		}
+	}
+	database, ok := structMap(reflect.ValueOf(Default()), reflect.TypeFor[Config]())["database"].(map[string]any)
+	if !ok {
+		t.Fatal("structMap() has no database section")
+	}
+	if _, exists := database["-"]; exists {
+		t.Error("structMap() kept the database default of a field tagged koanf:\"-\"")
 	}
 }
