@@ -1003,6 +1003,10 @@ type CreatePeriodicJobConflict ErrorEnvelope
 
 func (*CreatePeriodicJobConflict) createPeriodicJobRes() {}
 
+type CreatePeriodicJobForbidden ErrorEnvelope
+
+func (*CreatePeriodicJobForbidden) createPeriodicJobRes() {}
+
 type CreatePeriodicJobUnauthorized ErrorEnvelope
 
 func (*CreatePeriodicJobUnauthorized) createPeriodicJobRes() {}
@@ -1164,6 +1168,10 @@ func (*DeleteJobNotFound) deleteJobRes() {}
 type DeleteJobUnauthorized ErrorEnvelope
 
 func (*DeleteJobUnauthorized) deleteJobRes() {}
+
+type DeletePeriodicJobForbidden ErrorEnvelope
+
+func (*DeletePeriodicJobForbidden) deletePeriodicJobRes() {}
 
 // DeletePeriodicJobNoContent is response for DeletePeriodicJob operation.
 type DeletePeriodicJobNoContent struct{}
@@ -3218,20 +3226,17 @@ func (*ErrorEnvelope) getCurrentUserRes()            {}
 func (*ErrorEnvelope) getDriveStatisticsRes()        {}
 func (*ErrorEnvelope) getFileCategoryStatisticsRes() {}
 func (*ErrorEnvelope) getJobStatisticsRes()          {}
-func (*ErrorEnvelope) getPeriodicJobCatalogRes()     {}
 func (*ErrorEnvelope) getStorageStatsRes()           {}
 func (*ErrorEnvelope) healthReadyRes()               {}
 func (*ErrorEnvelope) listApiKeysRes()               {}
 func (*ErrorEnvelope) listBotsRes()                  {}
 func (*ErrorEnvelope) listChannelsRes()              {}
 func (*ErrorEnvelope) listJobQueuesRes()             {}
-func (*ErrorEnvelope) listPeriodicJobsRes()          {}
 func (*ErrorEnvelope) listSessionsRes()              {}
 func (*ErrorEnvelope) listSharedRes()                {}
 func (*ErrorEnvelope) listSharedWithMeRes()          {}
 func (*ErrorEnvelope) logoutCookieSessionRes()       {}
 func (*ErrorEnvelope) logoutSessionRes()             {}
-func (*ErrorEnvelope) resetPeriodicJobsRes()         {}
 
 // Ref: #/components/schemas/EventStreamTicket
 type EventStreamTicket struct {
@@ -4784,6 +4789,14 @@ func (*GetJobNotFound) getJobRes() {}
 type GetJobUnauthorized ErrorEnvelope
 
 func (*GetJobUnauthorized) getJobRes() {}
+
+type GetPeriodicJobCatalogForbidden ErrorEnvelope
+
+func (*GetPeriodicJobCatalogForbidden) getPeriodicJobCatalogRes() {}
+
+type GetPeriodicJobCatalogUnauthorized ErrorEnvelope
+
+func (*GetPeriodicJobCatalogUnauthorized) getPeriodicJobCatalogRes() {}
 
 // GetProfilePhotoNoContent is response for GetProfilePhoto operation.
 type GetProfilePhotoNoContent struct{}
@@ -6564,6 +6577,14 @@ func (*ListJobsBadRequest) listJobsRes() {}
 type ListJobsUnauthorized ErrorEnvelope
 
 func (*ListJobsUnauthorized) listJobsRes() {}
+
+type ListPeriodicJobsForbidden ErrorEnvelope
+
+func (*ListPeriodicJobsForbidden) listPeriodicJobsRes() {}
+
+type ListPeriodicJobsUnauthorized ErrorEnvelope
+
+func (*ListPeriodicJobsUnauthorized) listPeriodicJobsRes() {}
 
 type ListPublicShareFilesGone ErrorEnvelope
 
@@ -8389,6 +8410,10 @@ type PauseJobQueueUnauthorized ErrorEnvelope
 
 func (*PauseJobQueueUnauthorized) pauseJobQueueRes() {}
 
+type PausePeriodicJobForbidden ErrorEnvelope
+
+func (*PausePeriodicJobForbidden) pausePeriodicJobRes() {}
+
 type PausePeriodicJobNotFound ErrorEnvelope
 
 func (*PausePeriodicJobNotFound) pausePeriodicJobRes() {}
@@ -9178,6 +9203,14 @@ func (s *RefreshTokenRequest) SetRefreshToken(val string) {
 	s.RefreshToken = val
 }
 
+type ResetPeriodicJobsForbidden ErrorEnvelope
+
+func (*ResetPeriodicJobsForbidden) resetPeriodicJobsRes() {}
+
+type ResetPeriodicJobsUnauthorized ErrorEnvelope
+
+func (*ResetPeriodicJobsUnauthorized) resetPeriodicJobsRes() {}
+
 type RestoreFileConflict ErrorEnvelope
 
 func (*RestoreFileConflict) restoreFileRes() {}
@@ -9202,6 +9235,10 @@ func (*ResumeJobQueueNotFound) resumeJobQueueRes() {}
 type ResumeJobQueueUnauthorized ErrorEnvelope
 
 func (*ResumeJobQueueUnauthorized) resumeJobQueueRes() {}
+
+type ResumePeriodicJobForbidden ErrorEnvelope
+
+func (*ResumePeriodicJobForbidden) resumePeriodicJobRes() {}
 
 type ResumePeriodicJobNotFound ErrorEnvelope
 
@@ -10828,6 +10865,10 @@ func (*UpdateFileUnprocessableEntity) updateFileRes() {}
 type UpdatePeriodicJobBadRequest ErrorEnvelope
 
 func (*UpdatePeriodicJobBadRequest) updatePeriodicJobRes() {}
+
+type UpdatePeriodicJobForbidden ErrorEnvelope
+
+func (*UpdatePeriodicJobForbidden) updatePeriodicJobRes() {}
 
 type UpdatePeriodicJobNotFound ErrorEnvelope
 

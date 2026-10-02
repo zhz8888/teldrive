@@ -260,7 +260,7 @@ namespace Jobs {
 namespace PeriodicJobs {
   @get
   @operationId("listPeriodicJobs")
-  op list(): JsonResponse<200, PeriodicJobList> | ErrorResponse<401>;
+  op list(): JsonResponse<200, PeriodicJobList> | ErrorResponse<401> | ErrorResponse<403>;
 
   @post
   @operationId("createPeriodicJob")
@@ -268,17 +268,18 @@ namespace PeriodicJobs {
     | JsonResponse<201, PeriodicJob>
     | ErrorResponse<400>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<409>;
 
   @get
   @route("/catalog")
   @operationId("getPeriodicJobCatalog")
-  op catalog(): JsonResponse<200, PeriodicJobCatalog> | ErrorResponse<401>;
+  op catalog(): JsonResponse<200, PeriodicJobCatalog> | ErrorResponse<401> | ErrorResponse<403>;
 
   @post
   @route("/reset")
   @operationId("resetPeriodicJobs")
-  op reset(): JsonResponse<200, PeriodicJobList> | ErrorResponse<401>;
+  op reset(): JsonResponse<200, PeriodicJobList> | ErrorResponse<401> | ErrorResponse<403>;
 
   @put
   @route("/{periodicJobId}")
@@ -287,6 +288,7 @@ namespace PeriodicJobs {
     | JsonResponse<200, PeriodicJob>
     | ErrorResponse<400>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 
   @delete
@@ -295,6 +297,7 @@ namespace PeriodicJobs {
   op delete(@path periodicJobId: string):
     | EmptyResponse<204>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 
   @post
@@ -303,6 +306,7 @@ namespace PeriodicJobs {
   op pause(@path periodicJobId: string):
     | JsonResponse<200, PeriodicJob>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 
   @post
@@ -311,5 +315,6 @@ namespace PeriodicJobs {
   op resume(@path periodicJobId: string):
     | JsonResponse<200, PeriodicJob>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 }
