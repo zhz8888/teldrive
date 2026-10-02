@@ -140,9 +140,16 @@ function ChannelsSettings() {
                   <Button
                     size="sm"
                     variant="secondary"
+                    isDisabled={select.isPending}
                     onPress={async () => {
-                      await select.mutateAsync({ params: { path: { channelId: channel.id } } });
-                      await refresh();
+                      try {
+                        await select.mutateAsync({ params: { path: { channelId: channel.id } } });
+                        await refresh();
+                      } catch (error) {
+                        toast.error(t("settings.channels.toast.selectFailed"), {
+                          description: userMessage(error),
+                        });
+                      }
                     }}
                   >
                     {t("settings.channels.use")}
