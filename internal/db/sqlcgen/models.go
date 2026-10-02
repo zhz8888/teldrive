@@ -534,19 +534,6 @@ type FileViewState struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
-type IdempotencyKey struct {
-	UserID             int64              `json:"user_id"`
-	Scope              string             `json:"scope"`
-	Key                pgtype.UUID        `json:"key"`
-	RequestHash        []byte             `json:"request_hash"`
-	ResourceType       pgtype.Text        `json:"resource_type"`
-	ResourceID         pgtype.Text        `json:"resource_id"`
-	ResponseCiphertext []byte             `json:"response_ciphertext"`
-	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
-	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-}
-
 type Session struct {
 	ID               pgtype.UUID        `json:"id"`
 	UserID           int64              `json:"user_id"`

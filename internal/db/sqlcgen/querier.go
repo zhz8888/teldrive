@@ -19,7 +19,6 @@ type Querier interface {
 	ClaimUploadPart(ctx context.Context, arg ClaimUploadPartParams) (*UploadPart, error)
 	ClearSelectedChannel(ctx context.Context, userID int64) error
 	ClearUploadSessionParentsByFileIDs(ctx context.Context, arg ClearUploadSessionParentsByFileIDsParams) error
-	CompleteIdempotencyKey(ctx context.Context, arg CompleteIdempotencyKeyParams) (*IdempotencyKey, error)
 	CompleteTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error)
 	CompleteUploadSession(ctx context.Context, arg CompleteUploadSessionParams) (*UploadSession, error)
 	CountChannelReferences(ctx context.Context, targetChannelID int64) (int64, error)
@@ -37,7 +36,6 @@ type Querier interface {
 	DeleteBot(ctx context.Context, arg DeleteBotParams) (int64, error)
 	DeleteChannel(ctx context.Context, arg DeleteChannelParams) (int64, error)
 	DeleteExpiredEventStreamTickets(ctx context.Context) (int64, error)
-	DeleteExpiredIdempotencyKeys(ctx context.Context) (int64, error)
 	DeleteExpiredTelegramLoginFlows(ctx context.Context) (int64, error)
 	DeleteFileCatalogRowsByIDs(ctx context.Context, arg DeleteFileCatalogRowsByIDsParams) (int64, error)
 	DeleteFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) error
@@ -61,7 +59,6 @@ type Querier interface {
 	GetFileForUser(ctx context.Context, arg GetFileForUserParams) (*File, error)
 	GetFileShareForOwner(ctx context.Context, arg GetFileShareForOwnerParams) (*FileShare, error)
 	GetFileViewState(ctx context.Context, arg GetFileViewStateParams) (*FileViewState, error)
-	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (*IdempotencyKey, error)
 	GetLatestActiveSessionForUser(ctx context.Context, userID int64) (*Session, error)
 	GetSelectedChannel(ctx context.Context, userID int64) (*Channel, error)
 	GetSessionByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (*Session, error)
@@ -148,7 +145,6 @@ type Querier interface {
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
 	RenameUploadSession(ctx context.Context, arg RenameUploadSessionParams) (int64, error)
 	RenewUploadPartLease(ctx context.Context, arg RenewUploadPartLeaseParams) (int64, error)
-	ReserveIdempotencyKey(ctx context.Context, arg ReserveIdempotencyKeyParams) (*IdempotencyKey, error)
 	ResolveActiveChild(ctx context.Context, arg ResolveActiveChildParams) (*File, error)
 	ResolveActiveChildFolder(ctx context.Context, arg ResolveActiveChildFolderParams) (pgtype.UUID, error)
 	ResolveFileAccessMany(ctx context.Context, arg ResolveFileAccessManyParams) ([]*ResolveFileAccessManyRow, error)
