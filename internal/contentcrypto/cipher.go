@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/aes"
-	gocipher "crypto/cipher"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -34,8 +33,14 @@ import (
 
 const (
 	// nameCipherBlockSize is the width in bytes of the tweak reserved for
-	// file-name encryption, equal to the AES block size.
+	// file-name encryption, equal to the AES block size. No file-name
+	// encryption exists in this package, but the key schedule that Key derives
+	// still spans this width.
 	nameCipherBlockSize = aes.BlockSize
+	// nameKeySize is the width in bytes of the file-name key that upstream
+	// TelDrive derives between the data key and the tweak. Content blocks never
+	// use it, but the fixed key schedule still derives this many bytes.
+	nameKeySize = 32
 	// fileMagic is the marker that starts every encrypted file: the ASCII text
 	// "TELDRIVE" followed by two NUL bytes.
 	fileMagic = "TELDRIVE\x00\x00"
@@ -109,9 +114,8 @@ type ReadSeekCloser interface {
 // OpenRangeSeek opens a byte range of stored content for a decrypter. offset and
 // limit are measured in stored (still encrypted) bytes from the start of the
 // content, and a negative limit means "to the end". Every call must return a
-// fresh reader, because seeking reopens the content and replaces the reader the
-// decrypter currently holds without closing it, so a shared handle would be
-// dropped rather than released.
+// fresh reader, because seeking closes the range the decrypter currently holds
+// as it replaces it, so a shared handle would be closed while still in use.
 type OpenRangeSeek func(ctx context.Context, offset, limit int64) (io.ReadCloser, error)
 
 // readFill reads from r until buf is full or r reports an error, retrying short
@@ -138,15 +142,6 @@ func readFill(r io.Reader, buf []byte) (n int, err error) {
 type Cipher struct {
 	// dataKey is the secretbox key that protects block payloads.
 	dataKey [32]byte
-	// nameKey is the AES-256 key derived for file-name encryption. It is not
-	// used for block payloads.
-	nameKey [32]byte
-	// nameTweak is the tweak derived alongside nameKey for file-name
-	// encryption; it plays no part in the content-block format.
-	nameTweak [nameCipherBlockSize]byte
-	// block is the AES block cipher built from nameKey for file-name
-	// encryption. Content blocks use secretbox with dataKey instead.
-	block gocipher.Block
 	// buffers pools the two blockSize scratch buffers that every stream borrows,
 	// so transfers do not allocate tens of kilobytes per block.
 	buffers sync.Pool
@@ -183,16 +178,15 @@ func NewCipherWithRand(password, salt string, random io.Reader) (*Cipher, error)
 	return c, nil
 }
 
-// Key derives this cipher's keys from password and salt with scrypt
-// (N=16384, r=8, p=1) and stores them in the receiver. The derived bytes are
-// split in order into the 32-byte dataKey, the 32-byte nameKey and the 16-byte
-// nameTweak, and nameKey also keys the AES block used for file names. The
-// parameters and the split are fixed because the stored format must stay
-// byte-compatible with upstream TelDrive: changing either makes existing
-// content undecryptable. It returns an error when scrypt fails, or when the AES
-// block cannot be built from nameKey, which the fixed 32-byte key rules out.
-func (c *Cipher) Key(password, salt string) (err error) {
-	const keySize = len(c.dataKey) + len(c.nameKey) + len(c.nameTweak)
+// Key derives this cipher's key material from password and salt with scrypt
+// (N=16384, r=8, p=1) and stores the data key in the receiver. The derived bytes
+// are split in order into the 32-byte dataKey, the 32-byte nameKey and the
+// 16-byte nameTweak that upstream TelDrive uses to encrypt file names; content
+// blocks only use dataKey, but the full width is still derived because the
+// parameters and the split are fixed by the stored format and changing either
+// makes existing content undecryptable. It returns an error when scrypt fails.
+func (c *Cipher) Key(password, salt string) error {
+	const keySize = len(c.dataKey) + nameKeySize + nameCipherBlockSize
 	saltBytes := []byte(salt)
 	key, err := scrypt.Key([]byte(password), saltBytes, 16384, 8, 1, keySize)
 	if err != nil {
@@ -200,11 +194,7 @@ func (c *Cipher) Key(password, salt string) (err error) {
 	}
 
 	copy(c.dataKey[:], key)
-	copy(c.nameKey[:], key[len(c.dataKey):])
-	copy(c.nameTweak[:], key[len(c.dataKey)+len(c.nameKey):])
-
-	c.block, err = aes.NewCipher(c.nameKey[:])
-	return err
+	return nil
 }
 
 // getBlock borrows a blockSize scratch buffer from the cipher's pool. The
@@ -250,7 +240,7 @@ func (n *nonce) fromBuf(buf []byte) error {
 	read := copy((*n)[:], buf)
 
 	if read != fileNonceSize {
-		return errors.New("buffer to short to read nonce")
+		return errors.New("buffer too short to read nonce")
 	}
 	return nil
 }
@@ -328,7 +318,8 @@ type encrypter struct {
 // fresh file nonce from the cipher's entropy source, while a supplied nonce
 // pins the output, which compatibility tests rely on. The returned encrypter has
 // already staged the header in its buffer, so the first Read emits the magic and
-// the nonce before any block. It returns an error when the nonce cannot be read.
+// the nonce before any block. It returns an error when the nonce cannot be read,
+// and it hands the buffers it borrowed back to the pool before doing so.
 func (c *Cipher) newEncrypter(in io.Reader, nonce *nonce) (*encrypter, error) {
 	fh := &encrypter{
 		in:      in,
@@ -343,6 +334,9 @@ func (c *Cipher) newEncrypter(in io.Reader, nonce *nonce) (*encrypter, error) {
 	} else {
 		err := fh.nonce.fromReader(c.cryptoRand)
 		if err != nil {
+			// Release the buffers borrowed above, as the decrypter does on its
+			// header failure paths, so a failed construction leaks nothing.
+			fh.finish(err)
 			return nil, err
 		}
 	}
@@ -424,9 +418,9 @@ func (c *Cipher) EncryptData(in io.Reader) (io.ReadCloser, error) {
 // read and seeked concurrently.
 type decrypter struct {
 	mu sync.Mutex
-	// rc is the stored content currently being read. A seek replaces it with a
-	// freshly opened range, so it is only guaranteed to be closed by Close when
-	// no seek happened in between.
+	// rc is the stored content currently being read. A seek closes the range it
+	// replaces and installs a freshly opened one, so Close always releases the
+	// current range and no range the decrypter opened stays open.
 	rc io.ReadCloser
 	// nonce is the nonce of the block currently held in buf.
 	nonce nonce
@@ -487,7 +481,7 @@ func (c *Cipher) newDecrypter(rc io.ReadCloser) (*decrypter, error) {
 
 	err = fh.nonce.fromBuf(readBuf[fileMagicSize:])
 	if err != nil {
-		return nil, err
+		return nil, fh.finishAndClose(err)
 	}
 	fh.initialNonce = fh.nonce
 	return fh, nil
@@ -647,12 +641,13 @@ func calculateUnderlying(offset, limit int64) (underlyingOffset, underlyingLimit
 // RangeSeek repositions the reader to a plaintext offset and caps the remaining
 // output at limit bytes, where -1 means no cap; it returns the new offset. Only
 // io.SeekStart is accepted. It reopens the content through the callback supplied
-// at construction, recomputes the block nonce as initialNonce plus the block
-// index so that no earlier block has to be decrypted, and discards the bytes
-// preceding the offset inside the first block. A reader that already ended at
-// io.EOF is revived, while any other stored error stays permanent. It returns
-// ErrorBadSeek when the reopened range ends before the requested block, and it
-// refuses to run at all unless the reader came from newDecrypterSeek.
+// at construction, closing the range it replaces, recomputes the block nonce as
+// initialNonce plus the block index so that no earlier block has to be
+// decrypted, and discards the bytes preceding the offset inside the first block.
+// A reader that already ended at io.EOF is revived, while any other stored error
+// stays permanent. It returns ErrorBadSeek when the reopened range ends before
+// the requested block, and it refuses to run at all unless the reader came from
+// newDecrypterSeek.
 func (fh *decrypter) RangeSeek(ctx context.Context, offset int64, whence int, limit int64) (int64, error) {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()
@@ -680,6 +675,11 @@ func (fh *decrypter) RangeSeek(ctx context.Context, offset int64, whence int, li
 		return 0, fh.finish(fmt.Errorf("couldn't reopen file with offset and limit: %w", err))
 	}
 
+	// Release the range being replaced. A callback that hands back the reader it
+	// already owns keeps it open, because the two are then the same object.
+	if fh.rc != nil && fh.rc != rc {
+		_ = fh.rc.Close()
+	}
 	fh.rc = rc
 
 	err = fh.fillBuffer()
@@ -741,10 +741,11 @@ func (fh *decrypter) unFinish() {
 }
 
 // Close releases the reader: it makes sure the pooled buffers have gone back to
-// the pool, marks the stream closed and closes the range reader it opened.
-// Calling it again returns ErrorFileClosed without touching the source, and
-// reads after Close fail with the same sentinel. The error of the underlying
-// reader's Close is returned.
+// the pool, marks the stream closed and closes the current range reader. Ranges
+// that a seek replaced were already closed when they were replaced. Calling it
+// again returns ErrorFileClosed without touching the source, and reads after
+// Close fail with the same sentinel. The error of the underlying reader's Close
+// is returned.
 func (fh *decrypter) Close() error {
 	fh.mu.Lock()
 	defer fh.mu.Unlock()

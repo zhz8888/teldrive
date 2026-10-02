@@ -246,3 +246,115 @@ func TestDecryptSeekRejectsUnsupportedWhence(t *testing.T) {
 		t.Fatal("expected unsupported whence error")
 	}
 }
+
+// closeCountingReader counts Close calls so a test can tell whether the
+// decrypter released a range it replaced.
+type closeCountingReader struct {
+	reader io.Reader
+	closes int
+}
+
+// Read forwards to the wrapped reader.
+func (r *closeCountingReader) Read(p []byte) (int, error) {
+	return r.reader.Read(p)
+}
+
+// Close records the call and succeeds.
+func (r *closeCountingReader) Close() error {
+	r.closes++
+	return nil
+}
+
+func TestDecryptSeekClosesReplacedRanges(t *testing.T) {
+	t.Parallel()
+
+	plain := bytes.Repeat([]byte("seekable-content-"), 10000)
+	encryptCipher, err := NewCipherWithRand("seek-close-password", "seek-close-salt", bytes.NewReader(bytes.Repeat([]byte{5}, fileNonceSize)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedReader, err := encryptCipher.EncryptData(bytes.NewReader(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := io.ReadAll(encryptedReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decryptCipher, err := NewCipher("seek-close-password", "seek-close-salt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readers []*closeCountingReader
+	open := func(_ context.Context, offset, limit int64) (io.ReadCloser, error) {
+		end := int64(len(encrypted))
+		if limit >= 0 && offset+limit < end {
+			end = offset + limit
+		}
+		reader := &closeCountingReader{reader: bytes.NewReader(encrypted[offset:end])}
+		readers = append(readers, reader)
+		return reader, nil
+	}
+
+	// Starting inside the content makes the decrypter open the header range
+	// first and then replace it with the range holding the target block.
+	reader, err := decryptCipher.DecryptDataSeek(context.Background(), open, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(readers) != 2 {
+		t.Fatalf("opened %d ranges, want 2", len(readers))
+	}
+	if readers[0].closes != 1 {
+		t.Fatalf("header range closed %d times, want 1", readers[0].closes)
+	}
+
+	if _, err := reader.Seek(int64(blockDataSize)+7, io.SeekStart); err != nil {
+		t.Fatalf("Seek() error = %v", err)
+	}
+	if len(readers) != 3 {
+		t.Fatalf("opened %d ranges after seek, want 3", len(readers))
+	}
+	if readers[1].closes != 1 {
+		t.Fatalf("replaced range closed %d times, want 1", readers[1].closes)
+	}
+	if readers[2].closes != 0 {
+		t.Fatalf("current range closed %d times before Close, want 0", readers[2].closes)
+	}
+
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if readers[2].closes != 1 {
+		t.Fatalf("current range closed %d times, want 1", readers[2].closes)
+	}
+}
+
+func TestEncrypterReturnsPoolBuffersWhenNonceReadFails(t *testing.T) {
+	// Not parallel: the assertion inspects the cipher's private pool, and a
+	// garbage collection triggered by another test could clear it.
+	cipher, err := NewCipher("pool-password", "pool-salt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocations := 0
+	cipher.buffers.New = func() any {
+		allocations++
+		return new([blockSize]byte)
+	}
+	cipher.cryptoRand = bytes.NewReader([]byte("short"))
+
+	if _, err := cipher.EncryptData(bytes.NewReader([]byte("payload"))); err == nil {
+		t.Fatal("expected nonce read error")
+	}
+	if allocations != 2 {
+		t.Fatalf("buffers allocated during the failed construction = %d, want 2", allocations)
+	}
+
+	cipher.getBlock()
+	cipher.getBlock()
+	if allocations != 2 {
+		t.Fatalf("pool buffers were not returned: allocations = %d, want 2", allocations)
+	}
+}
