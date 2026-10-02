@@ -27,19 +27,32 @@ var (
 	// oversized or nil-containing ID batch. Callers must test it with errors.Is.
 	ErrNotFound = errors.New("file not found")
 	// ErrConflict reports a name already taken at the destination, a restore
-	// whose parent entry is still trashed, an unknown move conflict policy, or a
-	// rename that ran out of free names.
+	// whose parent entry is still trashed, or a rename that ran out of free
+	// names.
 	ErrConflict = errors.New("file name conflict")
-	// ErrInvalidName reports an update that carries a nil file ID or would change
-	// neither the name nor the modification time of an entry.
+	// ErrUnsupportedConflictPolicy reports a move conflict policy that is not one
+	// of "fail", "replace" or "rename". It is a request-validation failure and is
+	// therefore kept apart from ErrConflict, which stays reserved for a real name
+	// clash.
+	ErrUnsupportedConflictPolicy = errors.New("move conflict policy is not supported")
+	// ErrInvalidName reports an update that carries a nil file ID, would change
+	// neither the name nor the modification time of an entry, or carries a name
+	// that is empty or only whitespace.
 	ErrInvalidName = errors.New("invalid file name")
 	// ErrInvalidOwner reports a missing or non-positive user ID; nothing was read
 	// or written when it is returned.
 	ErrInvalidOwner = errors.New("invalid owner")
-	// ErrInvalidParent reports a parent, path or list filter that cannot be used:
-	// a folder that is missing, foreign or not a folder, a path with empty, "."
-	// or ".." components, or an unsupported combination of advanced list options.
+	// ErrInvalidParent reports a parent or path that cannot be used: a folder that
+	// is missing, foreign or not a folder, or a path with a backslash, an empty
+	// component, "." or "..".
 	ErrInvalidParent = errors.New("invalid parent folder")
+	// ErrInvalidFilter reports list filter arguments that cannot be used: an
+	// unknown search type, sort key, order or category, an inverted updated
+	// window, a cursor value that does not parse for the active sort key, an
+	// uncompilable regex, or a parent and path supplied together. It is a
+	// validation failure, so the HTTP layer maps it to 422, while ErrInvalidParent
+	// stays reserved for a parent or path that cannot be resolved.
+	ErrInvalidFilter = errors.New("invalid list filter")
 	// ErrNotAFile reports that the entry is not an active file, because it is a
 	// folder or has been trashed.
 	ErrNotAFile = errors.New("catalog entry is not an active file")
@@ -229,7 +242,11 @@ func (s *Service) DeleteViewState(ctx context.Context, userID int64, fileID uuid
 	return nil
 }
 
-// Parts returns finalized Telegram parts for an active file owned by userID.
+// Parts returns finalized Telegram parts for an active file owned by userID,
+// ordered by ascending part number. Every returned row is a copy the caller owns,
+// on a cache hit and a cache miss alike, so callers may mutate the rows in place
+// (the download path backfills legacy part sizes that way) without writing
+// through to the cache.
 func (s *Service) Parts(ctx context.Context, userID int64, fileID uuid.UUID) ([]*sqlcgen.FilePart, error) {
 	file, err := s.Get(ctx, userID, fileID)
 	if err != nil {
@@ -243,19 +260,41 @@ func (s *Service) Parts(ctx context.Context, userID int64, fileID uuid.UUID) ([]
 		stripe.RLock()
 		defer stripe.RUnlock()
 		key := s.cacheKey("catalog", "parts", fileID.String())
-		return cache.Fetch(ctx, s.cache, key, 0, func() ([]*sqlcgen.FilePart, error) {
+		parts, err := cache.Fetch(ctx, s.cache, key, 0, func() ([]*sqlcgen.FilePart, error) {
 			parts, err := s.queries.ListFileParts(ctx, dbtypes.UUID(fileID))
 			if err != nil {
 				return nil, fmt.Errorf("list file parts: %w", err)
 			}
 			return parts, nil
 		})
+		if err != nil {
+			return nil, err
+		}
+		return cloneFileParts(parts), nil
 	}
 	parts, err := s.queries.ListFileParts(ctx, dbtypes.UUID(fileID))
 	if err != nil {
 		return nil, fmt.Errorf("list file parts: %w", err)
 	}
-	return parts, nil
+	return cloneFileParts(parts), nil
+}
+
+// cloneFileParts returns a new slice holding a value copy of every part, so the
+// caller never shares a *sqlcgen.FilePart with the cache or with another caller.
+// A nil slice and nil entries are preserved as they are.
+func cloneFileParts(parts []*sqlcgen.FilePart) []*sqlcgen.FilePart {
+	if parts == nil {
+		return nil
+	}
+	cloned := make([]*sqlcgen.FilePart, len(parts))
+	for index, part := range parts {
+		if part == nil {
+			continue
+		}
+		copied := *part
+		cloned[index] = &copied
+	}
+	return cloned
 }
 
 // UpdatePartSizes backfills the sizes of one part of an uploaded file: plainSize
@@ -377,15 +416,17 @@ type ListInput struct {
 // name-ordered scan or, as soon as any advanced option is set (categories, an
 // updated window, a non-default search type, sort or order, or a cursor value),
 // delegates to listAdvanced, which validates the vocabulary and reports bad
-// combinations as ErrInvalidParent. The listing covers the direct children of the
-// resolved parent and is never recursive. in is taken by value, so the defaults
-// it applies do not leak back to the caller.
+// combinations as ErrInvalidFilter; a parent and a path supplied together are
+// rejected the same way. A parent the caller cannot use surfaces as
+// ErrInvalidParent. The listing covers the direct children of the resolved parent
+// and is never recursive. in is taken by value, so the defaults it applies do not
+// leak back to the caller.
 func (s *Service) List(ctx context.Context, in ListInput) ([]*sqlcgen.File, error) {
 	if in.UserID <= 0 {
 		return nil, ErrInvalidOwner
 	}
 	if in.ParentID != nil && strings.TrimSpace(in.Path) != "" {
-		return nil, ErrInvalidParent
+		return nil, ErrInvalidFilter
 	}
 	if strings.TrimSpace(in.Path) != "" {
 		resolved, err := s.ResolveFolderPath(ctx, in.UserID, nil, in.Path)
@@ -446,14 +487,18 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]*sqlcgen.File, erro
 }
 
 // Rename changes the name of an active entry owned by userID. The name is written
-// exactly as given, so validating it is the caller's job; a blank name is only
-// stopped by the database check constraint. When expectedGeneration is non-nil it
+// as given, including any surrounding whitespace, but a name that is empty or only
+// whitespace is rejected with ErrInvalidName before the write, matching Update and
+// the files_name_not_blank constraint. When expectedGeneration is non-nil it
 // must equal the stored generation, and a mismatch is reported as ErrPrecondition
 // instead of ErrNotFound. A name already used in the same folder surfaces as
 // ErrConflict, and the cached row is dropped after the write.
 func (s *Service) Rename(ctx context.Context, userID int64, fileID uuid.UUID, expectedGeneration *int64, rawName string) (*sqlcgen.File, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidOwner
+	}
+	if isBlankName(rawName) {
+		return nil, ErrInvalidName
 	}
 	file, err := s.queries.UpdateFileMetadata(ctx, sqlcgen.UpdateFileMetadataParams{
 		Name:               dbtypes.Text(rawName),
@@ -573,6 +618,14 @@ func (s *Service) InvalidateFiles(ctx context.Context, userID int64, fileIDs ...
 // it is the one-file shorthand for InvalidateFiles.
 func (s *Service) invalidateFile(ctx context.Context, userID int64, fileID uuid.UUID) {
 	s.InvalidateFiles(ctx, userID, fileID)
+}
+
+// isBlankName reports whether a name is empty or made up of whitespace only, the
+// case the files_name_not_blank check constraint rejects. Rename and Update share
+// it so both report ErrInvalidName instead of a raw constraint violation; it is a
+// superset of the constraint, which trims spaces only.
+func isBlankName(name string) bool {
+	return strings.TrimSpace(name) == ""
 }
 
 // classifyWriteError turns a PostgreSQL unique-violation (SQLSTATE 23505) into

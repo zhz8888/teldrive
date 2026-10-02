@@ -23,15 +23,16 @@ type UpdateInput struct {
 	// ExpectedGeneration, when non-nil, must equal the stored generation or the
 	// update fails with ErrPrecondition.
 	ExpectedGeneration *int64
-	// Name replaces the entry name when non-nil. The value is passed through
-	// unchanged, so the caller validates it.
+	// Name replaces the entry name when non-nil. It is written as given, but a
+	// name that is empty or only whitespace is rejected with ErrInvalidName.
 	Name *string
 	// ModTime replaces the modification time when non-nil.
 	ModTime *time.Time
 }
 
 // Update applies a partial metadata change to one active entry owned by in.UserID.
-// It returns ErrInvalidName when the file ID is nil or neither field is set, and
+// It returns ErrInvalidName when the file ID is nil, neither field is set, or a
+// supplied name is empty or only whitespace (the same rule Rename applies), and
 // ErrPrecondition rather than ErrNotFound when a supplied generation no longer
 // matches. A name already taken in the same folder surfaces as ErrConflict, and
 // the cached row is dropped after the write.
@@ -40,6 +41,9 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (*sqlcgen.File, er
 		return nil, ErrInvalidOwner
 	}
 	if in.FileID == uuid.Nil || (in.Name == nil && in.ModTime == nil) {
+		return nil, ErrInvalidName
+	}
+	if in.Name != nil && isBlankName(*in.Name) {
 		return nil, ErrInvalidName
 	}
 	var name pgtype.Text

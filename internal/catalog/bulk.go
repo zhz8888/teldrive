@@ -102,8 +102,9 @@ func (s *Service) MoveWithPolicy(ctx context.Context, userID int64, fileID uuid.
 // same conflict vocabulary as MoveWithPolicy: "fail" (also the meaning of an
 // empty policy) aborts on the first name clash with ErrConflict, "replace" marks
 // the clashing entry's subtree for deletion, and "rename" picks the next free
-// "(n)" name. An unknown policy is rejected as ErrConflict. It performs no
-// generation precondition check, and the returned rows follow the order of ids.
+// "(n)" name. An unknown policy is rejected as ErrUnsupportedConflictPolicy,
+// while a real name clash stays ErrConflict. It performs no generation
+// precondition check, and the returned rows follow the order of ids.
 func (s *Service) BulkMove(ctx context.Context, userID int64, ids []uuid.UUID, parentID *uuid.UUID, policy string) ([]*sqlcgen.File, error) {
 	return s.bulkMove(ctx, userID, ids, parentID, nil, policy)
 }
@@ -129,7 +130,7 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 		policy = "fail"
 	}
 	if policy != "fail" && policy != "replace" && policy != "rename" {
-		return nil, ErrConflict
+		return nil, ErrUnsupportedConflictPolicy
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {

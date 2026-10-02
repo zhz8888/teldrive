@@ -90,7 +90,7 @@ VALUES
 		{UserID: 1001, SearchType: "text", Sort: "name", Order: "asc", Categories: []string{"invalid"}},
 	}
 	for _, input := range invalidInputs {
-		if _, err := svc.List(ctx, input); !errors.Is(err, catalog.ErrInvalidParent) {
+		if _, err := svc.List(ctx, input); !errors.Is(err, catalog.ErrInvalidFilter) {
 			t.Fatalf("invalid advanced List(%#v) error = %v", input, err)
 		}
 	}
@@ -99,7 +99,7 @@ VALUES
 	if _, err := svc.List(ctx, catalog.ListInput{
 		UserID: 1001, SearchType: "text", Sort: "name", Order: "asc",
 		Categories: []string{"image"}, UpdatedAfter: &after, UpdatedBefore: &before,
-	}); !errors.Is(err, catalog.ErrInvalidParent) {
+	}); !errors.Is(err, catalog.ErrInvalidFilter) {
 		t.Fatalf("inverted time range error = %v", err)
 	}
 

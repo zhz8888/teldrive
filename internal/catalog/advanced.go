@@ -131,28 +131,28 @@ func (s *Service) EnsureFolderPath(ctx context.Context, userID int64, rootID *uu
 
 // listAdvanced serves the filtered branch of List. It validates the filter
 // vocabulary before touching the database (search type, sort key, order, updated
-// window and categories) and reports every invalid combination as
-// ErrInvalidParent. A regex search is compiled first so a broken pattern is
-// rejected rather than sent to PostgreSQL. When in.AfterID is set the keyset
+// window and categories) and reports every invalid filter as ErrInvalidFilter,
+// never as ErrInvalidParent. A regex search is compiled first so a broken pattern
+// is rejected rather than sent to PostgreSQL. When in.AfterID is set the keyset
 // cursor is decoded according to in.Sort: "name" takes the name itself, updatedAt
 // expects RFC3339Nano and size a decimal byte count, and "id" needs no cursor value
 // because it compares IDs alone. in.AfterValue takes precedence over in.AfterName.
 func (s *Service) listAdvanced(ctx context.Context, in ListInput) ([]*sqlcgen.File, error) {
 	if in.SearchType != "text" && in.SearchType != "regex" {
-		return nil, ErrInvalidParent
+		return nil, ErrInvalidFilter
 	}
 	if in.Sort != "name" && in.Sort != "updatedAt" && in.Sort != "size" && in.Sort != "id" {
-		return nil, ErrInvalidParent
+		return nil, ErrInvalidFilter
 	}
 	if in.Order != "asc" && in.Order != "desc" {
-		return nil, ErrInvalidParent
+		return nil, ErrInvalidFilter
 	}
 	if in.UpdatedAfter != nil && in.UpdatedBefore != nil && !in.UpdatedAfter.Before(*in.UpdatedBefore) {
-		return nil, ErrInvalidParent
+		return nil, ErrInvalidFilter
 	}
 	for _, category := range in.Categories {
 		if _, ok := validCategories[category]; !ok {
-			return nil, ErrInvalidParent
+			return nil, ErrInvalidFilter
 		}
 	}
 
@@ -160,7 +160,7 @@ func (s *Service) listAdvanced(ctx context.Context, in ListInput) ([]*sqlcgen.Fi
 	if value := strings.TrimSpace(in.Search); value != "" {
 		if in.SearchType == "regex" {
 			if _, err := regexp.Compile(value); err != nil {
-				return nil, ErrInvalidParent
+				return nil, ErrInvalidFilter
 			}
 			search = &value
 		} else {
@@ -190,13 +190,13 @@ func (s *Service) listAdvanced(ctx context.Context, in ListInput) ([]*sqlcgen.Fi
 		case "updatedAt":
 			parsed, err := time.Parse(time.RFC3339Nano, value)
 			if err != nil {
-				return nil, ErrInvalidParent
+				return nil, ErrInvalidFilter
 			}
 			afterUpdatedAt = &parsed
 		case "size":
 			parsed, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
-				return nil, ErrInvalidParent
+				return nil, ErrInvalidFilter
 			}
 			afterSize = &parsed
 		}
