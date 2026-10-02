@@ -64,9 +64,20 @@ var (
 	ErrUserNotAllowed = errors.New("Telegram user is not allowed")
 
 	// ErrSessionNotFound reports a session that is unknown, owned by another
-	// user, or already revoked; the user-administration methods reuse it for an
-	// unknown account as well. It maps to HTTP 404.
+	// user, or already revoked. It maps to HTTP 404.
 	ErrSessionNotFound = errors.New("session not found")
+
+	// ErrUserNotFound reports an account that does not exist. It maps to HTTP
+	// 404 and is deliberately distinct from ErrSessionNotFound, so a missing
+	// account is never reported as a missing session; the user-administration
+	// methods return it instead of reusing the session sentinel.
+	ErrUserNotFound = errors.New("user not found")
+
+	// ErrOwnerProtected reports an account that holds the owner role, which the
+	// user-administration statements refuse to modify so a deployment cannot
+	// demote or disable its last administrator. It is returned instead of
+	// ErrUserNotFound, so "not allowed" is never reported as "does not exist".
+	ErrOwnerProtected = errors.New("owner account is protected")
 
 	// ErrAPIKeyNotFound reports an API key that is unknown, owned by another
 	// user, or already revoked. It maps to HTTP 404.
@@ -597,8 +608,10 @@ func (s *Service) persistPendingFlow(ctx context.Context, conn *pgxpool.Conn, fl
 //
 // The user row is upserted under a transaction-scoped advisory lock, so the very
 // first account to register becomes the owner exactly once even when two logins
-// race. All writes commit in one transaction and roll back together on failure;
-// the access token is minted only after that commit. A missing user or Telegram
+// race. Every write, and the role lookup behind the access token, happens inside
+// one transaction, and the token is minted before that transaction commits: a
+// failure rolls the whole login back, so a flow is never left completed with no
+// usable session, and the caller can retry it. A missing user or Telegram
 // session reports ErrLoginStateInvalid, and an account outside
 // Config.AllowedUsers reports ErrUserNotAllowed after Telegram already accepted
 // it.
@@ -646,12 +659,16 @@ func (s *Service) completeLogin(ctx context.Context, conn *pgxpool.Conn, flowID 
 	if _, err := q.CompleteTelegramLoginFlow(ctx, dbtypes.UUID(flowID)); err != nil {
 		return nil, fmt.Errorf("complete Telegram login flow: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit authenticated session: %w", err)
-	}
-	access, err := s.issueAccessToken(ctx, step.User.ID, sessionID)
+	// Minting runs on the transaction's queries so the role lookup sees the user
+	// row this transaction just upserted, and any failure here rolls the flow
+	// completion and the new session back together instead of leaving the caller
+	// without credentials for an already completed flow.
+	access, err := s.issueAccessToken(ctx, q, step.User.ID, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit authenticated session: %w", err)
 	}
 	return &VerifyResult{Tokens: &TokenPair{AccessToken: access, RefreshToken: refreshToken, ExpiresIn: ttlSeconds(s.config.AccessTokenTTL)}}, nil
 }
@@ -681,7 +698,7 @@ func (s *Service) RenewAccess(ctx context.Context, refreshToken string) (*Access
 	if !ok {
 		return nil, ErrSessionNotFound
 	}
-	access, err := s.issueAccessToken(ctx, sessionRow.UserID, sessionID)
+	access, err := s.issueAccessToken(ctx, s.queries, sessionRow.UserID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -723,7 +740,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*TokenPair,
 	} else if err != nil {
 		return nil, fmt.Errorf("rotate refresh token: %w", err)
 	}
-	access, err := s.issueAccessToken(ctx, sessionRow.UserID, sessionID)
+	access, err := s.issueAccessToken(ctx, s.queries, sessionRow.UserID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +778,7 @@ func (s *Service) AuthenticateBearer(ctx context.Context, raw string) (principal
 		return principal.Identity{}, err
 	}
 	_ = s.queries.TouchSession(ctx, dbtypes.UUID(claims.SessionID))
-	roles, err := s.rolesForUser(ctx, userID)
+	roles, err := s.rolesForUser(ctx, s.queries, userID)
 	if err != nil {
 		return principal.Identity{}, ErrInvalidCredential
 	}
@@ -773,9 +790,11 @@ func (s *Service) AuthenticateBearer(ctx context.Context, raw string) (principal
 //
 // The presented secret is hashed and looked up, so the plaintext is never stored
 // or compared directly, and a key that is unknown, revoked or expired reports
-// ErrInvalidCredential. The key's last-used timestamp is updated best-effort, and
-// roles are read from the owning user row, so disabling or revoking that user
-// takes effect on the next request.
+// ErrInvalidCredential. Every rejection except a database failure reports that
+// sentinel, so an outage stays a server error instead of being reported as a bad
+// key. The key's last-used timestamp is updated best-effort, and roles are read
+// from the owning user row, so disabling or revoking that user takes effect on
+// the next request.
 func (s *Service) AuthenticateAPIKey(ctx context.Context, raw string) (principal.Identity, error) {
 	hash := hashToken(strings.TrimSpace(raw))
 	if len(hash) == 0 {
@@ -789,7 +808,7 @@ func (s *Service) AuthenticateAPIKey(ctx context.Context, raw string) (principal
 		return principal.Identity{}, err
 	}
 	_ = s.queries.TouchAPIKey(ctx, row.ID)
-	roles, err := s.rolesForUser(ctx, row.UserID)
+	roles, err := s.rolesForUser(ctx, s.queries, row.UserID)
 	if err != nil {
 		return principal.Identity{}, ErrInvalidCredential
 	}
@@ -798,14 +817,14 @@ func (s *Service) AuthenticateAPIKey(ctx context.Context, raw string) (principal
 
 // GetUser returns the stored account row for userID, which the administrative
 // endpoints use. A non-positive ID reports ErrInvalidInput, and an unknown
-// account reports ErrSessionNotFound, which the handlers map to HTTP 404.
+// account reports ErrUserNotFound, which the handlers map to HTTP 404.
 func (s *Service) GetUser(ctx context.Context, userID int64) (*sqlcgen.User, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidInput
 	}
 	row, err := s.queries.GetUser(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrSessionNotFound
+		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
@@ -913,12 +932,16 @@ func (s *Service) CreateAPIKey(ctx context.Context, userID int64, name string, e
 	return &APIKeyCreated{Row: row, Secret: secret}, nil
 }
 
-// ListAPIKeys returns one page of a user's API keys, newest first.
+// ListAPIKeys returns one page of a user's usable API keys, newest first.
 //
-// Unlike ListSessions it does not filter by state, so revoked and expired keys
-// stay visible with their metadata for auditing. Limit defaults to 100 and is
+// Like ListSessions it hides the keys that can no longer authenticate: revoked
+// keys and keys whose expiry has passed are dropped, because the statement itself
+// returns every stored row of the account. The filter runs in Go, so the page is
+// refilled from the following stored rows until Limit usable keys are collected
+// or the account's rows run out; a caller therefore still receives a full page,
+// and a short page means nothing usable is left. Limit defaults to 100 and is
 // clamped to 200, and AfterCreatedAt together with AfterID forms the keyset
-// cursor; a non-positive user ID reports ErrInvalidInput.
+// cursor over the stored rows; a non-positive user ID reports ErrInvalidInput.
 func (s *Service) ListAPIKeys(ctx context.Context, in ListAPIKeysInput) ([]*sqlcgen.ApiKey, error) {
 	if in.UserID <= 0 {
 		return nil, ErrInvalidInput
@@ -929,14 +952,37 @@ func (s *Service) ListAPIKeys(ctx context.Context, in ListAPIKeysInput) ([]*sqlc
 	if in.Limit > 200 {
 		in.Limit = 200
 	}
-	rows, err := s.queries.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
-		UserID: in.UserID, AfterCreatedAt: dbtypes.OptionalTime(in.AfterCreatedAt),
-		AfterID: dbtypes.OptionalUUID(in.AfterID), PageSize: in.Limit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list API keys: %w", err)
+	now := s.now()
+	keys := make([]*sqlcgen.ApiKey, 0, in.Limit)
+	afterCreatedAt, afterID := in.AfterCreatedAt, in.AfterID
+	for len(keys) < int(in.Limit) {
+		pageSize := in.Limit - int32(len(keys))
+		rows, err := s.queries.ListAPIKeys(ctx, sqlcgen.ListAPIKeysParams{
+			UserID: in.UserID, AfterCreatedAt: dbtypes.OptionalTime(afterCreatedAt),
+			AfterID: dbtypes.OptionalUUID(afterID), PageSize: pageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list API keys: %w", err)
+		}
+		for _, row := range rows {
+			if row.RevokedAt.Valid || (row.ExpiresAt.Valid && !row.ExpiresAt.Time.After(now)) {
+				continue
+			}
+			keys = append(keys, row)
+		}
+		if len(rows) < int(pageSize) {
+			break
+		}
+		// Continue below the last stored row, which is what keeps the cursor
+		// correct even when that row was filtered out of the result.
+		lastID, ok := dbtypes.GoogleUUID(rows[len(rows)-1].ID)
+		if !ok {
+			break
+		}
+		createdAt := rows[len(rows)-1].CreatedAt.Time
+		afterCreatedAt, afterID = &createdAt, &lastID
 	}
-	return rows, nil
+	return keys, nil
 }
 
 // RevokeAPIKey revokes one API key of userID.
@@ -997,18 +1043,32 @@ func (s *Service) SearchUsers(ctx context.Context, actorID int64, search string)
 // UpdateUserRole changes an account's role between "admin" and "user" and returns
 // the updated row.
 //
-// Only those two roles are accepted, and the statement refuses to touch an owner
-// account; the latter surfaces as ErrSessionNotFound because no row is updated, so
-// an attempt to demote the owner looks like a missing user. The change applies
-// from the next token issue or renewal onwards, since access tokens already in
-// circulation carry a role snapshot.
+// Only those two roles are accepted. The account is loaded first so its two
+// refusals stay distinguishable: an unknown account reports ErrUserNotFound,
+// while an owner account reports ErrOwnerProtected instead of looking like a
+// missing user, because the statement itself would quietly touch no row. The
+// change applies from the next token issue or renewal onwards, since access
+// tokens already in circulation carry a role snapshot.
 func (s *Service) UpdateUserRole(ctx context.Context, userID int64, role sqlcgen.UserRole) (*sqlcgen.User, error) {
 	if userID <= 0 || (role != sqlcgen.UserRoleAdmin && role != sqlcgen.UserRoleUser) {
 		return nil, ErrInvalidInput
 	}
+	user, err := s.queries.GetUser(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user for role update: %w", err)
+	}
+	if user.Role == sqlcgen.UserRoleOwner {
+		return nil, ErrOwnerProtected
+	}
 	row, err := s.queries.UpdateUserRole(ctx, sqlcgen.UpdateUserRoleParams{Role: role, UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrSessionNotFound
+		// The statement only refuses owner accounts: the role was validated
+		// above, and no account can be promoted to owner here, so a row that
+		// was present a moment ago and now matches nothing is the owner guard.
+		return nil, ErrOwnerProtected
 	}
 	if err != nil {
 		return nil, fmt.Errorf("update user role: %w", err)
@@ -1022,15 +1082,27 @@ func (s *Service) UpdateUserRole(ctx context.Context, userID int64, role sqlcgen
 // account. Those are separate statements rather than one transaction, so a failure
 // in between can leave the flag set while credentials remain on record; none of
 // them can authenticate while the account is disabled, because role resolution
-// rejects a disabled user. Owner accounts are refused by the statement and surface
-// as ErrSessionNotFound, exactly as in UpdateUserRole.
+// rejects a disabled user. The account is loaded first so an unknown account
+// reports ErrUserNotFound while an owner account reports ErrOwnerProtected, whose
+// statement refuses to touch it.
 func (s *Service) SetUserDisabled(ctx context.Context, userID int64, disabled bool) (*sqlcgen.User, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidInput
 	}
+	user, err := s.queries.GetUser(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user for disable: %w", err)
+	}
+	if user.Role == sqlcgen.UserRoleOwner {
+		return nil, ErrOwnerProtected
+	}
 	row, err := s.queries.SetUserDisabled(ctx, sqlcgen.SetUserDisabledParams{Disabled: disabled, UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrSessionNotFound
+		// Like UpdateUserRole, the only row this statement refuses is the owner.
+		return nil, ErrOwnerProtected
 	}
 	if err != nil {
 		return nil, fmt.Errorf("set user disabled: %w", err)
@@ -1050,7 +1122,7 @@ func (s *Service) SetUserDisabled(ctx context.Context, userID int64, disabled bo
 // disabling it, which is the administrator's "sign out everywhere" operation.
 //
 // Owner accounts are refused with ErrInvalidInput so a deployment cannot lock
-// itself out, and an unknown account reports ErrSessionNotFound. The two
+// itself out, and an unknown account reports ErrUserNotFound. The two
 // revocations are separate statements, so a failure between them can revoke
 // sessions while leaving API keys alive, and the account can sign in again
 // immediately afterwards.
@@ -1060,7 +1132,7 @@ func (s *Service) RevokeUserAccess(ctx context.Context, userID int64) error {
 	}
 	user, err := s.queries.GetUser(ctx, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSessionNotFound
+		return ErrUserNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("get user for access revoke: %w", err)
@@ -1100,11 +1172,13 @@ func Capabilities(role sqlcgen.UserRole) []string {
 // plus "admin" for admins and owners, plus "owner" for the owner alone.
 //
 // It runs on every authentication instead of trusting role claims in a token, so a
-// role change and a disabled account both take effect on the next request. A
-// missing or disabled user reports ErrInvalidCredential, and a database failure
-// while loading the user is reported the same way instead of being propagated.
-func (s *Service) rolesForUser(ctx context.Context, userID int64) ([]string, error) {
-	user, err := s.queries.GetUser(ctx, userID)
+// role change and a disabled account both take effect on the next request. The
+// caller supplies the queries handle, which is what lets completeLogin resolve
+// roles through the transaction that just upserted the user. A missing or disabled
+// user reports ErrInvalidCredential, and a database failure while loading the user
+// is reported the same way instead of being propagated.
+func (s *Service) rolesForUser(ctx context.Context, q *sqlcgen.Queries, userID int64) ([]string, error) {
+	user, err := q.GetUser(ctx, userID)
 	if err != nil || user.DisabledAt.Valid {
 		return nil, ErrInvalidCredential
 	}
@@ -1123,10 +1197,12 @@ func (s *Service) rolesForUser(ctx context.Context, userID int64) ([]string, err
 //
 // Roles are read at signing time, so the token carries a snapshot that a later
 // role change does not update; revoking the session still invalidates the token,
-// because bearer authentication checks the session row. A missing or disabled user
-// reports ErrInvalidCredential, and a signing failure is returned wrapped.
-func (s *Service) issueAccessToken(ctx context.Context, userID int64, sessionID uuid.UUID) (string, error) {
-	roles, err := s.rolesForUser(ctx, userID)
+// because bearer authentication checks the session row. The caller supplies the
+// queries handle so a login can sign inside its own transaction and see the user
+// row that transaction upserted. A missing or disabled user reports
+// ErrInvalidCredential, and a signing failure is returned wrapped.
+func (s *Service) issueAccessToken(ctx context.Context, q *sqlcgen.Queries, userID int64, sessionID uuid.UUID) (string, error) {
+	roles, err := s.rolesForUser(ctx, q, userID)
 	if err != nil {
 		return "", err
 	}

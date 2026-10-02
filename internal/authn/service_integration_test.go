@@ -34,7 +34,11 @@ func TestLoginRefreshAPIKeyAndLogoutAgainstRealPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.random = bytes.NewReader(bytes.Join([][]byte{bytes.Repeat([]byte{7}, 32), bytes.Repeat([]byte{8}, 32), bytes.Repeat([]byte{9}, 32), bytes.Repeat([]byte{10}, 32), bytes.Repeat([]byte{11}, 32)}, nil))
+	service.random = bytes.NewReader(bytes.Join([][]byte{
+		bytes.Repeat([]byte{7}, 32), bytes.Repeat([]byte{8}, 32), bytes.Repeat([]byte{9}, 32),
+		bytes.Repeat([]byte{10}, 32), bytes.Repeat([]byte{11}, 32), bytes.Repeat([]byte{12}, 32),
+		bytes.Repeat([]byte{13}, 32),
+	}, nil))
 	testNow := time.Now().UTC()
 	service.now = func() time.Time { return testNow }
 	ctx := context.Background()
@@ -185,6 +189,34 @@ func TestLoginRefreshAPIKeyAndLogoutAgainstRealPostgres(t *testing.T) {
 	if err := service.RevokeAPIKey(ctx, 1001, secondKeyID); err != nil {
 		t.Fatalf("RevokeAPIKey(second) error = %v", err)
 	}
+	revokedKeys, err := service.ListAPIKeys(ctx, ListAPIKeysInput{UserID: 1001, Limit: 10})
+	if err != nil || len(revokedKeys) != 0 {
+		t.Fatalf("ListAPIKeys(after revoke) = %#v, %v", revokedKeys, err)
+	}
+	// A page whose stored rows are all unusable must be refilled from the rows
+	// below it, so the caller still sees the one usable key that is ordered
+	// after the revoked ones.
+	usableKey, err := service.CreateAPIKey(ctx, 1001, "usable", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey(usable) error = %v", err)
+	}
+	newestKey, err := service.CreateAPIKey(ctx, 1001, "newest", nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey(newest) error = %v", err)
+	}
+	newestKeyID, _ := dbtypes.GoogleUUID(newestKey.Row.ID)
+	if err := service.RevokeAPIKey(ctx, 1001, newestKeyID); err != nil {
+		t.Fatalf("RevokeAPIKey(newest) error = %v", err)
+	}
+	refilled, err := service.ListAPIKeys(ctx, ListAPIKeysInput{UserID: 1001, Limit: 1})
+	if err != nil || len(refilled) != 1 {
+		t.Fatalf("ListAPIKeys(refilled) = %#v, %v", refilled, err)
+	}
+	refilledID, _ := dbtypes.GoogleUUID(refilled[0].ID)
+	usableKeyID, _ := dbtypes.GoogleUUID(usableKey.Row.ID)
+	if refilledID != usableKeyID {
+		t.Fatalf("ListAPIKeys(refilled) = %v, want the usable key", refilledID)
+	}
 
 	if err := service.Logout(ctx, identity); err != nil {
 		t.Fatalf("Logout() error = %v", err)
@@ -207,6 +239,72 @@ func TestLoginRefreshAPIKeyAndLogoutAgainstRealPostgres(t *testing.T) {
 	}
 	if gateway.startCalls != 2 || gateway.codeCalls != 1 || gateway.passwordCalls != 1 || gateway.active != 0 {
 		t.Fatalf("gateway calls/active = start %d code %d password %d active %d", gateway.startCalls, gateway.codeCalls, gateway.passwordCalls, gateway.active)
+	}
+
+	// User 1001 is the owner of this database, so the administration methods must
+	// keep "refused owner" and "unknown account" apart, and they must still
+	// update an ordinary account.
+	if _, err := service.UpdateUserRole(ctx, 1001, sqlcgen.UserRoleAdmin); !errors.Is(err, ErrOwnerProtected) {
+		t.Fatalf("UpdateUserRole(owner) error = %v", err)
+	}
+	if _, err := service.SetUserDisabled(ctx, 1001, true); !errors.Is(err, ErrOwnerProtected) {
+		t.Fatalf("SetUserDisabled(owner) error = %v", err)
+	}
+	if _, err := service.GetUser(ctx, 999999); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("GetUser(unknown) error = %v", err)
+	}
+	if _, err := service.UpdateUserRole(ctx, 999999, sqlcgen.UserRoleAdmin); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("UpdateUserRole(unknown) error = %v", err)
+	}
+	if _, err := service.SetUserDisabled(ctx, 999999, true); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("SetUserDisabled(unknown) error = %v", err)
+	}
+	if err := service.RevokeUserAccess(ctx, 999999); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("RevokeUserAccess(unknown) error = %v", err)
+	}
+	if _, err := service.queries.UpsertUser(ctx, sqlcgen.UpsertUserParams{
+		UserID: 1002, DisplayName: dbtypes.OptionalText(nonEmpty("Second User")),
+		Username: dbtypes.OptionalText(nonEmpty("seconduser")),
+	}); err != nil {
+		t.Fatalf("create second user: %v", err)
+	}
+	if promoted, err := service.UpdateUserRole(ctx, 1002, sqlcgen.UserRoleAdmin); err != nil || promoted.Role != sqlcgen.UserRoleAdmin {
+		t.Fatalf("UpdateUserRole(second) = %#v, %v", promoted, err)
+	}
+
+	// A login that cannot mint its token must roll back as a whole: the flow
+	// stays retryable and no orphan session is left behind. Disabling the account
+	// makes role resolution reject the completed login.
+	var sessionsBefore int
+	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM sessions WHERE user_id=$1", int64(1001)).Scan(&sessionsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, "UPDATE users SET disabled_at=now() WHERE user_id=$1", int64(1001)); err != nil {
+		t.Fatal(err)
+	}
+	retryFlow, err := service.StartLogin(ctx, "+15550001111")
+	if err != nil {
+		t.Fatalf("StartLogin(retry) error = %v", err)
+	}
+	if _, err := service.VerifyCode(ctx, retryFlow.ID, "12345"); err != nil {
+		t.Fatalf("VerifyCode(retry) error = %v", err)
+	}
+	if _, err := service.VerifyPassword(ctx, retryFlow.ID, "correct horse battery staple"); !errors.Is(err, ErrInvalidCredential) {
+		t.Fatalf("VerifyPassword(disabled) error = %v", err)
+	}
+	var flowPending bool
+	if err := db.Pool.QueryRow(ctx, "SELECT completed_at IS NULL FROM telegram_login_flows WHERE id=$1", retryFlow.ID).Scan(&flowPending); err != nil {
+		t.Fatal(err)
+	}
+	if !flowPending {
+		t.Fatal("a login whose token could not be minted left its flow completed")
+	}
+	var sessionsAfter int
+	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM sessions WHERE user_id=$1", int64(1001)).Scan(&sessionsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if sessionsAfter != sessionsBefore {
+		t.Fatalf("sessions after a rolled back login = %d, want %d", sessionsAfter, sessionsBefore)
 	}
 }
 
