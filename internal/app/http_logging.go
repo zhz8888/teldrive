@@ -5,11 +5,57 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// redactedQueryValue replaces the value of every credential-bearing query
+// parameter in the access log, keeping the parameter name so an operator can still
+// see that the credential was presented.
+const redactedQueryValue = "REDACTED"
+
+// unparsableQueryValue is logged instead of a query string that cannot be parsed.
+// A malformed credential cannot be recognised reliably, so nothing of such a query
+// is recorded.
+const unparsableQueryValue = "unparsable"
+
+// credentialQueryKeys names the query parameters whose values are credentials and
+// must never be written to the access log. "ticket" is the one this API accepts in
+// a query (typespec declares EventTicketAuth as a query API key), and it stays
+// valid until it expires, so logging it verbatim would persist a live
+// bearer-equivalent secret. The other names cover the same kind of secret under the
+// spellings other clients use.
+var credentialQueryKeys = map[string]struct{}{
+	"ticket":       {},
+	"token":        {},
+	"access_token": {},
+	"api_key":      {},
+}
+
+// redactQuery returns rawQuery in the form the access log may record: every
+// credential parameter keeps its name and loses its value, and the remaining
+// parameters are re-encoded, which sorts them by name because that is what
+// url.Values.Encode does. An empty query stays empty, and a query that does not
+// parse is replaced by unparsableQueryValue so a malformed credential is never
+// logged verbatim.
+func redactQuery(rawQuery string) string {
+	if rawQuery == "" {
+		return ""
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return unparsableQueryValue
+	}
+	for key := range values {
+		if _, ok := credentialQueryKeys[strings.ToLower(key)]; ok {
+			values[key] = []string{redactedQueryValue}
+		}
+	}
+	return values.Encode()
+}
 
 // httpRequestLogger returns middleware that emits one "http.request" record per
 // handled request, with status, latency, request ID and client details. Static UI
@@ -22,6 +68,11 @@ import (
 // the rest of the chain uses: the forwarding header is believed only when the
 // immediate peer is a configured trusted proxy, so a client that reaches the server
 // directly cannot choose what the log says. A nil security trusts no proxy.
+//
+// The query string is logged through redactQuery, because this API accepts the
+// event-stream ticket as a query parameter and that ticket is a bearer-equivalent
+// credential until it expires: its value is replaced, everything else in the query
+// is kept.
 func httpRequestLogger(logger *slog.Logger, security *requestSecurity) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -48,7 +99,7 @@ func httpRequestLogger(logger *slog.Logger, security *requestSecurity) func(http
 					slog.Int("status", status),
 					slog.String("method", r.Method),
 					slog.String("path", r.URL.Path),
-					slog.String("query", r.URL.RawQuery),
+					slog.String("query", redactQuery(r.URL.RawQuery)),
 					slog.String("ip", clientAddress(r, security)),
 					slog.String("user_agent", r.UserAgent()),
 					slog.Duration("latency", time.Since(started)),

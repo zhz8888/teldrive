@@ -93,6 +93,61 @@ func TestHTTPRequestLoggerSkipsUIRequests(t *testing.T) {
 	}
 }
 
+// TestHTTPRequestLoggerRedactsCredentialQueryValues pins that a credential passed
+// in the query - the event ticket is the one this API accepts there - never
+// reaches the access log, while the rest of the query stays readable.
+func TestHTTPRequestLoggerRedactsCredentialQueryValues(t *testing.T) {
+	t.Parallel()
+
+	handler := &recordHandler{}
+	logger := slog.New(handler)
+	wrapped := httpRequestLogger(logger, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	wrapped.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/events?types=file&ticket=live-secret", nil))
+
+	if len(handler.records) != 1 {
+		t.Fatalf("records = %d, want 1", len(handler.records))
+	}
+	attrs := map[string]any{}
+	handler.records[0].Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.Any()
+		return true
+	})
+	if attrs["query"] != "ticket=REDACTED&types=file" {
+		t.Fatalf("query = %#v, want the ticket value replaced and the rest kept", attrs["query"])
+	}
+}
+
+// TestRedactQuery pins what the access log records for the query strings the API
+// can see: credential values are replaced, everything else survives, and a query
+// that does not parse is dropped rather than logged as it came in.
+func TestRedactQuery(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		query string
+		want  string
+	}{
+		{name: "empty query stays empty", query: "", want: ""},
+		{name: "ordinary parameters are kept", query: "q=value", want: "q=value"},
+		{name: "ticket value is replaced", query: "ticket=live-secret", want: "ticket=REDACTED"},
+		{name: "credential names match case-insensitively", query: "Ticket=live-secret&api_key=other", want: "Ticket=REDACTED&api_key=REDACTED"},
+		{name: "parameters around a credential survive", query: "types=file&ticket=live-secret&after=5", want: "after=5&ticket=REDACTED&types=file"},
+		{name: "repeated credential values are collapsed", query: "token=a&token=b", want: "token=REDACTED"},
+		{name: "unparsable query is not logged", query: "ticket=%zz", want: unparsableQueryValue},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := redactQuery(test.query); got != test.want {
+				t.Fatalf("redactQuery(%q) = %q, want %q", test.query, got, test.want)
+			}
+		})
+	}
+}
+
 // TestClientAddressTrustsForwardedHeaderOnlyFromTrustedProxy pins the rule the log
 // follows: the forwarding header is adopted only when the immediate peer is a trusted
 // proxy, a direct client cannot choose its own entry, and the recorded address never
