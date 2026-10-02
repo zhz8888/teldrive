@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -310,6 +311,44 @@ security:
 	}
 	if cfg.Database.URL != "postgres://file/teldrive" || cfg.Telegram.AppHash != "from-file" {
 		t.Fatalf("config file values not loaded: %#v", cfg)
+	}
+}
+
+// TestLoaderReadsListFlagsWithoutBrackets covers the command-line form of the
+// three list-valued settings. pflag renders a slice flag as "[a,b]" for display,
+// so a provider that forwarded that rendering would hand the decoder bracketed
+// entries: trusted proxies and import roots would then fail validation, and an
+// allowlist would silently match nobody and lock every account out.
+func TestLoaderReadsListFlagsWithoutBrackets(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	loader := newLoader(func(string) (string, bool) { return "", false }, func() (string, error) { return "", nil })
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	loader.RegisterFlags(flags)
+	if err := flags.Parse([]string{
+		"--security-allowed-users", "alice",
+		"--security-allowed-users", "bob",
+		"--http-trusted-proxies", "10.0.0.1",
+		"--uploads-local-import-roots", dir,
+		"--database-url", "postgres://user:pass@127.0.0.1:5432/teldrive",
+		"--security-signing-key", "0123456789abcdef0123456789abcdef",
+		"--security-data-key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loader.Load(flags)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if want := []string{"alice", "bob"}; !slices.Equal(cfg.Security.AllowedUsers, want) {
+		t.Fatalf("allowed users = %q, want %q", cfg.Security.AllowedUsers, want)
+	}
+	if want := []string{"10.0.0.1"}; !slices.Equal(cfg.HTTP.TrustedProxies, want) {
+		t.Fatalf("trusted proxies = %q, want %q", cfg.HTTP.TrustedProxies, want)
+	}
+	if want := []string{dir}; !slices.Equal(cfg.Uploads.LocalImportRoots, want) {
+		t.Fatalf("local import roots = %q, want %q", cfg.Uploads.LocalImportRoots, want)
 	}
 }
 

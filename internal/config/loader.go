@@ -498,10 +498,12 @@ type flagProvider struct {
 }
 
 // Read returns the values of the mapped flags as a nested map keyed by config
-// path, with every value rendered as a string so the mapstructure hooks can
-// convert it. The built-in --config flag, flags with no configuration mapping,
-// and, when onlyChanged is set, flags left at their default are skipped. It
-// never fails.
+// path. Scalar flags are rendered as strings so the mapstructure hooks can convert
+// them; a flag that holds a list is returned as the list itself, because pflag
+// renders a slice flag as "[a,b]" for display and a string conversion would split
+// that rendering on its commas and keep the brackets. The built-in --config flag,
+// flags with no configuration mapping, and, when onlyChanged is set, flags left at
+// their default are skipped. It never fails.
 func (p *flagProvider) Read() (map[string]any, error) {
 	flat := make(map[string]any)
 	p.flags.VisitAll(func(flag *pflag.Flag) {
@@ -510,6 +512,10 @@ func (p *flagProvider) Read() (map[string]any, error) {
 		}
 		key, ok := p.flagMap[flag.Name]
 		if !ok {
+			return
+		}
+		if slice, ok := flag.Value.(pflag.SliceValue); ok {
+			flat[key] = append([]string(nil), slice.GetSlice()...)
 			return
 		}
 		flat[key] = flag.Value.String()
