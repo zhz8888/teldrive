@@ -135,6 +135,8 @@ func mapServiceError(err error) error {
 		return problem(http.StatusTooManyRequests, "login_flow_busy", "another request is already working on this login flow", err)
 	case errors.Is(err, authn.ErrTooManyAttempts):
 		return problem(http.StatusTooManyRequests, "too_many_login_attempts", "too many login attempts, try again later", err)
+	case errors.Is(err, channels.ErrAllocationBusy):
+		return problem(http.StatusTooManyRequests, "channel_allocation_busy", "another upload is already allocating channel capacity", err)
 	case errors.Is(err, shares.ErrTooManyAttempts):
 		return problem(http.StatusTooManyRequests, "share_password_throttled", "too many wrong share passwords, try again later", err)
 	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured), errors.Is(err, transfer.ErrEncryptionKey):

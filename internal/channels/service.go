@@ -6,10 +6,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
@@ -104,7 +107,32 @@ type Service struct {
 	// now is the service clock used to name generated channels; tests replace
 	// it to make names deterministic.
 	now func() time.Time
+	// allocationSlots bounds how many allocation and rollover calls hold a
+	// pooled connection at once. Both keep the per-user advisory lock across a
+	// Telegram round trip, so without a cap a burst of concurrent uploads could
+	// occupy the whole pool. It is built on first use so a service assembled by
+	// a test literal behaves like a constructed one.
+	allocationSlots chan struct{}
+	allocationOnce  sync.Once
 }
+
+const (
+	// maxConcurrentAllocations caps how many allocation and rollover calls hold
+	// a pooled connection at once.
+	maxConcurrentAllocations = 4
+	// allocationLockWait bounds how long allocation waits for another call that
+	// already holds the same user's lock before reporting ErrAllocationBusy.
+	allocationLockWait = 10 * time.Second
+	// allocationLockRetry is the pause between two attempts at the per-user
+	// lock. The connection is released before the pause, so waiting costs no
+	// pool slot.
+	allocationLockRetry = 25 * time.Millisecond
+)
+
+// ErrAllocationBusy reports that another call is already allocating channel
+// capacity for the same user and this call did not take the per-user lock within
+// allocationLockWait. It maps to HTTP 429 so the caller can retry.
+var ErrAllocationBusy = errors.New("channel allocation is busy")
 
 // NewService returns a channel service that creates Telegram channels through
 // creator under the given policy. A blank Config.NamePrefix is replaced with
@@ -179,6 +207,11 @@ func (s *Service) Resolve(ctx context.Context, userID, requestedChannelID int64)
 
 // ResolveMany reserves channel capacity for count parts while holding the
 // rollover lock. The returned channel IDs correspond to parts in input order.
+//
+// The per-user lock is held across the Telegram call that creates a replacement
+// channel, so the number of callers holding a connection is bounded and a caller
+// waiting for a lock another request owns returns its connection between
+// attempts.
 func (s *Service) ResolveMany(ctx context.Context, userID int64, count int) (channelIDs []int64, err error) {
 	if userID <= 0 {
 		return nil, ErrInvalidOwner
@@ -186,23 +219,11 @@ func (s *Service) ResolveMany(ctx context.Context, userID int64, count int) (cha
 	if count <= 0 {
 		return []int64{}, nil
 	}
-	conn, err := s.pool.Acquire(ctx)
+	conn, queries, release, err := s.acquireUserLock(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("acquire channel allocation connection: %w", err)
+		return nil, err
 	}
-	defer conn.Release()
-	lockID := advisoryLockID(userID)
-	queries := sqlcgen.New(conn)
-	if err := queries.AcquireAdvisoryLock(ctx, lockID); err != nil {
-		return nil, fmt.Errorf("acquire channel allocation lock: %w", err)
-	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, unlockErr := queries.ReleaseAdvisoryLock(unlockCtx, lockID); unlockErr != nil && err == nil {
-			err = fmt.Errorf("release channel allocation lock: %w", unlockErr)
-		}
-	}()
+	defer release()
 
 	selected, selectedErr := queries.GetSelectedChannel(ctx, userID)
 	if selectedErr != nil && !errors.Is(selectedErr, pgx.ErrNoRows) {
@@ -230,9 +251,22 @@ func (s *Service) ResolveMany(ctx context.Context, userID int64, count int) (cha
 				channelIDs = append(channelIDs, channelID)
 			}
 			if len(channelIDs) < count {
+				// The channel just took all the parts it had room for and more
+				// are still needed, so it is full: record that instead of only
+				// remembering it in this call, which keeps the next allocation
+				// from counting its parts again.
+				if err := markChannelUnavailable(ctx, queries, userID, channelID); err != nil {
+					return nil, err
+				}
 				selected.Health = sqlcgen.ChannelHealthUnavailable
 			}
 			continue
+		}
+		if channelID != 0 {
+			// The selected channel was already full before this call.
+			if err := markChannelUnavailable(ctx, queries, userID, channelID); err != nil {
+				return nil, err
+			}
 		}
 		if !s.config.AutoCreate {
 			if errors.Is(selectedErr, pgx.ErrNoRows) {
@@ -298,11 +332,119 @@ func (s *Service) createSelectedChannel(ctx context.Context, conn *pgxpool.Conn,
 	return selected, nil
 }
 
+// markChannelUnavailable records that a channel cannot accept another part, so
+// the health column reflects what allocation learned and a later call does not
+// select it again. A failure is reported because the caller is about to create a
+// replacement channel anyway.
+func markChannelUnavailable(ctx context.Context, queries *sqlcgen.Queries, userID, channelID int64) error {
+	if _, err := queries.UpdateChannelHealth(ctx, sqlcgen.UpdateChannelHealthParams{
+		Health: sqlcgen.ChannelHealthUnavailable, UserID: userID, ChannelID: channelID,
+	}); err != nil {
+		return fmt.Errorf("mark channel unavailable: %w", err)
+	}
+	return nil
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique-violation
+// (SQLSTATE 23505), which the channel statements raise when two callers race for
+// the same row.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
 // limitReached reports whether the channel already stores Config.PartLimit
 // parts. It reports false when the limit is disabled and returns the count
 // error unchanged when the query fails.
 func (s *Service) limitReached(ctx context.Context, channelID int64) (bool, error) {
 	return s.limitReachedWith(ctx, s.queries, channelID)
+}
+
+// slotLimiter returns the semaphore that caps concurrent allocation and rollover
+// calls, building it on first use.
+func (s *Service) slotLimiter() chan struct{} {
+	s.allocationOnce.Do(func() {
+		if s.allocationSlots == nil {
+			s.allocationSlots = make(chan struct{}, maxConcurrentAllocations)
+		}
+	})
+	return s.allocationSlots
+}
+
+// acquireUserLock takes the per-user advisory lock that serializes channel
+// allocation. It returns the connection holding the lock, a query handle bound
+// to it, and the function that releases both; callers must always call it.
+//
+// A slot is taken first so at most maxConcurrentAllocations callers hold a
+// connection at once, and while another request owns the lock the connection
+// goes back to the pool between attempts, so waiting for a busy user costs no
+// pool slot. The release runs on a background context with a five second
+// deadline, and a release that fails closes the connection instead of returning
+// it: the session-level lock would otherwise stay on a pooled connection and
+// block that user's next allocation for as long as the connection lives, which
+// is far worse than the one lost connection.
+func (s *Service) acquireUserLock(ctx context.Context, userID int64) (*pgxpool.Conn, *sqlcgen.Queries, func(), error) {
+	slots := s.slotLimiter()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, nil, nil, ctx.Err()
+	}
+	lockID := advisoryLockID(userID)
+	conn, err := s.lockUser(ctx, lockID)
+	if err != nil {
+		<-slots
+		return nil, nil, nil, err
+	}
+	queries := sqlcgen.New(conn)
+	release := func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, unlockErr := queries.ReleaseAdvisoryLock(unlockCtx, lockID); unlockErr != nil {
+			closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer closeCancel()
+			_ = conn.Hijack().Close(closeCtx)
+			slog.WarnContext(ctx, "releasing a channel allocation lock failed", "user_id", userID, "error", unlockErr)
+		}
+		conn.Release()
+		<-slots
+	}
+	return conn, queries, release, nil
+}
+
+// lockUser acquires a pooled connection and takes the session-level advisory
+// lock on it. It returns ErrAllocationBusy when the lock is still held after
+// allocationLockWait, or when the caller's own deadline expires first.
+func (s *Service) lockUser(ctx context.Context, lockID int64) (*pgxpool.Conn, error) {
+	deadline := time.Now().Add(allocationLockWait)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	for {
+		conn, err := s.pool.Acquire(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("acquire channel allocation connection: %w", err)
+		}
+		locked, err := sqlcgen.New(conn).TryAdvisoryLock(ctx, lockID)
+		if err != nil {
+			conn.Release()
+			return nil, fmt.Errorf("acquire channel allocation lock: %w", err)
+		}
+		if locked {
+			return conn, nil
+		}
+		conn.Release()
+		if !time.Now().Before(deadline) {
+			return nil, ErrAllocationBusy
+		}
+		timer := time.NewTimer(allocationLockRetry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // limitReachedWith is limitReached against an explicit query handle, so callers
@@ -332,24 +474,11 @@ func (s *Service) rollover(ctx context.Context, userID int64) (channelID int64, 
 	if s.creator == nil {
 		return 0, errors.New("Telegram channel creator is not configured")
 	}
-	conn, err := s.pool.Acquire(ctx)
+	conn, lockedQueries, release, err := s.acquireUserLock(ctx, userID)
 	if err != nil {
-		return 0, fmt.Errorf("acquire rollover connection: %w", err)
+		return 0, err
 	}
-	defer conn.Release()
-
-	lockID := advisoryLockID(userID)
-	lockedQueries := sqlcgen.New(conn)
-	if err := lockedQueries.AcquireAdvisoryLock(ctx, lockID); err != nil {
-		return 0, fmt.Errorf("acquire channel rollover lock: %w", err)
-	}
-	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, unlockErr := lockedQueries.ReleaseAdvisoryLock(unlockCtx, lockID); unlockErr != nil && err == nil {
-			err = fmt.Errorf("release channel rollover lock: %w", unlockErr)
-		}
-	}()
+	defer release()
 
 	// Another process may have completed rollover while this caller waited.
 	selected, selectedErr := lockedQueries.GetSelectedChannel(ctx, userID)
@@ -360,6 +489,11 @@ func (s *Service) rollover(ctx context.Context, userID int64) (channelID int64, 
 		}
 		if !full {
 			return selected.ChannelID, nil
+		}
+		// The channel is full and a replacement is about to be created, so
+		// record it: the next allocation then skips counting its parts.
+		if err := markChannelUnavailable(ctx, lockedQueries, userID, selected.ChannelID); err != nil {
+			return 0, err
 		}
 	} else if selectedErr != nil && !errors.Is(selectedErr, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("recheck selected channel: %w", selectedErr)

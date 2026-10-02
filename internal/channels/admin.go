@@ -168,6 +168,12 @@ func (s *Service) Select(ctx context.Context, userID, channelID int64) (*sqlcgen
 	}
 	channel, err = q.SelectChannel(ctx, sqlcgen.SelectChannelParams{UserID: userID, ChannelID: channelID})
 	if err != nil {
+		// Two callers selecting a channel for the same user at once can both
+		// pass the clear and then collide on the partial unique index that keeps
+		// one selection per user, which is a conflict rather than a fault.
+		if isUniqueViolation(err) {
+			return nil, ErrSelectedChannel
+		}
 		return nil, fmt.Errorf("select channel: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

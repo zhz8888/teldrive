@@ -30,6 +30,12 @@ func (s *Service) Sync(ctx context.Context, userID int64, remote []RemoteChannel
 	items := slices.SortedFunc(maps.Values(unique), func(a, b RemoteChannel) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
+	if items == nil {
+		// SortedFunc returns nil for an empty sequence, and a nil slice marshals
+		// to JSON null, which jsonb_to_recordset rejects. A user with no
+		// manageable channels therefore has to send an empty array instead.
+		items = []RemoteChannel{}
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
