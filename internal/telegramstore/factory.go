@@ -345,8 +345,10 @@ type databaseSessionStorage struct {
 	// sessionID is the row that receives updates. An invalid UUID makes both
 	// methods fail with ErrTelegramConfiguration.
 	sessionID pgtype.UUID
-	// userID is the owner of the row and scopes every query, so a session ID can
-	// never be used for another user.
+	// userID is the owner of the row and scopes the read path, so a session ID can
+	// never be used to load another user's session. The write path addresses the
+	// row by ID alone, which is safe only because every value is built from a row
+	// that was already resolved for this user.
 	userID int64
 }
 
