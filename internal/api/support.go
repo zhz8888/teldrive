@@ -133,6 +133,8 @@ func mapServiceError(err error) error {
 		return problem(http.StatusTooManyRequests, "too_many_event_streams", "too many event streams are open", err)
 	case errors.Is(err, authn.ErrLoginBusy):
 		return problem(http.StatusTooManyRequests, "login_flow_busy", "another request is already working on this login flow", err)
+	case errors.Is(err, shares.ErrTooManyAttempts):
+		return problem(http.StatusTooManyRequests, "share_password_throttled", "too many wrong share passwords, try again later", err)
 	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured), errors.Is(err, transfer.ErrEncryptionKey):
 		return problem(http.StatusServiceUnavailable, "service_unavailable", "operation is not available", err)
 	case errors.Is(err, catalog.ErrNotFound), errors.Is(err, uploads.ErrNotFound), errors.Is(err, authn.ErrSessionNotFound), errors.Is(err, authn.ErrAPIKeyNotFound), errors.Is(err, authn.ErrUserNotFound), errors.Is(err, bots.ErrNotFound), errors.Is(err, channels.ErrInvalidChannel), errors.Is(err, channels.ErrInvalidOwner), errors.Is(err, shares.ErrNotFound), errors.Is(err, fileops.ErrNotFound):

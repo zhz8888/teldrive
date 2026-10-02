@@ -85,7 +85,7 @@ func (h *RawHandler) DownloadPublicShare(ctx context.Context, params gen.Downloa
 		w.WriteHeader(http.StatusNotModified)
 		return nil
 	}
-	resolved, err = h.handler.Shares.ReserveDownload(ctx, params.Token, password)
+	resolved, err = h.handler.Shares.ReserveResolvedDownload(ctx, resolved)
 	if err != nil {
 		return mapServiceError(err)
 	}

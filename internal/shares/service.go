@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,7 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/catalog"
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
+	"github.com/tgdrive/teldrive/v2/internal/throttle"
 )
 
 var (
@@ -51,9 +53,15 @@ var (
 	// request carried no password. Callers must test it with errors.Is.
 	ErrPasswordNeeded = errors.New("share password is required")
 	// ErrInvalidPassword reports that the supplied password does not match the
-	// stored bcrypt hash; failed attempts are neither counted nor rate limited
-	// at this layer. Callers must test it with errors.Is.
+	// stored bcrypt hash. Repeated failures for one share are counted and, past
+	// the threshold, answered with ErrTooManyAttempts instead. Callers must test
+	// it with errors.Is.
 	ErrInvalidPassword = errors.New("share password is invalid")
+	// ErrTooManyAttempts reports that a share has seen too many wrong passwords
+	// in a row and is refusing further guesses for a while. It maps to HTTP 429,
+	// so a client can retry the same password later instead of treating the
+	// share as broken. Callers must test it with errors.Is.
+	ErrTooManyAttempts = errors.New("share password attempts are throttled")
 	// ErrForbidden reports that the caller is authenticated but holds neither
 	// ownership nor an active grant with sufficient permission for the file.
 	// Callers must test it with errors.Is.
@@ -279,7 +287,41 @@ type Service struct {
 	// now is the service clock, read on every validation and expiry check so
 	// tests can freeze time.
 	now func() time.Time
+	// attempts throttles password guessing per share, so a token holder cannot
+	// try passwords at the speed bcrypt allows. It is built on first use, which
+	// keeps a service assembled by a test literal working.
+	attempts     *throttle.Limiter
+	attemptsOnce sync.Once
 }
+
+// attemptLimiter returns the per-share password throttle, building it on first
+// use.
+func (s *Service) attemptLimiter() *throttle.Limiter {
+	s.attemptsOnce.Do(func() {
+		if s.attempts == nil {
+			s.attempts = throttle.New(sharePasswordFailures, sharePasswordBlock, sharePasswordBlockMax, sharePasswordKeys)
+		}
+	})
+	return s.attempts
+}
+
+const (
+	// maxSharePasswordLength is the longest password bcrypt accepts. Anything
+	// longer is rejected during validation instead of failing hash generation.
+	maxSharePasswordLength = 72
+	// sharePasswordFailures is how many wrong passwords one share may see before
+	// further guesses are refused.
+	sharePasswordFailures = 5
+	// sharePasswordBlock is the first block applied to a share that ran out of
+	// attempts; it doubles with every further wrong password up to
+	// sharePasswordBlockMax.
+	sharePasswordBlock = 30 * time.Second
+	// sharePasswordBlockMax caps one block, so a share stays reachable for its
+	// owner without a restart or background job.
+	sharePasswordBlockMax = 15 * time.Minute
+	// sharePasswordKeys bounds how many shares the throttle remembers.
+	sharePasswordKeys = 4096
+)
 
 // NewService builds a share service on the given connection pool. It returns
 // ErrInvalidInput when either dependency is nil and does not ping the pool, so
@@ -345,16 +387,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Created, error) 
 	}
 	var passwordHash *string
 	if in.Password != nil {
-		password := strings.TrimSpace(*in.Password)
-		if password == "" {
-			return nil, ErrInvalidInput
-		}
-		digest, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		hash, err := hashSharePassword(*in.Password)
 		if err != nil {
-			return nil, fmt.Errorf("hash share password: %w", err)
+			return nil, err
 		}
-		value := string(digest)
-		passwordHash = &value
+		passwordHash = hash
 	}
 	row, err := s.queries.CreateFileShare(ctx, sqlcgen.CreateFileShareParams{
 		ID: dbtypes.UUID(uuid.New()), FileID: dbtypes.UUID(in.FileID), OwnerID: in.OwnerID,
@@ -436,16 +473,11 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (*sqlcgen.FileShar
 	}
 	var passwordHash *string
 	if in.Password != nil {
-		password := strings.TrimSpace(*in.Password)
-		if password == "" {
-			return nil, ErrInvalidInput
-		}
-		digest, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		hash, err := hashSharePassword(*in.Password)
 		if err != nil {
-			return nil, fmt.Errorf("hash share password: %w", err)
+			return nil, err
 		}
-		value := string(digest)
-		passwordHash = &value
+		passwordHash = hash
 	}
 	updated, err := s.queries.UpdateFileShare(ctx, sqlcgen.UpdateFileShareParams{
 		ClearPassword: in.ClearPassword, PasswordHash: dbtypes.OptionalText(passwordHash),
@@ -586,12 +618,7 @@ func (s *Service) ReserveFileDownload(ctx context.Context, token, password strin
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.queries.IncrementShareDownloadCount(ctx, resolved.Share.ID); errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrExpired
-	} else if err != nil {
-		return nil, fmt.Errorf("reserve share download: %w", err)
-	}
-	return resolved, nil
+	return s.ReserveResolvedDownload(ctx, resolved)
 }
 
 // ReserveDownload atomically consumes one allowed download before bytes are
@@ -601,6 +628,19 @@ func (s *Service) ReserveDownload(ctx context.Context, token, password string) (
 	resolved, err := s.Resolve(ctx, token, password)
 	if err != nil {
 		return nil, err
+	}
+	return s.ReserveResolvedDownload(ctx, resolved)
+}
+
+// ReserveResolvedDownload charges one download against a share that the caller
+// resolved earlier in the same request. It exists so a caller that resolved the
+// share for its response headers, and therefore already paid for the password
+// check, does not run bcrypt a second time: a password-protected share would
+// otherwise cost two derivations per request, which is what makes guessing and
+// CPU exhaustion cheap for whoever holds the link.
+func (s *Service) ReserveResolvedDownload(ctx context.Context, resolved *Public) (*Public, error) {
+	if resolved == nil || resolved.Share == nil {
+		return nil, ErrNotFound
 	}
 	if _, err := s.queries.IncrementShareDownloadCount(ctx, resolved.Share.ID); errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrExpired
@@ -617,13 +657,16 @@ func (s *Service) ReserveDownload(ctx context.Context, token, password string) (
 // miss yields ErrExpired rather than ErrNotFound so that dead and unknown
 // tokens are indistinguishable. The password check goes through bcrypt, which
 // compares the digest in constant time; the raw password is neither stored nor
-// counted, so repeated guesses are only slowed by bcrypt's work factor.
+// logged. Wrong passwords are counted per share, so guessing is throttled past
+// sharePasswordFailures attempts instead of being limited only by bcrypt's work
+// factor, which also caps how much CPU one token holder can spend.
 func (s *Service) resolveRow(ctx context.Context, token, password string) (*sqlcgen.GetActiveShareByTokenHashRow, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil, ErrNotFound
 	}
-	row, err := s.queries.GetActiveShareByTokenHash(ctx, tokenHash(token))
+	hash := tokenHash(token)
+	row, err := s.queries.GetActiveShareByTokenHash(ctx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrExpired
 	}
@@ -640,11 +683,34 @@ func (s *Service) resolveRow(ctx context.Context, token, password string) (*sqlc
 		if password == "" {
 			return nil, ErrPasswordNeeded
 		}
+		key := string(hash)
+		if _, ok := s.attemptLimiter().Allow(key); !ok {
+			return nil, ErrTooManyAttempts
+		}
 		if err := bcrypt.CompareHashAndPassword([]byte(row.PasswordHash.String), []byte(password)); err != nil {
+			s.attemptLimiter().Fail(key)
 			return nil, ErrInvalidPassword
 		}
+		s.attemptLimiter().Succeed(key)
 	}
 	return row, nil
+}
+
+// hashSharePassword validates and hashes a share password. The password is
+// trimmed, and a blank or over-long one is rejected as ErrInvalidInput rather
+// than reaching bcrypt, which refuses anything longer than
+// maxSharePasswordLength bytes and would otherwise surface as a server error.
+func hashSharePassword(password string) (*string, error) {
+	trimmed := strings.TrimSpace(password)
+	if trimmed == "" || len(trimmed) > maxSharePasswordLength {
+		return nil, ErrInvalidInput
+	}
+	digest, err := bcrypt.GenerateFromPassword([]byte(trimmed), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash share password: %w", err)
+	}
+	value := string(digest)
+	return &value, nil
 }
 
 // CreateGrant grants another user read or edit access to one of the caller's
