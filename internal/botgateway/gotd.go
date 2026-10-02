@@ -10,6 +10,7 @@ package botgateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/gotd/td/session"
@@ -91,12 +92,14 @@ func NewChannelBotProvider(pool *pgxpool.Pool) (*ChannelBotProvider, error) {
 }
 
 // ChannelBots resolves every enabled bot of userID to a tg.InputUserClass by
-// its stored username. Bots without a stored username are skipped, and a
-// username that no longer resolves to the recorded bot ID fails the whole call
-// with a message wrapping bots.ErrNotFound, so a caller never adds the wrong
-// account to a channel. It returns bots.ErrInvalidInput for a nil receiver,
-// query handle or API client, or a non-positive user ID; api must be running
-// and authorized as the channel owner.
+// its stored username. Bots without a stored username are skipped, and so is a
+// bot whose username no longer resolves to the recorded bot ID: that bot is
+// logged as a warning and the remaining bots are returned anyway, so a single
+// stale bot row cannot stop a channel from being created. A partial result is
+// consistent with a user without enabled bots, which yields an empty list and
+// is valid. It returns bots.ErrInvalidInput for a nil receiver, query handle or
+// API client, or a non-positive user ID, and a wrapped error when the bot rows
+// cannot be read; api must be running and authorized as the channel owner.
 func (p *ChannelBotProvider) ChannelBots(ctx context.Context, userID int64, api *tg.Client) ([]tg.InputUserClass, error) {
 	if p == nil || p.queries == nil || userID <= 0 || api == nil {
 		return nil, bots.ErrInvalidInput
@@ -110,9 +113,12 @@ func (p *ChannelBotProvider) ChannelBots(ctx context.Context, userID int64, api 
 		if !row.Username.Valid || strings.TrimSpace(row.Username.String) == "" {
 			continue
 		}
-		resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: strings.TrimPrefix(row.Username.String, "@")})
+		username := strings.TrimPrefix(row.Username.String, "@")
+		resolved, err := api.ContactsResolveUsername(ctx, &tg.ContactsResolveUsernameRequest{Username: username})
 		if err != nil {
-			return nil, fmt.Errorf("resolve bot %d: %w", row.BotID, err)
+			slog.WarnContext(ctx, "Skipping unresolvable Telegram bot",
+				"user_id", userID, "bot_id", row.BotID, "username", username, "error", err)
+			continue
 		}
 		found := false
 		for _, item := range resolved.Users {
@@ -125,7 +131,8 @@ func (p *ChannelBotProvider) ChannelBots(ctx context.Context, userID int64, api 
 			break
 		}
 		if !found {
-			return nil, fmt.Errorf("resolve bot %d: %w", row.BotID, bots.ErrNotFound)
+			slog.WarnContext(ctx, "Skipping Telegram bot whose username resolved to another account",
+				"user_id", userID, "bot_id", row.BotID, "username", username)
 		}
 	}
 	return users, nil

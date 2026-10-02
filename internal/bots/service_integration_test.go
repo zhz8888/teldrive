@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
 	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
 	"github.com/tgdrive/teldrive/v2/internal/testutil/querytrace"
@@ -122,6 +123,39 @@ func TestBotCRUDEncryptsTokenAgainstRealPostgres(t *testing.T) {
 	}
 	if verifier.calls != 2 {
 		t.Fatalf("verifier calls = %d", verifier.calls)
+	}
+}
+
+func TestMarkProvisionFailureReportsMissingBot(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	if _, err := db.Pool.Exec(ctx, "INSERT INTO users (user_id) VALUES (1001)"); err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := secureblob.NewWithKey(bytes.Repeat([]byte{2}, 32), bytes.NewReader(bytes.Repeat([]byte{4}, 24*4)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier := &fakeVerifier{identity: Identity{ID: 777, Username: "storage_bot"}}
+	service, err := NewService(db.Pool, cipher, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(ctx, 1001, "777:super-secret-token"); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := service.MarkProvisionFailure(ctx, 1001, 777, errors.New("invite failed")); err != nil {
+		t.Fatalf("MarkProvisionFailure(existing) error = %v", err)
+	}
+	row, err := service.queries.GetBot(ctx, sqlcgen.GetBotParams{UserID: 1001, BotID: 777})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Enabled || row.ConsecutiveFailures != 1 || !row.LastError.Valid || row.LastError.String != "invite failed" {
+		t.Fatalf("bot after failure = %#v", row)
+	}
+	if err := service.MarkProvisionFailure(ctx, 1001, 778, errors.New("invite failed")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("MarkProvisionFailure(missing) error = %v", err)
 	}
 }
 

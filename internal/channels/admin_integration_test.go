@@ -55,6 +55,12 @@ func TestChannelAdminLifecycleAgainstRealPostgres(t *testing.T) {
 	if creator.deleteCalls() != 1 {
 		t.Fatalf("remote deletes = %d", creator.deleteCalls())
 	}
+	if err := service.Delete(ctx, 1001, first.ChannelID); !errors.Is(err, channels.ErrInvalidChannel) {
+		t.Fatalf("Delete(gone) error = %v", err)
+	}
+	if creator.deleteCalls() != 1 {
+		t.Fatalf("remote deletes after refused row delete = %d, want 1", creator.deleteCalls())
+	}
 	if err := service.Delete(ctx, 1001, second.ChannelID); !errors.Is(err, channels.ErrSelectedChannel) {
 		t.Fatalf("Delete(selected) error = %v", err)
 	}

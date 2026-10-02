@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/gotd/td/tg"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +20,11 @@ import (
 // NewUploadAwareRunner, or Run was invoked on an incompletely built runner or
 // with invalid arguments. Callers must test it with errors.Is.
 var ErrUploadRunnerConfiguration = errors.New("upload-aware Telegram runner is not configured")
+
+// botFailureWriteTimeout bounds the write that records a failed upload on the
+// bot row, so a slow or unreachable database cannot delay returning the upload
+// error to the caller.
+const botFailureWriteTimeout = 5 * time.Second
 
 // UploadAwareRunner executes uploads and optionally downloads through an enabled
 // bot. Selection is independent per operation, and authenticated bot sessions
@@ -100,8 +107,9 @@ func (r *UploadAwareRunner) RunPooled(ctx context.Context, userID int64, operati
 // Success and failure of an upload are written back to the chosen bot row, and
 // a failure is returned wrapped with the operation and bot ID. It returns
 // ErrUploadRunnerConfiguration for an incompletely built runner or invalid
-// arguments; a failure to record the outcome on the bot row is ignored so that
-// it cannot mask the operation error.
+// arguments. Recording a failure runs on a detached context of its own, and a
+// write that still fails is logged instead of returned, so it can neither be
+// skipped because the caller's context failed nor mask the operation error.
 func (r *UploadAwareRunner) run(ctx context.Context, userID int64, operation telegramstore.Operation, connections int, fn func(context.Context, *tg.Client) error) error {
 	if r == nil || r.queries == nil || r.selector == nil || r.cipher == nil || r.factory == nil || r.fallback == nil || userID <= 0 || connections < 1 || fn == nil {
 		return ErrUploadRunnerConfiguration
@@ -139,9 +147,7 @@ func (r *UploadAwareRunner) run(ctx context.Context, userID int64, operation tel
 	}
 	if err := runBot(ctx, userID, bot, connections, fn); err != nil {
 		if operation == telegramstore.OperationUpload {
-			_, _ = r.queries.MarkBotUploadFailure(ctx, sqlcgen.MarkBotUploadFailureParams{
-				UserID: userID, BotID: bot.BotID, LastError: err.Error(),
-			})
+			r.markUploadFailure(ctx, userID, bot.BotID, err)
 		}
 		return fmt.Errorf("%s with bot %d: %w", operation, bot.BotID, err)
 	}
@@ -149,6 +155,23 @@ func (r *UploadAwareRunner) run(ctx context.Context, userID int64, operation tel
 		_, _ = r.queries.MarkBotUploadSuccess(ctx, sqlcgen.MarkBotUploadSuccessParams{UserID: userID, BotID: bot.BotID})
 	}
 	return nil
+}
+
+// markUploadFailure records cause on the bot row of a failed upload, which
+// increments the consecutive failure counter and starts the retry backoff of
+// the bot. The write deliberately runs on a context detached from the caller's
+// and with a short deadline of its own, because the upload usually failed
+// precisely because that context was cancelled or timed out. A write that fails
+// anyway is logged and dropped, so it cannot mask the upload error.
+func (r *UploadAwareRunner) markUploadFailure(ctx context.Context, userID, botID int64, cause error) {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), botFailureWriteTimeout)
+	defer cancel()
+	if _, err := r.queries.MarkBotUploadFailure(writeCtx, sqlcgen.MarkBotUploadFailureParams{
+		UserID: userID, BotID: botID, LastError: cause.Error(),
+	}); err != nil {
+		slog.WarnContext(writeCtx, "Failed to record Telegram bot upload failure",
+			"user_id", userID, "bot_id", botID, "error", err)
+	}
 }
 
 // runBot starts a gotd client for the selected bot, reusing the encrypted

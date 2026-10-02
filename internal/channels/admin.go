@@ -176,13 +176,17 @@ func (s *Service) Select(ctx context.Context, userID, channelID int64) (*sqlcgen
 	return channel, nil
 }
 
-// Delete removes the channel from Telegram and then deletes its row. The
-// selected channel is refused with ErrSelectedChannel, a channel that still has
+// Delete removes the channel's row and its Telegram channel. The selected
+// channel is refused with ErrSelectedChannel, a channel that still has
 // referenced file or upload parts is refused with ErrChannelInUse, and an
-// unknown or foreign channel is reported as ErrInvalidChannel. The Telegram
-// channel is deleted before the row, so a row delete that then matches nothing
-// (for example because the channel was selected concurrently) reports
-// ErrInvalidChannel although the Telegram side is already gone.
+// unknown or foreign channel is reported as ErrInvalidChannel. The row delete
+// runs in a transaction that is committed only after Telegram accepted the
+// deletion, so a delete that matches no row (for example because the channel
+// was selected or removed concurrently) rolls back and reports
+// ErrInvalidChannel without touching Telegram. The remaining window is a commit
+// that fails after Telegram already deleted the channel: the row then survives
+// with its Telegram channel gone, which a retry repairs because deleting a
+// channel that no longer resolves succeeds.
 func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {
 	if userID <= 0 || channelID == 0 || s.creator == nil {
 		return ErrInvalidChannel
@@ -204,15 +208,23 @@ func (s *Service) Delete(ctx context.Context, userID, channelID int64) error {
 	if references > 0 {
 		return ErrChannelInUse
 	}
-	if err := s.creator.Delete(ctx, userID, channelID); err != nil {
-		return fmt.Errorf("delete Telegram channel: %w", err)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin channel deletion: %w", err)
 	}
-	count, err := s.queries.DeleteChannel(ctx, sqlcgen.DeleteChannelParams{UserID: userID, ChannelID: channelID})
+	defer tx.Rollback(ctx)
+	count, err := s.queries.WithTx(tx).DeleteChannel(ctx, sqlcgen.DeleteChannelParams{UserID: userID, ChannelID: channelID})
 	if err != nil {
 		return fmt.Errorf("delete channel record: %w", err)
 	}
 	if count == 0 {
 		return ErrInvalidChannel
+	}
+	if err := s.creator.Delete(ctx, userID, channelID); err != nil {
+		return fmt.Errorf("delete Telegram channel: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit channel deletion: %w", err)
 	}
 	return nil
 }

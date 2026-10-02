@@ -13,12 +13,6 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
 )
 
-// telethonSessionVersion is the leading format marker of a Telethon
-// StringSession, matching the byte the telethonsession package writes and
-// expects back. It documents the format of the stored session envelope; the
-// actual conversion is delegated to telethonsession.
-const telethonSessionVersion byte = '1'
-
 // botSessionStorage adapts one bot row to gotd's session.Storage interface: it
 // keeps the session as a Telethon StringSession encrypted under the
 // "bot-session" purpose, so a stored session stays portable and readable

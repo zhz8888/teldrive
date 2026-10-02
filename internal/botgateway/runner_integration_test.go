@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gotd/td/tg"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/secureblob"
@@ -92,6 +93,47 @@ INSERT INTO bots (bot_id, user_id, token_ciphertext, enabled) VALUES ($1, 1001, 
 	}
 	if fallback.calls != 1 || fallback.operations[0] != telegramstore.OperationDownload {
 		t.Fatalf("disabled download bot fallback = %d, %v", fallback.calls, fallback.operations)
+	}
+}
+
+func TestUploadAwareRunnerRecordsFailureAfterCancelledUpload(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	if _, err := db.Pool.Exec(ctx, "INSERT INTO users (user_id) VALUES (1001)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO bots (bot_id, user_id, token_ciphertext, enabled) VALUES (101, 1001, $1, true)`, []byte("ciphertext")); err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := secureblob.NewWithKey(bytes.Repeat([]byte{3}, 32), bytes.NewReader(bytes.Repeat([]byte{4}, 24)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory, err := telegramstore.NewFactory(telegramstore.FactoryConfig{AppID: 12345, AppHash: "test-hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := NewUploadAwareRunner(db.Pool, cipher, factory, &recordingRunner{}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	runner.runBotFunc = func(context.Context, int64, *sqlcgen.Bot, int, func(context.Context, *tg.Client) error) error {
+		cancel()
+		return errors.New("upload failed")
+	}
+	if err := runner.Run(runCtx, 1001, telegramstore.OperationUpload, func(context.Context, *tg.Client) error { return nil }); err == nil {
+		t.Fatal("Run() error = nil, want upload failure")
+	}
+	var failures int32
+	var retryAfter pgtype.Timestamptz
+	if err := db.Pool.QueryRow(ctx, "SELECT consecutive_failures, retry_after FROM bots WHERE user_id = 1001 AND bot_id = 101").Scan(&failures, &retryAfter); err != nil {
+		t.Fatal(err)
+	}
+	if failures != 1 || !retryAfter.Valid {
+		t.Fatalf("recorded failures = %d, retry_after = %v, want 1 and a backoff", failures, retryAfter)
 	}
 }
 

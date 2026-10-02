@@ -266,18 +266,24 @@ func (s *Service) VerifyPending(ctx context.Context, userID, botID int64) (*sqlc
 
 // MarkProvisionFailure disables the bot and records cause as its last error,
 // incrementing the consecutive failure counter. A nil cause is stored as the
-// generic text "bot provisioning failed". The update matches by user and bot
-// ID, so an unknown pair is silently ignored rather than reported as
-// ErrNotFound.
+// generic text "bot provisioning failed". It returns ErrNotFound when the user
+// and bot ID match no row, which covers a bot that was deleted while its
+// provisioning ran.
 func (s *Service) MarkProvisionFailure(ctx context.Context, userID, botID int64, cause error) error {
 	message := "bot provisioning failed"
 	if cause != nil {
 		message = cause.Error()
 	}
-	_, err := s.queries.MarkBotProvisionFailure(ctx, sqlcgen.MarkBotProvisionFailureParams{
+	count, err := s.queries.MarkBotProvisionFailure(ctx, sqlcgen.MarkBotProvisionFailureParams{
 		LastError: dbtypes.OptionalText(&message), UserID: userID, BotID: botID,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // HasExistingChannels reports whether the user owns at least one registered
