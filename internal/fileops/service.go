@@ -43,6 +43,7 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/catalog"
 	"github.com/tgdrive/teldrive/v2/internal/channels"
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/tgdrive/teldrive/v2/internal/dblock"
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
 )
@@ -333,7 +334,7 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 	}
 	defer tx.Rollback(ctx)
 	queries := s.queries.WithTx(tx)
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, copyDestinationLockID(in.UserID, in.ParentID)); err != nil {
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, dblock.Destination(in.UserID, in.ParentID)); err != nil {
 		compensate()
 		return nil, fmt.Errorf("lock copy destination: %w", err)
 	}
@@ -651,27 +652,6 @@ func releaseAdvisoryLocks(queries *sqlcgen.Queries, lockIDs []int64) {
 	for _, lockID := range lockIDs {
 		_, _ = queries.ReleaseAdvisoryLock(unlockCtx, lockID)
 	}
-}
-
-// copyDestinationLockID derives the advisory lock key that serializes concurrent
-// copies landing in the same destination folder. The key is the leading 64 bits of a
-// SHA-256 over a copy-specific namespace, the big-endian user ID and the parent UUID,
-// with sixteen zero bytes standing in for a nil parent. Hashing spreads the keys over
-// the lock space, and the namespace keeps them from colliding with the purge locks;
-// two different destinations that happen to collide only over-serialize unrelated
-// copies, they never share data.
-func copyDestinationLockID(userID int64, parentID *uuid.UUID) int64 {
-	input := []byte("teldrive/catalog-destination/")
-	var user [8]byte
-	binary.BigEndian.PutUint64(user[:], uint64(userID))
-	input = append(input, user[:]...)
-	if parentID != nil {
-		input = append(input, parentID[:]...)
-	} else {
-		input = append(input, make([]byte, 16)...)
-	}
-	digest := sha256.Sum256(input)
-	return int64(binary.BigEndian.Uint64(digest[:8]))
 }
 
 // CleanTrash moves every trashed entry of userID to deletion_pending in one statement

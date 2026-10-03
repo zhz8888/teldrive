@@ -2,8 +2,6 @@ package uploads
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/tgdrive/teldrive/v2/internal/dblock"
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 	"github.com/tgdrive/teldrive/v2/internal/treehash"
 )
@@ -776,7 +775,7 @@ func prepareConflictPolicy(ctx context.Context, tx pgx.Tx, session *sqlcgen.Uplo
 		return nil, ErrInvalidInput
 	}
 	queries := sqlcgen.New(tx)
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, uploadDestinationLockID(session)); err != nil {
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, uploadDestinationLock(session)); err != nil {
 		return nil, fmt.Errorf("lock upload destination: %w", err)
 	}
 
@@ -882,25 +881,15 @@ func splitUploadName(name string) (string, string) {
 	return name[:index], name[index:]
 }
 
-// uploadDestinationLockID derives the advisory transaction lock key for a session
-// destination from its owner and parent folder. The key is the first 8 bytes of a
-// SHA-256 over a fixed domain prefix, the owner id and the parent id (16 zero
-// bytes for the root), reinterpreted as the signed big-endian int64 that
-// pg_advisory_xact_lock takes. Different folders of one user therefore lock
-// independently, while the same folder always maps to the same key.
-func uploadDestinationLockID(session *sqlcgen.UploadSession) int64 {
-	input := make([]byte, 0, 8+16+len("teldrive/upload-destination/"))
-	input = append(input, []byte("teldrive/upload-destination/")...)
-	var user [8]byte
-	binary.BigEndian.PutUint64(user[:], uint64(session.UserID))
-	input = append(input, user[:]...)
-	if session.ParentID.Valid {
-		input = append(input, session.ParentID.Bytes[:]...)
-	} else {
-		input = append(input, make([]byte, 16)...)
+// uploadDestinationLock is the advisory transaction lock key for the folder a
+// session completes into. It is the key the copy path uses for the same folder, so
+// an upload and a copy cannot both decide a name is free.
+func uploadDestinationLock(session *sqlcgen.UploadSession) int64 {
+	parentID, ok := dbtypes.GoogleUUID(session.ParentID)
+	if !ok {
+		return dblock.Destination(session.UserID, nil)
 	}
-	digest := sha256.Sum256(input)
-	return int64(binary.BigEndian.Uint64(digest[:8]))
+	return dblock.Destination(session.UserID, &parentID)
 }
 
 // Abort moves an open or completing session to the aborted state and returns the
