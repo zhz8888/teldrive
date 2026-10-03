@@ -75,6 +75,15 @@ session-ttl = "168h"
 # Disable to skip automatic BLAKE3 hashing during uploads. Client-supplied checksums still require verification.
 hashing-enabled = true
 local-import-roots = []
+# Part size a session gets when it does not request one. Lower it on a small
+# host: a failed part is cheaper to retry and less memory is held per upload.
+default-part-size = "512MiB"
+# Largest part size a session may request, and the ceiling a background import is
+# clamped to. Must be at least default-part-size.
+max-part-size = "4GiB"
+# Download ranges open at the same time. Each one buffers download-read-buffers
+# megabytes, so this and that setting together are the process memory ceiling.
+max-concurrent-downloads = 4
 
 [cache.memory]
 size = "5MB"

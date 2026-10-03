@@ -119,7 +119,9 @@ The **Default** column is the runtime default, not a production recommendation.
 
 | Config key | CLI flag | Environment variable | Default | Validation | Description |
 | --- | --- | --- | --- | --- | --- |
+| `uploads.default-part-size` | `--uploads-default-part-size` | `TELDRIVE_UPLOADS_DEFAULT_PART_SIZE` | `512MB` | `gt=0` | Part size a session gets when it does not request one, in bytes or a size such as 128MiB |
 | `uploads.hashing-enabled` | `--uploads-hashing-enabled` | `TELDRIVE_UPLOADS_HASHING_ENABLED` | `true` | — | Compute and store BLAKE3 hashes for uploaded files |
 | `uploads.local-import-roots` | `--uploads-local-import-roots` | `TELDRIVE_UPLOADS_LOCAL_IMPORT_ROOTS` | — | — | Absolute server directories allowed as local background-upload sources; empty disables local imports |
 | `uploads.max-concurrent-downloads` | `--uploads-max-concurrent-downloads` | `TELDRIVE_UPLOADS_MAX_CONCURRENT_DOWNLOADS` | `4` | `min=1,max=256` | Maximum number of downloads open at the same time |
+| `uploads.max-part-size` | `--uploads-max-part-size` | `TELDRIVE_UPLOADS_MAX_PART_SIZE` | `4GB` | `gt=0` | Largest part size a session may request, in bytes or a size such as 4GiB |
 | `uploads.session-ttl` | `--uploads-session-ttl` | `TELDRIVE_UPLOADS_SESSION_TTL` | `168h0m0s` | `gt=0` | Lifetime of resumable upload sessions |

@@ -120,6 +120,16 @@ GOMEMLIMIT=384MiB teldrive run
 
 The runtime reads this variable itself at startup, so no configuration key is needed and **no code should be added to read or apply it**: doing so would duplicate the runtime, and `runtime/debug.SetMemoryLimit(-1)` is a no-op on current Go, so an "off" branch written that way would silently fail. `off` removes the ceiling. Leave the variable unset on a host with headroom.
 
+Parts are streamed rather than buffered, so the shipped 512 MiB part size costs memory only in the sense of how much is in flight at once. Lower it anyway on a small host: a part that fails has to be transferred again, so a smaller part is cheaper to retry.
+
+```yaml
+uploads:
+  default-part-size: 128MiB
+  max-part-size: 512MiB
+```
+
+The ceiling applies to background imports too: a chunk the import worker picks is clamped to it rather than failing the job, so an operator who lowers it does not break server-side imports.
+
 Hashing is the first thing to give up when a single core cannot keep up, at the cost of storing parts with no checksum:
 
 ```yaml
