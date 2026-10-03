@@ -119,11 +119,16 @@ type CreateFolderInput struct {
 
 // CreateFolder creates an active folder for in.UserID. A non-nil in.ParentID must
 // name an active folder of the same user, otherwise ErrInvalidParent is returned;
-// a zero in.ModTime is replaced by the current UTC time. A name already present
-// in the parent folder surfaces as ErrConflict.
+// a zero in.ModTime is replaced by the current UTC time. A blank name is rejected
+// as ErrInvalidName, which the database would otherwise reject as a constraint
+// violation, and a name already present in the parent folder surfaces as
+// ErrConflict.
 func (s *Service) CreateFolder(ctx context.Context, in CreateFolderInput) (*sqlcgen.File, error) {
 	if in.UserID <= 0 {
 		return nil, ErrInvalidOwner
+	}
+	if isBlankName(in.Name) {
+		return nil, ErrInvalidName
 	}
 	if in.ParentID != nil {
 		if _, err := s.queries.GetActiveFolderForUser(ctx, sqlcgen.GetActiveFolderForUserParams{

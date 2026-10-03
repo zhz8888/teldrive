@@ -94,7 +94,7 @@ func (s *Service) EnsureFolderPath(ctx context.Context, userID int64, rootID *uu
 	}
 	components := strings.Split(path, "/")
 	for _, component := range components {
-		if component == "" || component == "." || component == ".." {
+		if component == "" || component == "." || component == ".." || isBlankName(component) {
 			return nil, ErrInvalidParent
 		}
 	}
@@ -118,6 +118,12 @@ func (s *Service) EnsureFolderPath(ctx context.Context, userID int64, rootID *uu
 			}
 		}
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// The name is taken by something other than an active folder, so
+				// the retry after a create conflict cannot resolve it. That is a
+				// name conflict, not an internal failure.
+				return nil, fmt.Errorf("%w: %q exists and is not a folder", ErrConflict, component)
+			}
 			return nil, fmt.Errorf("ensure folder path: %w", err)
 		}
 		resolved, ok := dbtypes.GoogleUUID(id)
@@ -285,8 +291,8 @@ type DriveStatistic struct {
 	TotalFolders int64
 	// TotalBytes is the summed size of active files in bytes.
 	TotalBytes int64
-	// TrashedFiles counts every trashed entry, folders included, so the name is
-	// narrower than what the counter actually measures.
+	// TrashedFiles counts trashed file entries; trashed folders are not counted,
+	// matching StorageSummary.TrashedFiles.
 	TrashedFiles int64
 	// ActiveShares counts shares that are neither revoked nor expired.
 	ActiveShares int64

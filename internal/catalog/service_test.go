@@ -57,6 +57,9 @@ func TestServiceRejectsBlankAndUnknownInputsBeforeDatabaseAccess(t *testing.T) {
 	if _, err := svc.Update(ctx, UpdateInput{UserID: 1, FileID: id, Name: &blank}); !errors.Is(err, ErrInvalidName) {
 		t.Fatalf("Update(blank) error = %v, want ErrInvalidName", err)
 	}
+	if _, err := svc.CreateFolder(ctx, CreateFolderInput{UserID: 1, Name: blank}); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("CreateFolder(blank) error = %v, want ErrInvalidName", err)
+	}
 	if _, err := svc.MoveWithPolicy(ctx, 1, id, nil, nil, "bogus"); !errors.Is(err, ErrUnsupportedConflictPolicy) {
 		t.Fatalf("MoveWithPolicy(unknown policy) error = %v, want ErrUnsupportedConflictPolicy", err)
 	}

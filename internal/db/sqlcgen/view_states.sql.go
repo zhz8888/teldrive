@@ -66,6 +66,7 @@ INSERT INTO /* TEMPLATE: schema */file_view_states (
     $4, $5, $6
 FROM /* TEMPLATE: schema */files
 WHERE id = $2
+  AND user_id = $1
   AND kind = 'file'
   AND status = 'active'
 ON CONFLICT (user_id, file_id) DO UPDATE
