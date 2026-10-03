@@ -190,6 +190,8 @@ func (s *Server) handle(ctx context.Context, input bin.Encoder) (bin.Encoder, er
 		return s.sendMedia(ctx, request)
 	case *tg.ChannelsGetMessagesRequest:
 		return s.getMessages(request), nil
+	case *tg.MessagesGetHistoryRequest:
+		return s.getHistory(request), nil
 	case *tg.UploadGetFileRequest:
 		return s.getFile(ctx, request)
 	case *tg.ChannelsDeleteMessagesRequest:
@@ -484,6 +486,42 @@ func (s *Server) getMessages(request *tg.ChannelsGetMessagesRequest) *tg.Message
 		chats = append(chats, telegramChannel(channel))
 	}
 	return &tg.MessagesMessages{Messages: messages, Chats: chats}
+}
+
+// getHistory lists a channel's stored messages newest first, which is the shape
+// the orphan sweep walks page by page. OffsetID excludes every message at or above
+// it, so a caller continues from the ID of the last page it received, and Limit
+// caps the page; the response is the same modified-channel-messages form the real
+// API returns, so a caller that inspects it sees the same type.
+func (s *Server) getHistory(request *tg.MessagesGetHistoryRequest) *tg.MessagesChannelMessages {
+	peer, ok := request.Peer.(*tg.InputPeerChannel)
+	if !ok {
+		return &tg.MessagesChannelMessages{}
+	}
+	channelID := peer.ChannelID
+	records := make([]messageRecord, 0, len(s.state.Messages))
+	for _, record := range s.state.Messages {
+		if record.ChannelID != channelID {
+			continue
+		}
+		if request.OffsetID > 0 && record.ID >= request.OffsetID {
+			continue
+		}
+		records = append(records, record)
+	}
+	slices.SortFunc(records, func(a, b messageRecord) int { return cmp.Compare(b.ID, a.ID) })
+	if request.Limit > 0 && len(records) > request.Limit {
+		records = records[:request.Limit]
+	}
+	messages := make([]tg.MessageClass, 0, len(records))
+	for _, record := range records {
+		messages = append(messages, s.telegramMessage(record))
+	}
+	chats := make([]tg.ChatClass, 0, 1)
+	if channel, exists := s.state.Channels[channelKey(channelID)]; exists {
+		chats = append(chats, telegramChannel(channel))
+	}
+	return &tg.MessagesChannelMessages{Messages: messages, Chats: chats}
 }
 
 // getFile reads a byte range of a stored document.

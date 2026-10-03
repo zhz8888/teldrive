@@ -237,12 +237,26 @@ func (p *DownloadClientPool) start(entry *downloadClientEntry) {
 		})
 		p.mu.Lock()
 		entry.api = nil
-		entry.err = fmt.Errorf("run pooled Telegram download client: %w", err)
+		entry.err = clientRunError(err)
 		p.removeLocked(entry)
 		p.mu.Unlock()
 		ready.Do(func() { close(entry.ready) })
 		close(entry.done)
 	}()
+}
+
+// clientRunError converts the result of a pooled client run into the error the
+// waiting sessions observe. A client that stops normally, which is how gotd
+// reports a cancelled context, leaves no error at all, and wrapping that nil would
+// produce a non-nil error whose message is the formatting of a nil cause. Those
+// sessions are told the client is unavailable instead, which is what the pool
+// documents, so the check for a nil run error in OpenDownloadSession stays
+// reachable.
+func clientRunError(err error) error {
+	if err == nil {
+		return ErrClientUnavailable
+	}
+	return fmt.Errorf("run pooled Telegram download client: %w", err)
 }
 
 // client returns the running API of entry to a session that was opened for it.

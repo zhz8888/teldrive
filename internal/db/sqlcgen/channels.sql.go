@@ -656,7 +656,11 @@ const markBotUploadFailure = `-- name: MarkBotUploadFailure :execrows
 UPDATE /* TEMPLATE: schema */bots
 SET consecutive_failures = consecutive_failures + 1,
     last_error = left($1, 1000),
-    retry_after = now() + interval '30 seconds',
+    -- The wait doubles with every consecutive failure, from thirty seconds up to
+    -- six hours, so a bot that keeps failing is retried rarely instead of every
+    -- thirtieth second while a transient failure is retried promptly. A success
+    -- resets the counter, which puts the bot back at the front of the queue.
+    retry_after = now() + make_interval(secs => LEAST(30 * power(2, LEAST(consecutive_failures, 16)), 21600)),
     updated_at = now()
 WHERE user_id = $2
   AND bot_id = $3

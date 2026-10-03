@@ -1029,15 +1029,22 @@ func (s *GotdStorage) ListDocumentMessages(ctx context.Context, request ListDocu
 		messages := modified.GetMessages()
 		page.Exhausted = len(messages) < request.Limit
 		for _, item := range messages {
-			message, ok := item.(*tg.Message)
-			if !ok {
-				continue
-			}
-			if page.BeforeID == 0 || int64(message.ID) < page.BeforeID {
-				page.BeforeID = int64(message.ID)
-			}
-			if _, ok := message.Media.(*tg.MessageMediaDocument); ok {
-				page.Messages = append(page.Messages, DocumentMessage{ID: int64(message.ID), CreatedAt: time.Unix(int64(message.Date), 0).UTC()})
+			// The cursor advances over every entry, not only the ones carrying a
+			// document: a page made up entirely of service messages would
+			// otherwise report no position at all, and a cleanup caller that
+			// checks the cursor moved would treat the channel as stuck.
+			switch entry := item.(type) {
+			case *tg.Message:
+				if page.BeforeID == 0 || int64(entry.ID) < page.BeforeID {
+					page.BeforeID = int64(entry.ID)
+				}
+				if _, ok := entry.Media.(*tg.MessageMediaDocument); ok {
+					page.Messages = append(page.Messages, DocumentMessage{ID: int64(entry.ID), CreatedAt: time.Unix(int64(entry.Date), 0).UTC()})
+				}
+			case *tg.MessageService:
+				if page.BeforeID == 0 || int64(entry.ID) < page.BeforeID {
+					page.BeforeID = int64(entry.ID)
+				}
 			}
 		}
 		if len(messages) > 0 && page.BeforeID == 0 {
