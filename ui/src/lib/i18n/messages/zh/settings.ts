@@ -77,6 +77,7 @@ export const settings: AreaMessages<typeof enSettings> = {
   "settings.apiKeys.secret.description": "请立即复制该值，之后将无法再次获取。",
   "settings.apiKeys.copy": "复制 API 密钥",
   "settings.apiKeys.copied": "已复制 API 密钥",
+  "settings.apiKeys.copyFailed": "无法复制 API 密钥，请手动选择并复制。",
   "settings.apiKeys.existing.section": "现有 API 密钥",
   "settings.apiKeys.existing.description": "吊销不再使用的凭据。",
   "settings.apiKeys.row.description": "创建于 {created} · 最后使用 {lastUsed}",

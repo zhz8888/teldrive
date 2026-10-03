@@ -618,7 +618,10 @@ function downloadJsonFile(filename: string, value: unknown) {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  // The download begins asynchronously, so the object URL has to outlive this
+  // tick: revoking it here can cancel the transfer in browsers that have not
+  // started reading the blob yet.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 function formatBytes(value: unknown): string {

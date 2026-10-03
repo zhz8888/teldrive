@@ -107,8 +107,13 @@ function ApiKeysSettings() {
                 variant="secondary"
                 aria-label={t("settings.apiKeys.copy")}
                 onPress={() => {
-                  void navigator.clipboard.writeText(created.secret);
-                  toast.success(t("settings.apiKeys.copied"));
+                  // The clipboard can refuse (insecure origin, denied permission),
+                  // so the confirmation waits for the write instead of claiming a
+                  // copy that did not happen.
+                  void navigator.clipboard.writeText(created.secret).then(
+                    () => toast.success(t("settings.apiKeys.copied")),
+                    () => toast.error(t("settings.apiKeys.copyFailed")),
+                  );
                 }}
               >
                 <CopyIcon className="size-4" />

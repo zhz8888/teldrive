@@ -48,6 +48,28 @@ function envelope(
 }
 
 /**
+ * Caps how long a `Retry-After` may park an action. A server that answers with a
+ * far-future date would otherwise disable the control for as long as the tab
+ * lives.
+ */
+const MAX_RETRY_AFTER_SECONDS = 60 * 60;
+
+/**
+ * Parses a `Retry-After` header into seconds. The header is either a delay in
+ * seconds or an HTTP date, and a missing, empty or unparsable value stays
+ * undefined rather than becoming zero, which would read as "retry immediately".
+ */
+function parseRetryAfter(value: string | null | undefined): number | undefined {
+  if (value == null) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  const seconds = Number(trimmed);
+  const delay = Number.isFinite(seconds) ? seconds : (Date.parse(trimmed) - Date.now()) / 1000;
+  if (!Number.isFinite(delay) || delay <= 0) return undefined;
+  return Math.min(delay, MAX_RETRY_AFTER_SECONDS);
+}
+
+/**
  * Wraps a failure as an `ApiError`. A `response` makes it an HTTP failure; the
  * wrapper in `api/client.ts` calls this without one when `fetch` itself rejects,
  * which is the only case that carries the `network_error` code a caller may use
@@ -58,7 +80,7 @@ export function normalizeApiError(error: unknown, response?: Response): ApiError
   const parsed = envelope(error);
   const status = response?.status ?? 0;
   const requestId = response?.headers.get("X-Request-ID") ?? undefined;
-  const retryAfter = Number(response?.headers.get("Retry-After"));
+  const retryAfterSeconds = parseRetryAfter(response?.headers.get("Retry-After"));
   const fallback =
     error instanceof Error
       ? error.message
@@ -75,7 +97,7 @@ export function normalizeApiError(error: unknown, response?: Response): ApiError
         ? (parsed.details as ApiErrorDetails)
         : undefined,
     requestId,
-    retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    retryAfterSeconds,
   });
 }
 

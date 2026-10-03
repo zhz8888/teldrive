@@ -194,7 +194,12 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     if (patch.preferredPartSize !== undefined) {
       settings.preferredPartSize = normalizePartSizeMiB(patch.preferredPartSize / MIB) * MIB;
     }
-    localStorage.setItem(settingsKey, JSON.stringify(settings));
+    try {
+      localStorage.setItem(settingsKey, JSON.stringify(settings));
+    } catch {
+      // Storage can be unavailable or full, which must not stop the setting from
+      // applying to this session: the next load falls back to the defaults.
+    }
     set({ settings });
     queueMicrotask(schedule);
   },

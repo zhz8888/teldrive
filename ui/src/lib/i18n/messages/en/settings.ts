@@ -79,6 +79,7 @@ export const settings = {
   "settings.apiKeys.secret.description": "Copy this value now. It cannot be retrieved later.",
   "settings.apiKeys.copy": "Copy API key",
   "settings.apiKeys.copied": "API key copied",
+  "settings.apiKeys.copyFailed": "Could not copy the API key. Select the value and copy it manually.",
   "settings.apiKeys.existing.section": "Existing API keys",
   "settings.apiKeys.existing.description": "Revoke credentials that are no longer in use.",
   "settings.apiKeys.row.description": "Created {created} · last used {lastUsed}",
