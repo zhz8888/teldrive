@@ -274,6 +274,10 @@ type Handler interface {
 	HealthReady(ctx context.Context) (HealthReadyRes, error)
 	// ListAdminUsers implements listAdminUsers operation.
 	//
+	// List accounts for the admin console, oldest first. The response is a plain array capped at five
+	// hundred rows with no cursor, so an installation with more accounts than that has to narrow the list
+	// with `search`; every listed account is returned, and the order is stable.
+	//
 	// GET /v1/admin/users
 	ListAdminUsers(ctx context.Context, params ListAdminUsersParams) (ListAdminUsersRes, error)
 	// ListApiKeys implements listApiKeys operation.

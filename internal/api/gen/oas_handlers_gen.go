@@ -11418,6 +11418,10 @@ func (s *Server) handleHealthReadyRequest(args [0]string, argsEscaped bool, w ht
 
 // handleListAdminUsersRequest handles listAdminUsers operation.
 //
+// List accounts for the admin console, oldest first. The response is a plain array capped at five
+// hundred rows with no cursor, so an installation with more accounts than that has to narrow the list
+// with `search`; every listed account is returned, and the order is stable.
+//
 // GET /v1/admin/users
 func (s *Server) handleListAdminUsersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
