@@ -6,12 +6,13 @@
     "dev": "vite",
     "build": "vite build",
     "generate:api": "bunx openapi-typescript@7.13.0 ../openapi/teldrive.openapi.yaml -o ./src/api/schema.ts",
-    "lint": "biome lint --write --unsafe src e2e",
+    "lint": "biome lint src e2e",
     "format": "biome format --write src",
     "typecheck": "tsc",
     "test": "playwright test e2e/file-manager.spec.ts e2e/viewers.spec.ts e2e/source-audit.spec.ts e2e/i18n.spec.ts e2e/theme.spec.ts",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "lint:fix": "biome lint --write --unsafe src e2e"
   },
   "dependencies": {
     "@heroui/react": "^3.2.4",

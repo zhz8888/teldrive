@@ -436,7 +436,10 @@ test("React Aria file selection supports replacement, ranges, select all, and es
   await expect(
     page.getByRole("button", { name: "Copy selected file download link" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Cut selected items" })).toHaveCount(0);
+  // The clipboard actions apply to any selection, a single file included, while
+  // the single-item actions above need exactly one.
+  await expect(page.getByRole("button", { name: "Cut selected items" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy selected items" })).toBeVisible();
   await beta.click({ modifiers: ["Shift"] });
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Rename selected item" })).toBeHidden();

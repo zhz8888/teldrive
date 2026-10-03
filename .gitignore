@@ -1,5 +1,11 @@
 node_modules/
 dist/
+# The embedded UI directory must exist in a fresh clone: ui/ui.go embeds it with
+# //go:embed all:dist, which fails to compile when the directory is missing. Only
+# the placeholder is tracked; the built assets stay ignored.
+!ui/dist/
+ui/dist/*
+!ui/dist/.gitkeep
 test-results/
 .env
 .env.*

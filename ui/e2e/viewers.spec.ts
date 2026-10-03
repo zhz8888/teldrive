@@ -168,14 +168,20 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
   await expect.poll(() => dialog.locator(".pdfViewer .page").count()).toBe(2);
   await expect(dialog.locator(".pdfViewer .textLayer").first()).toBeVisible();
   const initialContentRequests = stats.pdfContentRequests;
-  const initialStateWrites = writes.length;
 
   const pageInput = dialog.getByRole("textbox", { name: "PDF page number" });
   await expect(pageInput).toHaveValue("1");
   await dialog.getByRole("button", { name: "Next PDF page" }).click();
   await expect(pageInput).toHaveValue("2");
+  // The zoom shortcut has to scale the rendered page. Reader state is no longer
+  // persisted, so the observable effect is the page geometry itself.
+  const renderedPage = dialog.locator(".pdfViewer .page").first();
+  const pageWidth = (await renderedPage.boundingBox())?.width ?? 0;
+  expect(pageWidth).toBeGreaterThan(0);
   await page.keyboard.press("=");
-  await expect.poll(() => writes.length, { timeout: 2_000 }).toBeGreaterThan(initialStateWrites);
+  await expect
+    .poll(async () => (await renderedPage.boundingBox())?.width ?? 0, { timeout: 5_000 })
+    .toBeGreaterThan(pageWidth);
   expect(stats.pdfContentRequests).toBe(initialContentRequests);
 
   const viewportWidth = page.viewportSize()?.width ?? 0;
@@ -217,7 +223,6 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
     .poll(async () => (await editedDownload).suggestedFilename())
     .toBe("reader-sample-edited.pdf");
 
-  await expect.poll(() => writes.some((write) => write.fileId === pdfId)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   expect(errors).toEqual([]);
@@ -247,7 +252,7 @@ test("mobile EPUB navigation opens in a HeroUI drawer", async ({ page }) => {
   await expect(dialog.getByText("Across the Cloud").first()).toBeVisible();
 });
 
-test("EPUB renders in its dedicated reader, navigates, persists, and closes cleanly", async ({
+test("EPUB renders in its dedicated reader, navigates, and closes cleanly", async ({
   page,
 }) => {
   const writes: StateWrite[] = [];
@@ -315,8 +320,15 @@ test("EPUB renders in its dedicated reader, navigates, persists, and closes clea
   await settleBrowserLayout(page);
   expect(errors).toEqual([]);
 
-  await dialog.getByRole("button", { name: "Next page" }).click();
-  await expect.poll(() => writes.some((write) => write.fileId === epubId)).toBe(true);
+  // Turning the page has to move the reader. Reader state is no longer persisted,
+  // so the observable effect is the position label the footer shows. A wide
+  // viewport followed the table of contents to the last section, where only the
+  // previous page moves, and a narrow one is still at the start of the book.
+  const position = dialog.locator("[data-epub-footer] p");
+  const positionBefore = await position.innerText();
+  const navigation = viewportWidth >= 1024 ? "Previous page" : "Next page";
+  await dialog.getByRole("button", { name: navigation }).click();
+  await expect.poll(() => position.innerText()).not.toBe(positionBefore);
   await settleBrowserLayout(page);
   expect(errors).toEqual([]);
   await page.keyboard.press("Escape");
