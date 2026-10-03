@@ -149,6 +149,14 @@ type Uploads struct {
 	// downloads on a small host. A request waits for a free slot rather than
 	// being refused, and is abandoned only when its own context is cancelled.
 	MaxConcurrentDownloads int `koanf:"max-concurrent-downloads" default:"4" validate:"min=1,max=256" description:"Maximum number of downloads open at the same time"`
+	// DefaultPartSize is the part size a session receives when it does not request
+	// one. A larger part means fewer Telegram documents and less request overhead;
+	// a smaller one means a failed part is cheaper to retry and less memory is
+	// held per concurrent upload, which is what matters on a small host.
+	DefaultPartSize size.Size `koanf:"default-part-size" default:"512MiB" validate:"gt=0" description:"Part size a session gets when it does not request one, in bytes or a size such as 128MiB"`
+	// MaxPartSize caps the part size a session may request. It has to stay at or
+	// above DefaultPartSize, and it keeps the byte arithmetic below inside int64.
+	MaxPartSize size.Size `koanf:"max-part-size" default:"4GiB" validate:"gt=0" description:"Largest part size a session may request, in bytes or a size such as 4GiB"`
 }
 
 // Jobs controls whether this process runs the River background job workers or
@@ -224,6 +232,15 @@ func (c Config) Validate() error {
 	}
 	problems := validateTaggedFields(c)
 
+	// A default part above the cap would make every session that does not
+	// request one fail, so the pair is checked together at startup rather than
+	// silently corrected while serving.
+	if c.Uploads.DefaultPartSize > c.Uploads.MaxPartSize {
+		problems = append(problems, "uploads default-part-size cannot exceed max-part-size")
+	}
+	if c.Uploads.MaxPartSize > 0 && c.Uploads.DefaultPartSize > 0 && c.Uploads.MaxPartSize%c.Uploads.DefaultPartSize != 0 {
+		problems = append(problems, "uploads max-part-size must be a whole multiple of default-part-size")
+	}
 	if c.Database.MinConnections > c.Database.MaxConnections {
 		problems = append(problems, "database min connections cannot exceed max connections")
 	}

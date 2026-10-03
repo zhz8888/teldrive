@@ -276,7 +276,9 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 		return nil, fmt.Errorf("create bot service: %w", err)
 	}
 	catalogService := catalog.NewService(pool, globalCache)
-	uploadService := uploads.NewService(pool, cfg.Uploads.SessionTTL)
+	uploadService := uploads.NewService(pool, uploads.Config{
+		SessionTTL: cfg.Uploads.SessionTTL, DefaultPartSize: int64(cfg.Uploads.DefaultPartSize), MaxPartSize: int64(cfg.Uploads.MaxPartSize),
+	})
 	uploadService.SetCacheInvalidator(catalogService)
 	channelService := channels.NewService(pool, channels.TelegramCreator{Storage: storage}, channels.Config{
 		PartLimit: cfg.Telegram.ChannelPartLimit, AutoCreate: cfg.Telegram.AutoChannelCreate,
@@ -300,7 +302,7 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 	healthService := health.NewService(dependencies.Version, pool)
 	jobRuntime, err := jobs.NewRuntimeWithServices(
 		pool, storage, cfg.Database.Schema, botService, secureCipher, cfg.Uploads.SessionTTL,
-		jobs.UploaderServices{Catalog: catalogService, Uploads: uploadService, Pipeline: uploadPipeline, ActiveKeyVersion: cfg.Encryption.ActiveKeyVersion, LocalImportRoots: cfg.Uploads.LocalImportRoots},
+		jobs.UploaderServices{Catalog: catalogService, Uploads: uploadService, Pipeline: uploadPipeline, ActiveKeyVersion: cfg.Encryption.ActiveKeyVersion, MaxChunkSize: int64(cfg.Uploads.MaxPartSize), LocalImportRoots: cfg.Uploads.LocalImportRoots},
 		fileService,
 	)
 	if err != nil {

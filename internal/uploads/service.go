@@ -129,26 +129,63 @@ type Service struct {
 	sessionTTL time.Duration
 	// leaseTTL is the lease lifetime granted by ClaimPart and RenewPart.
 	leaseTTL time.Duration
+	// defaultPartSize is stored when a session does not request one and
+	// maxPartSize is the ceiling a requested part size is checked against.
+	// Both come from Config so a host that cannot afford the shipped 512 MiB
+	// default can lower it without a code change.
+	defaultPartSize int64
+	maxPartSize     int64
 	// catalogInvalidator is optional and set once during composition via
 	// SetCacheInvalidator; while nil, replace-policy completions skip cache
 	// invalidation.
 	catalogInvalidator CatalogCacheInvalidator
 }
 
-// NewService returns a Service using pool for all statements. An optional
-// sessionTTLs overrides the default 7-day session lifetime when its first value
-// is positive; further values are ignored.
-func NewService(pool *pgxpool.Pool, sessionTTLs ...time.Duration) *Service {
+// Config tunes the parts an upload session is created with. The zero value
+// selects the shipped defaults, so a caller that does not care keeps them.
+type Config struct {
+	// SessionTTL is added to the clock when a session's ExpiresAt is written.
+	SessionTTL time.Duration
+	// DefaultPartSize is the part size a session gets when it requests none.
+	// A non-positive value selects defaultPartSize.
+	DefaultPartSize int64
+	// MaxPartSize caps what a session may request. A non-positive value selects
+	// maxPartSize, and a value below DefaultPartSize is raised to it, because a
+	// cap under the default would refuse every session that asks for neither.
+	MaxPartSize int64
+}
+
+// NewService returns a Service using pool for all statements. An optional cfg
+// overrides the defaults; the variadic form keeps a caller that wants only the
+// stock behaviour from having to name an empty Config.
+func NewService(pool *pgxpool.Pool, cfg ...Config) *Service {
+	options := Config{}
+	if len(cfg) > 0 {
+		options = cfg[0]
+	}
 	sessionTTL := defaultSessionTTL
-	if len(sessionTTLs) > 0 && sessionTTLs[0] > 0 {
-		sessionTTL = sessionTTLs[0]
+	if options.SessionTTL > 0 {
+		sessionTTL = options.SessionTTL
+	}
+	partSize := options.DefaultPartSize
+	if partSize <= 0 {
+		partSize = defaultPartSize
+	}
+	partCeiling := options.MaxPartSize
+	if partCeiling <= 0 {
+		partCeiling = maxPartSize
+	}
+	if partCeiling < partSize {
+		partCeiling = partSize
 	}
 	return &Service{
-		pool:       pool,
-		queries:    sqlcgen.New(pool),
-		now:        time.Now,
-		sessionTTL: sessionTTL,
-		leaseTTL:   defaultLeaseTTL,
+		pool:            pool,
+		queries:         sqlcgen.New(pool),
+		now:             time.Now,
+		sessionTTL:      sessionTTL,
+		leaseTTL:        defaultLeaseTTL,
+		defaultPartSize: partSize,
+		maxPartSize:     partCeiling,
 	}
 }
 
@@ -261,9 +298,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSe
 		}
 	}
 	if in.PartSize <= 0 {
-		in.PartSize = defaultPartSize
+		in.PartSize = s.defaultPartSize
 	}
-	if in.PartSize > maxPartSize {
+	if in.PartSize > s.maxPartSize {
 		return nil, ErrInvalidInput
 	}
 	modTime := in.ModTime
