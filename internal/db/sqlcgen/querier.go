@@ -139,7 +139,7 @@ type Querier interface {
 	LockUploadDestinationConflict(ctx context.Context, arg LockUploadDestinationConflictParams) (*File, error)
 	LockUploadSessionForCompletion(ctx context.Context, arg LockUploadSessionForCompletionParams) (*UploadSession, error)
 	MarkActiveFileDeletionPendingForReplace(ctx context.Context, arg MarkActiveFileDeletionPendingForReplaceParams) (int64, error)
-	MarkAllTrashedDeletionPending(ctx context.Context, userID int64) (int64, error)
+	MarkAllTrashedDeletionPending(ctx context.Context, userID int64) ([]pgtype.UUID, error)
 	MarkBotProvisionFailure(ctx context.Context, arg MarkBotProvisionFailureParams) (int64, error)
 	MarkBotUploadFailure(ctx context.Context, arg MarkBotUploadFailureParams) (int64, error)
 	MarkBotUploadSuccess(ctx context.Context, arg MarkBotUploadSuccessParams) (int64, error)
