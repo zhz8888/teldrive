@@ -59,18 +59,24 @@ func (h *RawHandler) StreamEvents(ctx context.Context, params gen.StreamEventsPa
 		return problem(http.StatusUnprocessableEntity, "invalid_event_types", "event types are invalid", err)
 	}
 
+	if !cursorSet {
+		// The live watermark is taken before subscribing on purpose. Subscribing
+		// first would fold an event that arrives while the wake channel is being
+		// set up into the watermark, and the read below only returns events
+		// after it, so that event would be skipped as if it had been delivered.
+		// This order can deliver an event twice, which a client deduplicates by
+		// cursor, and never drops one.
+		cursor, err = h.handler.Events.CurrentCursor(ctx, userID)
+		if err != nil {
+			return mapServiceError(err)
+		}
+	}
 	wake, unsubscribe, err := h.handler.Events.Subscribe(userID)
 	if err != nil {
 		return mapServiceError(err)
 	}
 	defer unsubscribe()
 
-	if !cursorSet {
-		cursor, err = h.handler.Events.CurrentCursor(ctx, userID)
-		if err != nil {
-			return mapServiceError(err)
-		}
-	}
 	expired, err := h.handler.Events.CursorExpired(ctx, userID, cursor)
 	if err != nil {
 		return mapServiceError(err)
