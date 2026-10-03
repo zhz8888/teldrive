@@ -80,6 +80,11 @@ type Querier interface {
 	InsertCopiedFiles(ctx context.Context, files []byte) ([]*File, error)
 	InsertFileFromUpload(ctx context.Context, arg InsertFileFromUploadParams) (*File, error)
 	InsertFilePartsFromUpload(ctx context.Context, arg InsertFilePartsFromUploadParams) (int64, error)
+	// Registering a token again replaces the stored one and puts the bot back in the
+	// pending state, which is the only way a bot that was disabled by a failed
+	// provisioning can be tried again: the row is identified by its bot id, so an
+	// existing row has to be reused rather than inserted next to. The failure history
+	// is cleared with it, because the new attempt starts from nothing.
 	InsertPendingBots(ctx context.Context, arg InsertPendingBotsParams) ([]*Bot, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]*ApiKey, error)
 	ListActiveNames(ctx context.Context, arg ListActiveNamesParams) ([]string, error)

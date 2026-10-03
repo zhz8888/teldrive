@@ -265,7 +265,14 @@ SELECT input.bot_id, $1, decode(input.token_ciphertext, 'base64'), false
 FROM jsonb_to_recordset($2::jsonb) AS input(
     bot_id bigint, token_ciphertext text
 )
-ON CONFLICT (user_id, bot_id) DO NOTHING
+ON CONFLICT (user_id, bot_id) DO UPDATE
+SET token_ciphertext = EXCLUDED.token_ciphertext,
+    enabled = false,
+    username = NULL,
+    consecutive_failures = 0,
+    last_error = NULL,
+    retry_after = NULL,
+    updated_at = now()
 RETURNING bot.bot_id, bot.user_id, bot.username, bot.token_ciphertext, bot.enabled, bot.session, bot.consecutive_failures, bot.last_error, bot.last_used_at, bot.retry_after, bot.created_at, bot.updated_at
 `
 
@@ -274,6 +281,11 @@ type InsertPendingBotsParams struct {
 	Bots   []byte `json:"bots"`
 }
 
+// Registering a token again replaces the stored one and puts the bot back in the
+// pending state, which is the only way a bot that was disabled by a failed
+// provisioning can be tried again: the row is identified by its bot id, so an
+// existing row has to be reused rather than inserted next to. The failure history
+// is cleared with it, because the new attempt starts from nothing.
 func (q *Queries) InsertPendingBots(ctx context.Context, arg InsertPendingBotsParams) ([]*Bot, error) {
 	rows, err := q.db.Query(ctx, insertPendingBots, arg.UserID, arg.Bots)
 	if err != nil {

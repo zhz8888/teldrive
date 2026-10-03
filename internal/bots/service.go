@@ -170,11 +170,15 @@ func (s *Service) Create(ctx context.Context, userID int64, token string) (*sqlc
 }
 
 // InsertPending stores the given tokens as disabled bot rows for userID in one
-// transaction and returns the newly inserted rows in input order. Blank or
+// transaction and returns one row per accepted token, in input order. Blank or
 // malformed tokens fail the whole call with ErrInvalidInput, and repeated IDs
-// within the input are collapsed to their first occurrence. Tokens that already
-// exist for the user are left untouched and omitted from the result, so an
-// empty result means every token was already registered.
+// within the input are collapsed to their first occurrence.
+//
+// A token that is already registered replaces the stored one and puts the row back
+// into the pending state, clearing its failure history. That is what makes a bot
+// disabled by a failed provisioning recoverable: the row is identified by its bot
+// id, and the provisioning job the caller queues next verifies the new token and
+// enables the row again.
 func (s *Service) InsertPending(ctx context.Context, userID int64, tokens []string) ([]*sqlcgen.Bot, error) {
 	if userID <= 0 || len(tokens) == 0 {
 		return nil, ErrInvalidInput
