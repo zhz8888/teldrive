@@ -17,7 +17,7 @@ func TestUploadBatchWorkerCreatesDestinationPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalogService := catalog.NewService(db.Pool, nil)
-	worker := NewUploadBatchWorker(nil, catalogService)
+	worker := NewUploadBatchWorker(nil, catalogService, 0)
 
 	parentID, err := worker.resolveDestination(ctx, UploadBatchArgs{UserID: 1001, Destination: "/videos/new"})
 	if err != nil {

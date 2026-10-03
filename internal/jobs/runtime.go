@@ -157,6 +157,13 @@ type UploaderServices struct {
 	// ActiveKeyVersion is the encryption key version new uploads are written
 	// with.
 	ActiveKeyVersion int32
+	// MaxChunkSize is the largest part a background import may ask for, and
+	// normally the uploads service's configured max-part-size: the chunk the
+	// worker picks becomes the session's part size, which that service
+	// refuses if it is too large. Clamping here turns a configuration the
+	// operator chose into a smaller chunk instead of a failed import.
+	// A non-positive value leaves the package default in place.
+	MaxChunkSize int64
 	// LocalImportRoots are the directories a local import may read from. An empty
 	// list disables local imports entirely, and a requested path outside every
 	// root is rejected, which is the security boundary for local imports.
@@ -229,10 +236,10 @@ func newRuntimeWithSchema(pool *pgxpool.Pool, storage telegramstore.Storage, sch
 		if uploader.HTTPClient == nil {
 			uploader.HTTPClient = NewUploadHTTPClient()
 		}
-		if err := river.AddWorkerSafely(workers, NewUploadBatchWorker(uploader.HTTPClient, uploader.Catalog, uploader.LocalImportRoots)); err != nil {
+		if err := river.AddWorkerSafely(workers, NewUploadBatchWorker(uploader.HTTPClient, uploader.Catalog, uploader.MaxChunkSize, uploader.LocalImportRoots)); err != nil {
 			return nil, fmt.Errorf("register upload batch worker: %w", err)
 		}
-		if err := river.AddWorkerSafely(workers, NewUploadSourceWorker(pool, uploader.Catalog, uploader.Uploads, uploader.Pipeline, uploader.HTTPClient, uploader.ActiveKeyVersion)); err != nil {
+		if err := river.AddWorkerSafely(workers, NewUploadSourceWorker(pool, uploader.Catalog, uploader.Uploads, uploader.Pipeline, uploader.HTTPClient, uploader.ActiveKeyVersion, uploader.MaxChunkSize)); err != nil {
 			return nil, fmt.Errorf("register upload source worker: %w", err)
 		}
 	}

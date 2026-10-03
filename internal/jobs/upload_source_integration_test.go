@@ -41,7 +41,7 @@ func TestUploadSourceWorkerPublishesAndSkipsMatchingLocalFile(t *testing.T) {
 	catalogService := catalog.NewService(db.Pool, nil)
 	channelService := channels.NewService(db.Pool, channels.TelegramCreator{Storage: storage}, channels.Config{PartLimit: 1000})
 	pipeline := transfer.NewPipeline(uploadService, channelService, storage, nil, transfer.Config{})
-	worker := jobs.NewUploadSourceWorker(db.Pool, catalogService, uploadService, pipeline, nil, 0)
+	worker := jobs.NewUploadSourceWorker(db.Pool, catalogService, uploadService, pipeline, nil, 0, 0)
 	args := jobs.UploadSourceArgs{
 		BatchID: "9ba4ddef-ea18-4a67-acd4-277f63d813ce", SourceIndex: 0, UserID: 1001, PartConcurrency: 2,
 		Source: jobs.UploadFileSource{Type: "local", Location: filePath, DestinationPath: "folder/hello.txt", Size: info.Size(), ModTime: info.ModTime(), HasModTime: true},

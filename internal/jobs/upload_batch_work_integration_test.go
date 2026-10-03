@@ -59,7 +59,7 @@ func TestUploadBatchWorkRefusesAMalformedPayload(t *testing.T) {
 	seedBatchUser(t, db.Pool, 1001)
 	runtime := newManagementRuntime(t, db)
 	root := seedLocalTree(t, "a.txt")
-	worker := NewUploadBatchWorker(nil, catalog.NewService(db.Pool, nil), []string{root})
+	worker := NewUploadBatchWorker(nil, catalog.NewService(db.Pool, nil), 0, []string{root})
 	ctx := rivertest.WorkContext(context.Background(), runtime.client.Client)
 
 	for _, testCase := range []struct {
@@ -98,7 +98,7 @@ func TestUploadBatchWorkStopsWhenASourceCannotBeInspected(t *testing.T) {
 	seedBatchUser(t, db.Pool, 1001)
 	runtime := newManagementRuntime(t, db)
 	root := t.TempDir()
-	worker := NewUploadBatchWorker(nil, catalog.NewService(db.Pool, nil), []string{root})
+	worker := NewUploadBatchWorker(nil, catalog.NewService(db.Pool, nil), 0, []string{root})
 	ctx := rivertest.WorkContext(context.Background(), runtime.client.Client)
 
 	err := worker.Work(ctx, batchJob(ctx, runtime, UploadBatchArgs{

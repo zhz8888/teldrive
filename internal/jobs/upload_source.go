@@ -234,6 +234,10 @@ type UploadBatchWorker struct {
 	// localImportRoots is the allowlist of directory trees that local sources may
 	// be read from; an empty list disables local imports entirely.
 	localImportRoots []string
+	// maxChunkSize bounds the chunk this worker records on every per-file job,
+	// so a batch does not enqueue work the per-file worker would clamp again.
+	// Zero leaves the package default in place.
+	maxChunkSize int64
 }
 
 // NewUploadBatchWorker returns a batch worker using httpClient and catalogService.
@@ -241,7 +245,7 @@ type UploadBatchWorker struct {
 // argument is copied and becomes the allowlist for local sources; without it local
 // sources are rejected. catalogService is only required when a destination has to
 // be resolved.
-func NewUploadBatchWorker(httpClient *http.Client, catalogService *catalog.Service, localImportRoots ...[]string) *UploadBatchWorker {
+func NewUploadBatchWorker(httpClient *http.Client, catalogService *catalog.Service, maxChunkSize int64, localImportRoots ...[]string) *UploadBatchWorker {
 	if httpClient == nil {
 		httpClient = NewUploadHTTPClient()
 	}
@@ -249,7 +253,7 @@ func NewUploadBatchWorker(httpClient *http.Client, catalogService *catalog.Servi
 	if len(localImportRoots) > 0 {
 		roots = append([]string(nil), localImportRoots[0]...)
 	}
-	return &UploadBatchWorker{httpClient: httpClient, catalog: catalogService, localImportRoots: roots}
+	return &UploadBatchWorker{httpClient: httpClient, catalog: catalogService, localImportRoots: roots, maxChunkSize: maxChunkSize}
 }
 
 // Timeout allows one hour: the batch only probes remote sources and inserts jobs,
@@ -290,7 +294,7 @@ func (w *UploadBatchWorker) Work(ctx context.Context, job *river.Job[UploadBatch
 	if partConcurrency > 16 {
 		return fmt.Errorf("%w: part concurrency exceeds 16", errInvalidUploadSource)
 	}
-	chunkSize, err := normalizeUploadChunkSize(job.Args.ChunkSize)
+	chunkSize, err := normalizeUploadChunkSize(job.Args.ChunkSize, w.maxChunkSize)
 	if err != nil {
 		return err
 	}
@@ -427,6 +431,10 @@ type UploadSourceWorker struct {
 	// httpClient reads remote sources; it must be the SSRF-guarded client, since
 	// this worker follows URLs supplied by the user.
 	httpClient *http.Client
+	// maxChunkSize bounds the part this worker asks for, so a background
+	// import honours the same uploads.max-part-size the browser path does.
+	// Zero means the package default.
+	maxChunkSize int64
 	// activeKeyVersion is the encryption key version used for encrypted uploads; a
 	// non-positive value makes an encrypted job fail with transfer.ErrEncryptionKey
 	// rather than storing plaintext under a promise of encryption.
@@ -437,11 +445,15 @@ type UploadSourceWorker struct {
 // uploadService and pipeline are required: Work fails with
 // ErrRuntimeNotConfigured when one of them is missing. A nil httpClient falls back
 // to NewUploadHTTPClient, so remote reads are always SSRF-guarded.
-func NewUploadSourceWorker(pool *pgxpool.Pool, catalogService *catalog.Service, uploadService *uploads.Service, pipeline *transfer.Pipeline, httpClient *http.Client, activeKeyVersion int32) *UploadSourceWorker {
+func NewUploadSourceWorker(pool *pgxpool.Pool, catalogService *catalog.Service, uploadService *uploads.Service, pipeline *transfer.Pipeline, httpClient *http.Client, activeKeyVersion int32, maxChunkSize int64) *UploadSourceWorker {
 	if httpClient == nil {
 		httpClient = NewUploadHTTPClient()
 	}
-	return &UploadSourceWorker{pool: pool, queries: sqlcgen.New(pool), catalog: catalogService, uploads: uploadService, pipeline: pipeline, httpClient: httpClient, activeKeyVersion: activeKeyVersion}
+	return &UploadSourceWorker{
+		pool: pool, queries: sqlcgen.New(pool), catalog: catalogService,
+		uploads: uploadService, pipeline: pipeline, httpClient: httpClient,
+		activeKeyVersion: activeKeyVersion, maxChunkSize: maxChunkSize,
+	}
 }
 
 // Timeout allows up to 24 hours for one file, because the transfer is bounded by
@@ -476,7 +488,7 @@ func (w *UploadSourceWorker) Work(ctx context.Context, job *river.Job[UploadSour
 	if job.Args.PartConcurrency > 16 {
 		return fmt.Errorf("%w: part concurrency exceeds 16", errInvalidUploadSource)
 	}
-	chunkSize, err := normalizeUploadChunkSize(job.Args.ChunkSize)
+	chunkSize, err := normalizeUploadChunkSize(job.Args.ChunkSize, w.maxChunkSize)
 	if err != nil {
 		return err
 	}
@@ -773,15 +785,25 @@ func (t *uploadProgressTracker) update(ctx context.Context, stage string, termin
 // the maximum. Out-of-range values fail with errInvalidUploadSource. Rounding keeps
 // part boundaries aligned with the 16 MiB storage block, which is what lets a part
 // be stored as whole blocks.
-func normalizeUploadChunkSize(value int64) (int64, error) {
+// normalizeUploadChunkSize rounds a requested chunk into the range the worker
+// may use. ceiling is the largest part the deployment allows; a non-positive
+// value leaves maxUploadChunk in place.
+func normalizeUploadChunkSize(value int64, ceiling int64) (int64, error) {
+	limit := maxUploadChunk
+	if ceiling > 0 && ceiling < limit {
+		limit = ceiling
+	}
 	if value <= 0 {
+		if defaultUploadChunk > limit {
+			return limit, nil
+		}
 		return defaultUploadChunk, nil
 	}
-	if value < minUploadChunk || value > maxUploadChunk {
-		return 0, fmt.Errorf("%w: chunk size must be between 64 MiB and 2000 MiB", errInvalidUploadSource)
+	if value < minUploadChunk || value > limit {
+		return 0, fmt.Errorf("%w: chunk size must be between 64 MiB and %d MiB", errInvalidUploadSource, limit/(1<<20))
 	}
 	aligned := ((value + uploadChunkBlock/2) / uploadChunkBlock) * uploadChunkBlock
-	return min(aligned, maxUploadChunk), nil
+	return min(aligned, limit), nil
 }
 
 // findResumableUpload looks for an open upload session that an earlier attempt left

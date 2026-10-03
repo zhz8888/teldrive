@@ -34,7 +34,7 @@ func TestUploadSourceWorkerDetectsMIME(t *testing.T) {
 			_, _ = w.Write([]byte("plain text content"))
 		}))
 		defer server.Close()
-		worker := NewUploadSourceWorker(nil, nil, nil, nil, server.Client(), 0)
+		worker := NewUploadSourceWorker(nil, nil, nil, nil, server.Client(), 0, 0)
 		got, err := worker.detectSourceMIME(context.Background(), UploadFileSource{Type: "http", Location: server.URL, DestinationPath: "file.bin", MIMEType: "application/octet-stream"})
 		if err != nil || got != "text/plain" {
 			t.Fatalf("detectSourceMIME() = %q, %v", got, err)
@@ -46,7 +46,7 @@ func TestUploadSourceWorkerDetectsMIME(t *testing.T) {
 		if err := os.WriteFile(file, make([]byte, 512), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		worker := NewUploadSourceWorker(nil, nil, nil, nil, nil, 0)
+		worker := NewUploadSourceWorker(nil, nil, nil, nil, nil, 0, 0)
 		got, err := worker.detectSourceMIME(context.Background(), UploadFileSource{Type: "local", Location: file, DestinationPath: "video.mp4"})
 		if err != nil || got != "video/mp4" {
 			t.Fatalf("detectSourceMIME() = %q, %v", got, err)
@@ -67,7 +67,7 @@ func TestNormalizeUploadChunkSizeMatchesRclone(t *testing.T) {
 		{name: "round up", input: 73 * 1024 * 1024, want: 80 * 1024 * 1024},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := normalizeUploadChunkSize(test.input)
+			got, err := normalizeUploadChunkSize(test.input, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +77,7 @@ func TestNormalizeUploadChunkSizeMatchesRclone(t *testing.T) {
 		})
 	}
 	for _, input := range []int64{63 * 1024 * 1024, 2001 * 1024 * 1024} {
-		if _, err := normalizeUploadChunkSize(input); err == nil {
+		if _, err := normalizeUploadChunkSize(input, 0); err == nil {
 			t.Fatalf("normalizeUploadChunkSize(%d) succeeded", input)
 		}
 	}
@@ -197,7 +197,7 @@ func TestExpandAppliesPerSourceExcludeToHTTPSources(t *testing.T) {
 		_, _ = response.Write([]byte("data"))
 	}))
 	defer server.Close()
-	worker := NewUploadBatchWorker(server.Client(), nil)
+	worker := NewUploadBatchWorker(server.Client(), nil, 0)
 	batchFilter, err := newUploadFilter(nil, "", "")
 	if err != nil {
 		t.Fatal(err)
