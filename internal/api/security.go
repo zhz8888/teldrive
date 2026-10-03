@@ -114,9 +114,10 @@ func HasAdminRole(ctx context.Context) bool {
 // resulting identity in the returned context for downstream handlers.
 //
 // It returns ErrUnauthenticated when the token is blank or rejected, and
-// ErrInvalidIdentity when the credential resolves to no usable user. As a side
-// effect it copies the resolved roles back into auth, which is how the generated
-// layer enforces any per-operation scopes.
+// ErrInvalidIdentity when the credential resolves to no usable user. The resolved
+// roles travel with the identity in the returned context; authorisation is decided
+// by the handlers through HasAdminRole and requireAdmin, not by the generated
+// security layer, which never reads the roles field of its auth argument.
 func (s *Security) HandleBearerAuth(ctx context.Context, _ gen.OperationName, auth gen.BearerAuth) (context.Context, error) {
 	if s == nil || s.authenticator == nil || strings.TrimSpace(auth.Token) == "" {
 		return ctx, ErrUnauthenticated
@@ -128,7 +129,6 @@ func (s *Security) HandleBearerAuth(ctx context.Context, _ gen.OperationName, au
 	if identity.UserID <= 0 {
 		return ctx, ErrInvalidIdentity
 	}
-	auth.Roles = append([]string(nil), identity.Roles...)
 	return principal.WithIdentity(ctx, identity), nil
 }
 
@@ -147,7 +147,6 @@ func (s *Security) HandleExternalApiKeyAuth(ctx context.Context, _ gen.Operation
 	if identity.UserID <= 0 {
 		return ctx, ErrInvalidIdentity
 	}
-	auth.Roles = append([]string(nil), identity.Roles...)
 	return principal.WithIdentity(ctx, identity), nil
 }
 
@@ -166,7 +165,6 @@ func (s *Security) HandleCookieAuth(ctx context.Context, _ gen.OperationName, au
 	if identity.UserID <= 0 {
 		return ctx, ErrInvalidIdentity
 	}
-	auth.Roles = append([]string(nil), identity.Roles...)
 	return principal.WithIdentity(ctx, identity), nil
 }
 

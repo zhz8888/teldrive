@@ -20,7 +20,6 @@ import (
 	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
 	"github.com/tgdrive/teldrive/v2/internal/fileops"
 	"github.com/tgdrive/teldrive/v2/internal/shares"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
 )
 
 // TelegramLoginStart begins an unauthenticated Telegram login flow and sends a
@@ -336,6 +335,12 @@ func (h *Handler) RevokeSession(ctx context.Context, params gen.RevokeSessionPar
 // CreateBots registers Telegram bot tokens for the authenticated user: malformed
 // or duplicate tokens are reported by index in failedIndexes, the valid ones are
 // stored as pending, and provisioning is queued through h.Jobs.InsertBotProvision.
+//
+// Provisioning is queued for every bot ID this request validated, not only for the
+// rows that were newly inserted. Storing a token and queueing its job are two
+// writes, so a request that failed between them leaves a pending row behind; a
+// retry with the same token inserts nothing, and queueing per inserted row would
+// leave that bot pending forever.
 func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest) (gen.CreateBotsRes, error) {
 	userID, err := UserIDFromContext(ctx)
 	if err != nil {
@@ -346,6 +351,7 @@ func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest) (ge
 	}
 	response := gen.BotCreateResponse{Bots: []gen.BotSummary{}, FailedIndexes: []int32{}}
 	tokens := make([]string, 0, len(req.Tokens))
+	requested := make([]int64, 0, len(req.Tokens))
 	seen := make(map[int64]struct{}, len(req.Tokens))
 	for index, raw := range req.Tokens {
 		token := strings.TrimSpace(raw)
@@ -360,6 +366,7 @@ func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest) (ge
 		}
 		seen[botID] = struct{}{}
 		tokens = append(tokens, token)
+		requested = append(requested, botID)
 	}
 	// A request whose tokens were all malformed or duplicated still has a
 	// meaningful answer: the per-index feedback the contract models. Reporting it
@@ -372,13 +379,11 @@ func (h *Handler) CreateBots(ctx context.Context, req *gen.BotCreateRequest) (ge
 	if insertErr != nil {
 		return nil, mapServiceError(insertErr)
 	}
-	botIDs := make([]int64, 0, len(rows))
 	for _, row := range rows {
 		response.Bots = append(response.Bots, botSummary(row))
-		botIDs = append(botIDs, row.BotID)
 	}
-	if len(botIDs) > 0 {
-		jobID, jobErr := h.Jobs.InsertBotProvision(ctx, userID, botIDs)
+	if len(requested) > 0 {
+		jobID, jobErr := h.Jobs.InsertBotProvision(ctx, userID, requested)
 		if jobErr != nil {
 			return nil, mapServiceError(jobErr)
 		}
@@ -803,7 +808,7 @@ func (h *Handler) HeadPublicShare(ctx context.Context, params gen.HeadPublicShar
 	}
 	file := resolved.File
 	if file.Kind != sqlcgen.FileKindFile || !file.Size.Valid {
-		return nil, mapServiceError(transfer.ErrInvalidDownload)
+		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareOK{
 		AcceptRanges: gen.HeadPublicShareOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
@@ -823,7 +828,7 @@ func (h *Handler) HeadPublicShareLegacy(ctx context.Context, params gen.HeadPubl
 	}
 	file := resolved.File
 	if file.Kind != sqlcgen.FileKindFile || !file.Size.Valid {
-		return nil, mapServiceError(transfer.ErrInvalidDownload)
+		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareLegacyOK{
 		AcceptRanges: gen.HeadPublicShareLegacyOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
@@ -844,7 +849,7 @@ func (h *Handler) HeadPublicShareFile(ctx context.Context, params gen.HeadPublic
 	}
 	file := resolved.File
 	if file.Kind != sqlcgen.FileKindFile || !file.Size.Valid || file.Size.Int64 < 0 {
-		return nil, mapServiceError(transfer.ErrInvalidDownload)
+		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareFileOK{
 		AcceptRanges: gen.HeadPublicShareFileOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
@@ -864,7 +869,7 @@ func (h *Handler) HeadPublicShareFileLegacy(ctx context.Context, params gen.Head
 	}
 	file := resolved.File
 	if file.Kind != sqlcgen.FileKindFile || !file.Size.Valid || file.Size.Int64 < 0 {
-		return nil, mapServiceError(transfer.ErrInvalidDownload)
+		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareFileLegacyOK{
 		AcceptRanges: gen.HeadPublicShareFileLegacyOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),

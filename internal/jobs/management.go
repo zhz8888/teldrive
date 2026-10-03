@@ -24,6 +24,12 @@ import (
 // errors.Is and answer with a client conflict error rather than a server failure.
 var ErrInvalidJobState = errors.New("invalid job state")
 
+// ErrInvalidJobKind reports a job kind this runtime did not register a worker for,
+// because the kind is unknown or because the feature it belongs to was not built
+// into this deployment. It is a client error and maps to HTTP 422. Callers must
+// test it with errors.Is.
+var ErrInvalidJobKind = errors.New("invalid job kind")
+
 // CreateInput describes a one-off job inserted by an administrator. Only the
 // built-in cleanup sweep kinds are accepted; leaving Queue, Priority and
 // MaxAttempts at their zero values takes the River defaults.
@@ -760,14 +766,14 @@ func (r *Runtime) validateCleanupJobKind(kind string) error {
 		if r.purgeEnabled {
 			return nil
 		}
-		return fmt.Errorf("job kind %q is unavailable: this runtime was built without a purge service", kind)
+		return fmt.Errorf("%w: job kind %q is unavailable because this runtime was built without a purge service", ErrInvalidJobKind, kind)
 	case OrphanCleanupKind:
 		if r.orphanCleanupEnabled {
 			return nil
 		}
-		return fmt.Errorf("job kind %q is unavailable: this runtime's storage backend cannot list documents", kind)
+		return fmt.Errorf("%w: job kind %q is unavailable because this runtime's storage backend cannot list documents", ErrInvalidJobKind, kind)
 	default:
-		return fmt.Errorf("unsupported job kind %q", kind)
+		return fmt.Errorf("%w: unsupported job kind %q", ErrInvalidJobKind, kind)
 	}
 }
 

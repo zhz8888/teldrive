@@ -167,8 +167,14 @@ func (r *Runtime) List(ctx context.Context, input ListInput) ([]Job, string, err
 	if r == nil || r.client == nil {
 		return nil, "", ErrRuntimeNotConfigured
 	}
-	if input.Limit <= 0 || input.Limit > 200 {
+	if input.Limit <= 0 {
 		input.Limit = 100
+	}
+	if input.Limit > 200 {
+		// A page larger than the cap is served at the cap rather than silently
+		// reduced to the default, so a caller asking for more still gets the
+		// largest page this API serves.
+		input.Limit = 200
 	}
 	beforeID, err := decodeCursor(input.Cursor)
 	if err != nil {

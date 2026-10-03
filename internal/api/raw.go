@@ -152,7 +152,7 @@ func (h *RawHandler) DownloadPublicShareFileLegacy(ctx context.Context, params g
 // body and is logged instead; the content reader is always closed.
 func (h *RawHandler) streamFile(ctx context.Context, w http.ResponseWriter, userID int64, fileID uuid.UUID, file *sqlcgen.File, rangeValue gen.OptString, noneMatch gen.OptETag, attachment bool) error {
 	if file.Kind != sqlcgen.FileKindFile || file.Status != sqlcgen.FileStatusActive || !file.Size.Valid || file.Size.Int64 < 0 {
-		return mapServiceError(transfer.ErrInvalidDownload)
+		return rejectUndownloadable()
 	}
 	rangeSpec, partial, err := parseRange(rangeValue, file.Size.Int64)
 	if err != nil {

@@ -129,6 +129,10 @@ func mapServiceError(err error) error {
 		return problem(http.StatusForbidden, "forbidden", "operation is not permitted", err)
 	case errors.Is(err, events.ErrInvalidCursor):
 		return problem(http.StatusUnprocessableEntity, "invalid_event_cursor", "event cursor is invalid", err)
+	case errors.Is(err, jobs.ErrInvalidCursor):
+		return problem(http.StatusUnprocessableEntity, "invalid_cursor", "job cursor is invalid", err)
+	case errors.Is(err, jobs.ErrInvalidJobKind):
+		return problem(http.StatusUnprocessableEntity, "invalid_job_kind", "job kind is not available on this deployment", err)
 	case errors.Is(err, events.ErrTooManyConnections):
 		return problem(http.StatusTooManyRequests, "too_many_event_streams", "too many event streams are open", err)
 	case errors.Is(err, authn.ErrLoginBusy):
@@ -164,6 +168,15 @@ func mapServiceError(err error) error {
 	default:
 		return problem(http.StatusInternalServerError, "internal_error", "request failed", err)
 	}
+}
+
+// rejectUndownloadable maps the condition "this entry exists but is not
+// downloadable content" — a folder, a trashed row, or a file whose size is
+// unknown — to a missing resource. The content endpoints declare 404 rather than
+// 422, and the authenticated HEAD path already answers 404, so one condition gets
+// one answer wherever it is detected.
+func rejectUndownloadable() error {
+	return mapServiceError(catalog.ErrNotFound)
 }
 
 // ErrorHandler is the ogen error hook: it serializes any error escaping a handler

@@ -37,9 +37,6 @@ func (h *Handler) ListJobs(ctx context.Context, params gen.ListJobsParams) (gen.
 		UserID: userID, Cursor: string(cursor), Limit: params.Limit.Or(100), State: string(status), Kind: kind, Queue: queue,
 	})
 	if err != nil {
-		if errors.Is(err, jobs.ErrInvalidCursor) {
-			return nil, problem(http.StatusUnprocessableEntity, "invalid_cursor", "job cursor is invalid", err)
-		}
 		return nil, mapServiceError(err)
 	}
 	response := gen.JobPage{Tasks: make([]gen.Job, 0, len(items)), Meta: gen.JobPageMeta{}}
@@ -70,7 +67,11 @@ func (h *Handler) CreateJob(ctx context.Context, req *gen.JobCreate) (gen.Create
 		Priority: int(priority), MaxAttempts: int(maxAttempts), Tags: append([]string(nil), req.Tags...),
 	})
 	if err != nil {
-		return nil, problem(http.StatusBadRequest, "invalid_job", "job could not be created", err)
+		// The kind is checked by the runtime and reported as ErrInvalidJobKind
+		// (422), a runtime without a client as ErrRuntimeNotConfigured (503), and
+		// a failed insert as an internal error that is logged: folding all three
+		// into a 400 hid a database failure from both the client and the log.
+		return nil, mapServiceError(err)
 	}
 	response := jobResponse(item)
 	return &response, nil
