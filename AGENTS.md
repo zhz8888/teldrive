@@ -14,9 +14,20 @@
 - Backend unit tests: `go test ./...`; focused package/test: `go test ./internal/transfer -run '^TestName$'`.
 - Integration tests require Podman and must use the harness: `scripts/test-postgres.sh go test -tags=integration ./internal/uploads`; use `just test-integration` for all packages.
 - Race tests also require the PostgreSQL harness: `just test-race`.
-- Full project validation: `just check`. This regenerates artifacts and runs lint, UI checks/build, unit tests, and the Podman-backed 80% core coverage gate; it is intentionally expensive.
+- Full project validation: `just check`. This regenerates artifacts and runs lint, UI checks/build, unit tests, and the Podman-backed 78% core coverage gate; it is intentionally expensive.
 - UI checks: `just ui-check` (includes browser E2E with mocked API responses).
 - Format only handwritten code with `just format`; generated Go directories are deliberately excluded.
+
+## Testing
+
+- Mutation-check guard tests: delete the guard line and confirm the test fails. Validation tests are the ones that keep passing while short-circuiting on an upstream guard, so a new guard test is unfinished until this has been done.
+- Coverage is measured, not aspirational; raise the floor only with real coverage.
+- Integration tests must go through `scripts/test-postgres.sh`. A bare `go test -tags=integration` fails on a missing `TEST_DATABASE_URL` and reads as a real failure.
+- `river.Job` embeds `*rivertype.JobRow`, so a literal without it panics on the first `job.ID` read; give a worker its client with `rivertest.WorkContext(ctx, runtime.client.Client)`.
+- A `river_job` fixture in a finalized state also needs `finalized_at`, and jobs land in the queue named by the args' `InsertOpts()`, not the default queue. Queue listings need a `river_queue` row seeded as well.
+- A zero-valued service does not test an "unconfigured" guard: `sqlcgen.New(nil)` returns a usable `*Queries`, so arrange for the real dependency to be missing instead.
+- PostgreSQL `jsonb` reformats whitespace; compare parsed values rather than strings.
+- `users` carries `disabled_at timestamptz`, not a boolean.
 
 ## Architecture
 
