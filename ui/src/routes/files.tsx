@@ -206,6 +206,19 @@ function FilesPage() {
 
   const paneLocation = (pane: PaneId) =>
     pane === "secondary" && search.split ? secondaryLocation : primaryLocation;
+
+  /**
+   * parentIdFor resolves the folder a location shows. A pane reached through the
+   * breadcrumb or the parent shortcut carries only its path, and a request
+   * without a parent writes to the drive root, so every write aimed at "the
+   * folder on screen" has to resolve the path first. The result is undefined when
+   * the path names no folder, which callers report instead of falling back to the
+   * root.
+   */
+  const parentIdFor = async (location: PaneLocation) => {
+    if (location.parentId !== undefined || location.path === "/") return location.parentId;
+    return await resolveFolderIdByPath(location.path);
+  };
   const paneFiles = (pane: PaneId) =>
     pane === "secondary" && search.split ? secondaryFiles : primaryFiles;
   const paneSelectedKeys = (pane: PaneId) =>
@@ -277,8 +290,16 @@ function FilesPage() {
   const createFolder = async () => {
     const name = folderName.trim();
     if (!name) return;
+    const location = activeLocation;
+    const parentId = await parentIdFor(location);
+    if (parentId === undefined && location.path !== "/") {
+      toast.error(t("routes.files.toast.folderCreateFailed"), {
+        description: t("features.uploads.folderMissing", { path: location.path }),
+      });
+      return;
+    }
     try {
-      await fileActions.createFolder(name, activeLocation.parentId);
+      await fileActions.createFolder(name, parentId);
       setFolderName("");
       setFolderDialogOpen(false);
       toast.success(t("routes.files.toast.folderCreated"));
@@ -320,8 +341,16 @@ function FilesPage() {
   };
 
   const duplicateFile = async (file: FileEntry, pane: PaneId) => {
+    const location = paneLocation(pane);
+    const parentId = await parentIdFor(location);
+    if (parentId === undefined && location.path !== "/") {
+      toast.error(t("routes.files.toast.duplicateFailed"), {
+        description: t("features.uploads.folderMissing", { path: location.path }),
+      });
+      return;
+    }
     try {
-      await fileActions.copy(file, paneLocation(pane).parentId, `${file.name} copy`, "rename");
+      await fileActions.copy(file, parentId, `${file.name} copy`, "rename");
       setPaneSelectedKeys(pane, new Set());
       toast.success(t("routes.files.toast.duplicated"));
     } catch (error) {
@@ -370,15 +399,12 @@ function FilesPage() {
     }
     // A pane reached by breadcrumb records only its path, so the folder id has to
     // be looked up before pasting: without it the items would land in the root.
-    let targetParentId = location.parentId;
+    const targetParentId = await parentIdFor(location);
     if (targetParentId === undefined && location.path !== "/") {
-      targetParentId = await resolveFolderIdByPath(location.path);
-      if (targetParentId === undefined) {
-        toast.error(t("routes.files.toast.pasteFailed"), {
-          description: t("features.uploads.folderMissing", { path: location.path }),
-        });
-        return;
-      }
+      toast.error(t("routes.files.toast.pasteFailed"), {
+        description: t("features.uploads.folderMissing", { path: location.path }),
+      });
+      return;
     }
     try {
       if (clipboardMode === "copy") {
@@ -435,6 +461,21 @@ function FilesPage() {
       return;
     }
     if (isEditableTarget(event.target)) return;
+    // While a dialog is open it owns the keyboard: the shortcuts below act on the
+    // file list behind it, so Delete would move the file being previewed to the
+    // trash and the clipboard shortcuts would copy files instead of the text the
+    // reader has selected. Escape is handled above because it closes these.
+    if (
+      previewFile ||
+      folderDialogOpen ||
+      backgroundUploadOpen ||
+      renameFile ||
+      moveDialogOpen ||
+      shareFile ||
+      pasteConflictPane
+    ) {
+      return;
+    }
     const command = event.ctrlKey || event.metaKey;
 
     const key = event.key.toLowerCase();
