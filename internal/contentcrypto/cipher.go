@@ -205,8 +205,13 @@ func (c *Cipher) getBlock() *[blockSize]byte {
 
 // putBlock returns a buffer previously obtained from getBlock to the pool so
 // another stream can reuse it. The caller must not touch buf afterwards, and
-// passing nil is a no-op.
+// passing nil is a no-op: a typed nil pointer would still be stored by
+// sync.Pool, and the next getBlock would then hand out a nil buffer that the
+// caller dereferences.
 func (c *Cipher) putBlock(buf *[blockSize]byte) {
+	if buf == nil {
+		return
+	}
 	c.buffers.Put(buf)
 }
 
@@ -684,9 +689,11 @@ func (fh *decrypter) RangeSeek(ctx context.Context, offset int64, whence int, li
 		return 0, fh.finish(fmt.Errorf("couldn't reopen file with offset and limit: %w", err))
 	}
 
-	// Release the range being replaced. A callback that hands back the reader it
-	// already owns keeps it open, because the two are then the same object.
-	if fh.rc != nil && fh.rc != rc {
+	// Release the range being replaced. The interfaces are never compared with
+	// each other: two interface values of the same non-comparable dynamic type
+	// panic on comparison, and the range callback is documented to return a fresh
+	// reader on every call, so the previous range is always the one to close.
+	if fh.rc != nil {
 		_ = fh.rc.Close()
 	}
 	fh.rc = rc
