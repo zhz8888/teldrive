@@ -17,8 +17,13 @@ permissions:
 
 
 jobs:
+  check:
+    name: Full gate
+    uses: ./.github/workflows/ci.yml
+
   publish:
     name: Build and publish v2 image
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

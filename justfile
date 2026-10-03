@@ -1,5 +1,8 @@
 set dotenv-load := true
 
+# sqlc_version is the generator version the committed query layer was produced
+# with; generate-db refuses to run with another one.
+sqlc_version := "v1.31.1"
 openapi_spec := "openapi/teldrive.openapi.yaml"
 ui_dir := "ui"
 docs_dir := "docs"
@@ -49,6 +52,10 @@ generate-api: generate-openapi
 
 # Generate the typed PostgreSQL query layer.
 generate-db:
+    # sqlc rewrites the whole generated package, so a version other than the one
+    # the committed files were produced with would show up as a large unrelated
+    # diff and can even make patchsqlc fail to match what it patches.
+    test "$(sqlc version)" = "{{sqlc_version}}" || { echo "sqlc {{sqlc_version}} is required, found $(sqlc version)" >&2; exit 1; }
     sqlc generate
     go run ./internal/tools/patchsqlc
 
@@ -167,4 +174,10 @@ check: generate lint test-unit coverage
     bun run --cwd {{docs_dir}} build
 
 clean-generated:
-    rm -rf openapi internal/api/gen internal/db/sqlcgen ui/src/api/schema.ts ui/dist coverage.out
+    rm -rf openapi internal/api/gen ui/src/api/schema.ts ui/dist coverage.out
+    # internal/db/sqlcgen holds handwritten files next to the generated ones
+    # (schema_template.go carries the schema rewriting the generator cannot emit),
+    # so only the generated files are removed here: deleting the directory would
+    # leave a tree that no generator can rebuild.
+    rm -f internal/db/sqlcgen/db.go internal/db/sqlcgen/models.go internal/db/sqlcgen/querier.go
+    find internal/db/sqlcgen -name '*.sql.go' -delete

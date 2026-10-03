@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - v2
+  pull_request:
+  # The publish workflows call this one so an image or a release is only built
+  # from a commit that passed the same gate.
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Full gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install the JavaScript workspaces
+        run: |
+          bun install --frozen-lockfile --cwd typespec
+          bun install --frozen-lockfile --cwd ui
+          bun install --frozen-lockfile --cwd docs
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install sqlc
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Podman
+        run: sudo apt-get update && sudo apt-get install -y podman
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      # A contract or SQL change that was not regenerated shows up as a diff
+      # here, which keeps the committed artifacts and the sources that produce
+      # them in step.
+      - name: Verify the generated artifacts are up to date
+        run: |
+          just generate
+          git diff --exit-code
+
+      # just check regenerates, lints, runs the unit tests, enforces the core
+      # coverage floor through the Podman-backed PostgreSQL harness, and builds
+      # the UI and the documentation site: the same gate the README tells
+      # contributors to run locally.
+      - name: Run the full gate
+        run: just check

@@ -8,21 +8,29 @@ profile="${COVERAGE_PROFILE:-coverage.out}"
 # suite still runs, including generated-router, application-lifecycle, and
 # boundary-adapter tests. Generated code, composition-only wiring, and the live
 # gotd RPC adapter are not denominator padding for the core-logic metric.
+#
+# Every package that holds behaviour a unit test can drive belongs here, which
+# includes the event cursor and ticket logic and the size and cache helpers; the
+# packages left out are generated code, the composition root, and the adapters
+# that can only be exercised against a real Telegram connection.
 core_patterns=(
   ./internal/authn
   ./internal/bots
+  ./internal/cache
   ./internal/catalog
   ./internal/channels
   ./internal/config
   ./internal/contentcrypto
   ./internal/database
   ./internal/dbtypes
+  ./internal/events
   ./internal/fileops
   ./internal/health
   ./internal/jobs
   ./internal/principal
   ./internal/secureblob
   ./internal/shares
+  ./internal/size
   ./internal/transfer
   ./internal/treehash
   ./internal/uploads
