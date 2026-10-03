@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -214,5 +215,32 @@ func TestExpandAppliesPerSourceExcludeToHTTPSources(t *testing.T) {
 	}
 	if len(kept) != 1 || kept[0].DestinationPath != "archive.bin" || kept[0].Size != 4 {
 		t.Fatalf("HTTP source = %#v", kept)
+	}
+}
+
+// TestSafeUploadAddressOnlyAllowsPublicPeers pins the address policy of the upload
+// source client. Every refused case is an address that resolves somewhere private,
+// shared or translated, which a user-supplied URL must not be able to reach.
+func TestSafeUploadAddressOnlyAllowsPublicPeers(t *testing.T) {
+	t.Parallel()
+	allowed := []string{"8.8.8.8", "1.1.1.1", "2001:4860:4860::8888", "2606:4700::1111"}
+	refused := []string{
+		"127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.1.1",
+		"100.64.0.1", "100.113.42.54", "192.0.0.1", "198.18.0.1", "240.0.0.1",
+		"0.0.0.0", "255.255.255.255", "224.0.0.1", "::1", "fe80::1", "fc00::1",
+		"::ffff:127.0.0.1", "64:ff9b::7f00:1", "2002:7f00:1::1",
+	}
+	for _, text := range allowed {
+		if address := netip.MustParseAddr(text); !safeUploadAddress(address) {
+			t.Errorf("safeUploadAddress(%s) = false, want true", text)
+		}
+	}
+	for _, text := range refused {
+		if address := netip.MustParseAddr(text); safeUploadAddress(address) {
+			t.Errorf("safeUploadAddress(%s) = true, want false", text)
+		}
+	}
+	if safeUploadAddress(netip.Addr{}) {
+		t.Error("safeUploadAddress(invalid) = true, want false")
 	}
 }

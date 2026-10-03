@@ -173,8 +173,11 @@ func (w *BotProvisionWorker) promoteBot(ctx context.Context, userID int64, usern
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 3)
 	for _, channel := range channels {
+		// The slot is taken before the goroutine exists, so a user with many
+		// channels does not start one goroutine per channel that then waits for a
+		// turn; only three are ever alive.
+		sem <- struct{}{}
 		wg.Go(func() {
-			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			if err := w.inviter.InviteBot(ctx, userID, channel.ChannelID, username); err != nil {

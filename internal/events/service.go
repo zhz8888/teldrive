@@ -136,6 +136,12 @@ type Service struct {
 	done chan struct{}
 	// running reports whether the cleanup goroutine is active.
 	running bool
+	// listenerActive reports whether the listener was started and not yet closed
+	// from Close. It is separate from running because the cleanup goroutine can
+	// stop, when the context Start received is cancelled, while the listener is
+	// still up; Close has to stop the listener in that case instead of returning
+	// with the dedicated connection open.
+	listenerActive bool
 	// closed records that Close ran; it is final, so Start and IssueTicket refuse
 	// further work.
 	closed bool
@@ -287,6 +293,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.cancel = cancel
 	s.running = true
+	s.listenerActive = true
 	s.done = make(chan struct{})
 	go s.runTicketCleanup(serviceCtx, s.done)
 	s.mu.Unlock()
@@ -311,11 +318,21 @@ func (s *Service) Close(ctx context.Context) error {
 	}
 	s.closed = true
 	if !s.running {
+		listenerActive := s.listenerActive
+		s.listenerActive = false
 		s.mu.Unlock()
 		s.hub.Close()
+		if listenerActive {
+			// The cleanup goroutine is already gone, which happens when the
+			// context Start received was cancelled, but the listener was never
+			// stopped from here. Closing it keeps shutdown from returning while
+			// the dedicated LISTEN connection is still open.
+			return s.listener.Close(ctx)
+		}
 		return nil
 	}
 	cancel, done := s.cancel, s.done
+	s.listenerActive = false
 	s.mu.Unlock()
 
 	cancel()

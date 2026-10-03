@@ -105,8 +105,11 @@ type UploadSource struct {
 // as JSON in river_job, so the field names must stay stable while jobs queued by
 // older releases may still be pending.
 type UploadBatchArgs struct {
-	// BatchID is the client-supplied UUID that groups the per-file jobs and keys
-	// their deduplication, so re-submitting a batch does not upload a file twice.
+	// BatchID groups the per-file jobs of one submission and keys their
+	// deduplication. The server generates it per accepted request, so a retried
+	// insert of the same batch is idempotent, but two separate submissions of the
+	// same sources are two batches: the API does not carry a client identifier
+	// that could merge them.
 	BatchID string `json:"batch_id"`
 	// UserID is the TelDrive user that owns the imported files.
 	UserID int64 `json:"user_id"`
@@ -1500,10 +1503,11 @@ func validContentRange(value string, offset, size, total int64) bool {
 //   - Proxy support is switched off, so an environment proxy cannot be used to reach
 //     an address the dialer would refuse.
 //   - DialContext resolves the host itself and dials the first address that
-//     safeUploadAddress accepts, which blocks loopback, private, link-local,
-//     multicast and unspecified targets. Resolving and dialing in one step also
-//     closes the DNS-rebinding window, because the address that was checked is the
-//     address that is dialed, and every redirect is subject to the same check.
+//     safeUploadAddress accepts, which admits global unicast addresses only: loopback,
+//     private, link-local, multicast, unspecified and the shared or translated ranges
+//     listed in nonPublicUploadPrefixes are all refused. Resolving and dialing in one
+//     step also closes the DNS-rebinding window, because the address that was checked
+//     is the address that is dialed, and every redirect is subject to the same check.
 //   - Redirects are limited to ten hops and must stay on http or https, and the
 //     Authorization, Cookie and Proxy-Authorization headers are dropped when the host
 //     changes, so credentials for one source are never replayed to another.
@@ -1556,16 +1560,39 @@ func NewUploadHTTPClient() *http.Client {
 	return client
 }
 
+// nonPublicUploadPrefixes are address blocks that are neither loopback nor
+// private, so netip's predicates accept them, but that still do not belong to a
+// public peer. They matter because a user-supplied URL is allowed to reach public
+// addresses only: shared carrier-grade NAT space is what overlay networks such as
+// Tailscale hand out, and the translation and benchmarking ranges can carry a
+// private peer's traffic.
+var nonPublicUploadPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"), // RFC 6598 shared address space
+	netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
+	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),   // reserved for future use
+	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64
+	netip.MustParsePrefix("2002::/16"),     // 6to4
+}
+
 // safeUploadAddress reports whether a resolved address may be dialed for a
-// user-supplied URL. It works as a denylist: addresses that are invalid, unspecified,
-// loopback, private, link-local or multicast are refused, and any other address is
-// allowed. An IPv4-mapped IPv6 address is first reduced to the IPv4 address it
-// carries, because the predicates do not agree on unmapping and the dialer does.
+// user-supplied URL. It refuses anything that is not a global unicast address and
+// everything in nonPublicUploadPrefixes, so a source can only reach a public peer.
+// An IPv4-mapped IPv6 address is first reduced to the IPv4 address it carries,
+// because the predicates do not agree on unmapping and the dialer does.
 func safeUploadAddress(address netip.Addr) bool {
 	// Judge an IPv4-mapped address as the IPv4 address it carries. netip only
 	// unmaps inside some of the predicates below, so ::ffff:0.0.0.0 would
 	// otherwise pass the unspecified check while the dialer turns it back into
 	// 0.0.0.0 and reaches the loopback interface.
 	address = address.Unmap()
-	return address.IsValid() && !address.IsUnspecified() && !address.IsLoopback() && !address.IsPrivate() && !address.IsLinkLocalUnicast() && !address.IsLinkLocalMulticast() && !address.IsMulticast()
+	if !address.IsValid() || !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLinkLocalUnicast() {
+		return false
+	}
+	for _, prefix := range nonPublicUploadPrefixes {
+		if prefix.Contains(address) {
+			return false
+		}
+	}
+	return true
 }
