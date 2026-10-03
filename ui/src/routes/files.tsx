@@ -291,7 +291,13 @@ function FilesPage() {
     const name = folderName.trim();
     if (!name) return;
     const location = activeLocation;
-    const parentId = await parentIdFor(location);
+    let parentId: string | undefined;
+    try {
+      parentId = await parentIdFor(location);
+    } catch (error) {
+      toast.error(t("routes.files.toast.folderCreateFailed"), { description: userMessage(error) });
+      return;
+    }
     if (parentId === undefined && location.path !== "/") {
       toast.error(t("routes.files.toast.folderCreateFailed"), {
         description: t("features.uploads.folderMissing", { path: location.path }),
@@ -342,7 +348,13 @@ function FilesPage() {
 
   const duplicateFile = async (file: FileEntry, pane: PaneId) => {
     const location = paneLocation(pane);
-    const parentId = await parentIdFor(location);
+    let parentId: string | undefined;
+    try {
+      parentId = await parentIdFor(location);
+    } catch (error) {
+      toast.error(t("routes.files.toast.duplicateFailed"), { description: userMessage(error) });
+      return;
+    }
     if (parentId === undefined && location.path !== "/") {
       toast.error(t("routes.files.toast.duplicateFailed"), {
         description: t("features.uploads.folderMissing", { path: location.path }),
@@ -399,7 +411,15 @@ function FilesPage() {
     }
     // A pane reached by breadcrumb records only its path, so the folder id has to
     // be looked up before pasting: without it the items would land in the root.
-    const targetParentId = await parentIdFor(location);
+    // The lookup hits the API, so a failure is reported like any other paste
+    // failure instead of rejecting the promise nobody awaits.
+    let targetParentId: string | undefined;
+    try {
+      targetParentId = await parentIdFor(location);
+    } catch (error) {
+      toast.error(t("routes.files.toast.pasteFailed"), { description: userMessage(error) });
+      return;
+    }
     if (targetParentId === undefined && location.path !== "/") {
       toast.error(t("routes.files.toast.pasteFailed"), {
         description: t("features.uploads.folderMissing", { path: location.path }),
@@ -943,7 +963,10 @@ function FilesPage() {
           value={folderName}
           onChange={setFolderName}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void createFolder();
+            // The button is disabled while a request runs; the key has to respect
+            // the same guard, because holding Enter would otherwise create the
+            // folder again before the first request answers.
+            if (event.key === "Enter" && !fileActions.pending) void createFolder();
           }}
         >
           <Label>{t("routes.files.folder.name")}</Label>
@@ -984,7 +1007,9 @@ function FilesPage() {
           value={renameName}
           onChange={setRenameName}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void renameSelected();
+            // Same guard as the button: a second Enter while the first rename is
+            // still running would send a second request.
+            if (event.key === "Enter" && !fileActions.pending) void renameSelected();
           }}
         >
           <Label>{t("routes.files.rename.label")}</Label>

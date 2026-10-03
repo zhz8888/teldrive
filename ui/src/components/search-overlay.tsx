@@ -13,6 +13,7 @@ export function SearchOverlay() {
   const { isOpen, close } = useCommandPalette();
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -24,13 +25,21 @@ export function SearchOverlay() {
     window.setTimeout(() => inputRef.current?.focus(), 50);
   }, [isOpen]);
 
+  // The palette searched on every keystroke, so typing a name sent one request per
+  // character. The debounce is the same one the settings screens use, and two
+  // characters stay the minimum.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchTerm(query.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   const { data, isFetching } = $api.useQuery(
     "get",
     "/v1/files",
     {
       params: {
         query: {
-          search: query,
+          search: searchTerm,
           searchType: "text",
           status: "active",
           limit: 50,
@@ -39,7 +48,7 @@ export function SearchOverlay() {
         },
       },
     },
-    { enabled: isOpen && query.trim().length >= 2, staleTime: 10_000 },
+    { enabled: isOpen && searchTerm.length >= 2, staleTime: 10_000 },
   );
 
   const items = (data?.items ?? []) as FileEntry[];
