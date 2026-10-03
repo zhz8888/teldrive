@@ -66,8 +66,16 @@ func TestWebUIHandlerServesAssetsAndHistoryFallback(t *testing.T) {
 			if test.cachePrefix != "" && !strings.HasPrefix(result.Header.Get("Cache-Control"), test.cachePrefix) {
 				t.Fatalf("GET %s cache control = %q", test.path, result.Header.Get("Cache-Control"))
 			}
-			if test.status == http.StatusOK && !strings.Contains(result.Header.Get("Content-Security-Policy"), "script-src 'self'") {
-				t.Fatalf("GET %s CSP = %q", test.path, result.Header.Get("Content-Security-Policy"))
+			if test.status == http.StatusOK {
+				policy := result.Header.Get("Content-Security-Policy")
+				if !strings.Contains(policy, "script-src 'self'") {
+					t.Fatalf("GET %s CSP = %q", test.path, policy)
+				}
+				// The PDF reader compiles pdf.js WebAssembly, which the policy has
+				// to allow explicitly.
+				if !strings.Contains(policy, "'wasm-unsafe-eval'") {
+					t.Fatalf("GET %s CSP lacks 'wasm-unsafe-eval': %q", test.path, policy)
+				}
 			}
 		})
 	}

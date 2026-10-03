@@ -109,7 +109,10 @@ func (h webUIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'")
+	// script-src also allows 'wasm-unsafe-eval' because the PDF reader hands
+	// pdf.js a wasmUrl: WebAssembly compilation counts as an eval-like operation,
+	// so without the keyword the reader loads its worker and then fails to start.
+	w.Header().Set("Content-Security-Policy", "default-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'")
 	requested := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 	if requested == "." || requested == "" {
 		requested = "index.html"
