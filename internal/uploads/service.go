@@ -32,6 +32,14 @@ const (
 	// granted and on every renewal. It is deliberately short, because an
 	// abandoned uploader only blocks its part until the lease lapses.
 	defaultLeaseTTL = time.Minute
+	// maxPartSize caps the part size a session may request. The default is
+	// 512 MiB, and anything above this is refused rather than stored, which keeps
+	// the byte arithmetic below inside int64.
+	maxPartSize int64 = 4 << 30
+	// maxUploadParts caps the part number one session may address. A part number
+	// beyond this cannot belong to a real upload and would otherwise be able to
+	// pin a session that can never be completed.
+	maxUploadParts = 1 << 20
 )
 
 // leaseSeconds converts a lease lifetime into the whole seconds the lease
@@ -250,6 +258,19 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSe
 	}
 	if in.PartSize <= 0 {
 		in.PartSize = defaultPartSize
+	}
+	if in.PartSize > maxPartSize {
+		return nil, ErrInvalidInput
+	}
+	if remainder := in.PartSize % treehash.BlockSize; remainder != 0 {
+		// The file hash is computed from the block hashes of each part, so part
+		// boundaries have to fall on tree-hash block boundaries for the result to
+		// equal the digest of a whole-file pass over the same bytes. The client
+		// reads the effective size back from the session it just created.
+		in.PartSize += treehash.BlockSize - remainder
+		if in.PartSize > maxPartSize {
+			return nil, ErrInvalidInput
+		}
 	}
 	modTime := in.ModTime
 	if modTime.IsZero() {
@@ -928,16 +949,16 @@ func (s *Service) Abort(ctx context.Context, userID int64, uploadID uuid.UUID) (
 }
 
 // validatePartShape checks that partNo and plainSize fit the session's geometry
-// before a lease is granted. When ExpectedSize is -1 the total is unknown, so the
-// only check is that plainSize is greater than zero and at most PartSize: partNo is
-// not inspected at all, and a part that is short without being the final one is
-// accepted here, because the rule that only the final part may be short is enforced
-// later, at completion, by CountInvalidOpenEndedUploadParts. With a known size, partNo
-// must address a byte range inside ExpectedSize and plainSize must equal PartSize, or
-// the remainder for the last part. A session of zero bytes rejects every part with
-// ErrInvalidInput.
+// before a lease is granted. partNo must be positive and at most maxUploadParts, and
+// plainSize must fit the part. When ExpectedSize is -1 the total is unknown, so the
+// only further check is that plainSize is greater than zero and at most PartSize: a
+// part that is short without being the final one is accepted here, because the rule
+// that only the final part may be short is enforced later, at completion, by
+// CountInvalidOpenEndedUploadParts. With a known size, partNo must address a byte
+// range inside ExpectedSize and plainSize must equal PartSize, or the remainder for
+// the last part. A session of zero bytes rejects every part with ErrInvalidInput.
 func validatePartShape(session *sqlcgen.UploadSession, partNo int32, plainSize int64) error {
-	if session.PartSize <= 0 {
+	if session.PartSize <= 0 || partNo < 1 || int64(partNo) > maxUploadParts {
 		return ErrInvalidInput
 	}
 	if session.ExpectedSize < 0 {
@@ -949,10 +970,12 @@ func validatePartShape(session *sqlcgen.UploadSession, partNo int32, plainSize i
 	if session.ExpectedSize == 0 {
 		return ErrInvalidInput
 	}
-	offset := int64(partNo-1) * session.PartSize
-	if offset < 0 || offset >= session.ExpectedSize {
+	// Comparing through the last valid part number instead of multiplying keeps a
+	// huge part number from wrapping the product into a valid-looking offset.
+	if int64(partNo-1) > (session.ExpectedSize-1)/session.PartSize {
 		return ErrInvalidInput
 	}
+	offset := int64(partNo-1) * session.PartSize
 	expected := session.PartSize
 	if remaining := session.ExpectedSize - offset; remaining < expected {
 		expected = remaining

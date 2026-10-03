@@ -3,11 +3,13 @@ package uploads
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
 	"github.com/tgdrive/teldrive/v2/internal/treehash"
 )
 
@@ -62,6 +64,30 @@ func TestServiceRejectsInvalidInputsBeforeDatabaseAccess(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestValidatePartShapeRejectsUnaddressableParts checks that a part number outside
+// the bound is refused for a session of known and unknown size alike. A part number
+// that huge used to be accepted and then multiplied into an offset, which could wrap
+// into a valid-looking range and pin the session at a part completion can never
+// accept.
+func TestValidatePartShapeRejectsUnaddressableParts(t *testing.T) {
+	t.Parallel()
+	for _, session := range []*sqlcgen.UploadSession{
+		{PartSize: 1 << 30, ExpectedSize: 4 << 30},
+		{PartSize: 1 << 30, ExpectedSize: -1},
+	} {
+		if err := validatePartShape(session, math.MaxInt32, 1<<30); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("validatePartShape(partNo = MaxInt32) error = %v, want ErrInvalidInput", err)
+		}
+		if err := validatePartShape(session, 0, 1<<30); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("validatePartShape(partNo = 0) error = %v, want ErrInvalidInput", err)
+		}
+	}
+	known := &sqlcgen.UploadSession{PartSize: 1 << 30, ExpectedSize: 2 << 30}
+	if err := validatePartShape(known, 2, 1<<30); err != nil {
+		t.Fatalf("validatePartShape(last part of a known size) error = %v", err)
 	}
 }
 
