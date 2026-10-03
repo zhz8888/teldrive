@@ -821,19 +821,22 @@ test("visual regression for every active surface", async ({ page }, testInfo) =>
 
   for (const [name, route, ready] of surfaces) {
     await page.goto(route);
-    await page.evaluate(() => document.fonts.ready);
-    // A route renders a spinner while its data loads. The screenshots used to be
-    // taken inside that window whenever the machine was busy, so the capture waits
-    // for the text the route only renders once its content is there, and retries
-    // while a spinner is still on screen: a busy machine can paint the pending
-    // component even after the heading arrives.
+    // A route renders a spinner and then fetches its data, and the screenshots used
+    // to be taken inside that window whenever the machine was busy. The capture
+    // waits for the text the route only renders once its content is there, for the
+    // requests that fill it to settle, and then for the pending component to be
+    // gone; the retry covers a busy machine that paints the spinner again.
     await expect(page.getByText(ready, { exact: true }).first()).toBeVisible({
       timeout: 15_000,
     });
+    await page.waitForLoadState("networkidle");
+    await page.evaluate(() => document.fonts.ready);
     await expect(async () => {
-      await expect(page.locator('[class*="animate-spin-fast"]')).toHaveCount(0, {
-        timeout: 1_000,
-      });
+      // Both animation classes the component library uses: a route-level pending
+      // spinner and the one a section shows while its own request is in flight.
+      await expect(
+        page.locator('[class*="animate-spin-fast"], [class*="animate-spin"]'),
+      ).toHaveCount(0, { timeout: 1_000 });
       await expect(page).toHaveScreenshot(`${testInfo.project.name}-${name}.png`, {
         fullPage: true,
         caret: "hide",
