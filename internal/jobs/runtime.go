@@ -267,6 +267,27 @@ func newRuntimeWithSchema(pool *pgxpool.Pool, storage telegramstore.Storage, sch
 	}, nil
 }
 
+// pausePeriodicJobIfPresent pauses a fixed schedule that exists and is running,
+// so a feature this runtime did not enable stops enqueueing jobs no worker can
+// handle. A schedule that was never created needs no work, and one an operator
+// paused already is left as it is.
+func (r *Runtime) pausePeriodicJobIfPresent(ctx context.Context, id string) error {
+	row, err := r.client.PeriodicJobGet(ctx, id)
+	if errors.Is(err, river.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load periodic job %q: %w", id, err)
+	}
+	if row.PausedAt != nil {
+		return nil
+	}
+	if _, err := r.client.PeriodicJobPause(ctx, id); err != nil {
+		return fmt.Errorf("pause periodic job %q of a disabled feature: %w", id, err)
+	}
+	return nil
+}
+
 // Start registers the durable periodic jobs and starts the RiverPro client's
 // workers. It is idempotent: once started it returns nil without touching the
 // client, and concurrent callers are serialized by the runtime mutex.
@@ -382,6 +403,27 @@ func (r *Runtime) Start(ctx context.Context) error {
 			},
 		}); err != nil && !errors.Is(err, riverpro.ErrPeriodicJobAlreadyExists) {
 			return fmt.Errorf("upsert orphan cleanup periodic job: %w", err)
+		}
+	}
+	// A feature that was switched off after its schedule existed leaves a durable
+	// row behind, because this code only ever inserts. RiverPro enqueues from that
+	// row without checking that a worker exists, so the job fails with an unknown
+	// kind on every run and fills the task list with failures. Pausing the
+	// schedules of the features this runtime did not enable keeps the rows and any
+	// operator edit to them while stopping the enqueueing.
+	for _, schedule := range []struct {
+		id      string
+		enabled bool
+	}{
+		{trashCleanupPeriodicID, r.purgeEnabled},
+		{purgePeriodicID, r.purgeEnabled},
+		{orphanCleanupPeriodicID, r.orphanCleanupEnabled},
+	} {
+		if schedule.enabled {
+			continue
+		}
+		if err := r.pausePeriodicJobIfPresent(ctx, schedule.id); err != nil {
+			return err
 		}
 	}
 	runCtx, cancel := context.WithCancel(ctx)

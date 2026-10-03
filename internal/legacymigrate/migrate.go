@@ -149,7 +149,14 @@ func MigrateIfNeeded(ctx context.Context, cfg database.Config, dataKey string, v
 	if cfg.Schema != "" && cfg.Schema != database.DefaultSchema {
 		return Report{}, false, fmt.Errorf("legacy database migration requires database.schema=%q", database.DefaultSchema)
 	}
-	suffix := time.Now().UTC().Format("20060102_150405_000000000")
+	// The staging and backup schema names carry the start time. The nanosecond
+	// field is appended explicitly because Go only reads a fractional second from
+	// a layout that contains a decimal point, so the nine zeros this used to carry
+	// were literal text and two runs started in the same second shared one name.
+	// The cleanup of a failed attempt is best effort, so a leftover schema would
+	// make the retry fail on a name that already exists.
+	now := time.Now().UTC()
+	suffix := fmt.Sprintf("%s_%09d", now.Format("20060102_150405"), now.Nanosecond())
 	report, err := Run(ctx, Config{
 		SourceURL: cfg.URL,
 		Target: database.Config{
