@@ -21,7 +21,6 @@ const files = [
   file(epubId, "reader-sample.epub", "application/epub+zip", epub.byteLength),
 ];
 
-type StateWrite = { fileId: string; body: Record<string, unknown> };
 type ViewerApiStats = { pdfContentRequests: number };
 
 function file(id: string, name: string, mimeType: string, size: number) {
@@ -64,12 +63,7 @@ function makeEpub() {
   );
 }
 
-async function installViewerApi(
-  page: Page,
-  writes: StateWrite[],
-  initialStates: Partial<Record<string, Record<string, unknown>>> = {},
-  stats?: ViewerApiStats,
-) {
+async function installViewerApi(page: Page, stats?: ViewerApiStats) {
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace(/^\/api/, "");
@@ -109,28 +103,6 @@ async function installViewerApi(
     if (content === epubId) {
       return route.fulfill({ body: epub, contentType: "application/epub+zip" });
     }
-    const state = path.match(/^\/v1\/files\/([^/]+)\/view-state$/)?.[1];
-    if (state && method === "GET") {
-      const initial = initialStates[state];
-      return initial
-        ? route.fulfill({
-            json: {
-              fileId: state,
-              kind: state === pdfId ? "pdf" : "ebook",
-              position: {},
-              preferences: {},
-              bookmarks: [],
-              updatedAt: now,
-              ...initial,
-            },
-          })
-        : route.fulfill({ status: 204 });
-    }
-    if (state && method === "PUT") {
-      const body = request.postDataJSON() as Record<string, unknown>;
-      writes.push({ fileId: state, body });
-      return route.fulfill({ json: { fileId: state, ...body, updatedAt: now } });
-    }
     return route.fulfill({
       status: 404,
       json: { error: { code: "not_found", message: `${method} ${path}` } },
@@ -146,26 +118,10 @@ async function openFile(page: Page, name: string) {
 }
 
 test("PDF opens in the Teldrive PDF.js workspace with navigation and search", async ({ page }) => {
-  const writes: StateWrite[] = [];
   const errors: string[] = [];
   const stats: ViewerApiStats = { pdfContentRequests: 0 };
   page.on("pageerror", (error) => errors.push(error.message));
-  await installViewerApi(
-    page,
-    writes,
-    {
-      [pdfId]: {
-        position: { pageNumber: 1 },
-        preferences: {
-          scaleValue: "page-width",
-          rotation: 0,
-          sidebarOpen: true,
-          sidebarTab: "thumbnails",
-        },
-      },
-    },
-    stats,
-  );
+  await installViewerApi(page, stats);
   await page.goto("/files?view=list");
   await openFile(page, "reader-sample.pdf");
 
@@ -238,8 +194,7 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
 
 test("mobile EPUB navigation opens in a HeroUI drawer", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const writes: StateWrite[] = [];
-  await installViewerApi(page, writes);
+  await installViewerApi(page);
   await page.goto("/files?view=list");
   await openFile(page, "reader-sample.epub");
 
@@ -263,10 +218,9 @@ test("mobile EPUB navigation opens in a HeroUI drawer", async ({ page }) => {
 test("EPUB renders in its dedicated reader, navigates, and closes cleanly", async ({
   page,
 }) => {
-  const writes: StateWrite[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.stack || error.message));
-  await installViewerApi(page, writes);
+  await installViewerApi(page);
   await page.goto("/files?view=list");
   await openFile(page, "reader-sample.epub");
 
