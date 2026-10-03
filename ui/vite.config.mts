@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -19,6 +19,20 @@ async function assetFiles(directory: string): Promise<string[]> {
     }),
   );
   return files.flat();
+}
+
+// keepDistPlaceholder restores the tracked file that makes the output directory
+// exist in a fresh clone, which is what go:embed needs to compile before the
+// interface has ever been built. The build empties its output directory, so the
+// file is rewritten when the bundle closes, whichever command started the build.
+function keepDistPlaceholder(): Plugin {
+  const outputDirectory = path.resolve(import.meta.dirname, "dist");
+  return {
+    name: "keep-dist-placeholder",
+    async closeBundle() {
+      await writeFile(path.join(outputDirectory, ".gitkeep"), "");
+    },
+  };
 }
 
 function pdfJsAssets(): Plugin {
@@ -80,6 +94,7 @@ export default defineConfig(() => {
 
   return {
     plugins: [
+      keepDistPlaceholder(),
       pdfJsAssets(),
       tanstackRouter(),
       react(),
