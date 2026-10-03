@@ -344,12 +344,25 @@ WHERE id = sqlc.arg(folder_id)
 FOR UPDATE;
 
 -- name: LockActiveDestinationEntries :many
+-- Locks only the destination entries the move collides with by name. Locking every
+-- child of the destination held the whole folder for the length of the
+-- transaction, which in a large folder contended with every other writer of that
+-- folder. A name that appears after this statement is still caught by the unique
+-- index on active child names.
 SELECT id, name
 FROM /* TEMPLATE: schema */files
 WHERE user_id = sqlc.arg(user_id)
   AND parent_id IS NOT DISTINCT FROM sqlc.narg(parent_id)::uuid
   AND status = 'active'
+  AND name = ANY(sqlc.arg(names)::text[])
 FOR UPDATE;
+
+-- name: ListActiveDestinationEntries :many
+SELECT id, name
+FROM /* TEMPLATE: schema */files
+WHERE user_id = sqlc.arg(user_id)
+  AND parent_id IS NOT DISTINCT FROM sqlc.narg(parent_id)::uuid
+  AND status = 'active';
 
 -- name: ListFileAncestorIDs :many
 WITH RECURSIVE ancestors AS (

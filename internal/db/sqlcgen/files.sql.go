@@ -315,6 +315,44 @@ func (q *Queries) InsertCopiedFiles(ctx context.Context, files []byte) ([]*File,
 	return items, nil
 }
 
+const listActiveDestinationEntries = `-- name: ListActiveDestinationEntries :many
+SELECT id, name
+FROM /* TEMPLATE: schema */files
+WHERE user_id = $1
+  AND parent_id IS NOT DISTINCT FROM $2::uuid
+  AND status = 'active'
+`
+
+type ListActiveDestinationEntriesParams struct {
+	UserID   int64       `json:"user_id"`
+	ParentID pgtype.UUID `json:"parent_id"`
+}
+
+type ListActiveDestinationEntriesRow struct {
+	ID   pgtype.UUID `json:"id"`
+	Name string      `json:"name"`
+}
+
+func (q *Queries) ListActiveDestinationEntries(ctx context.Context, arg ListActiveDestinationEntriesParams) ([]*ListActiveDestinationEntriesRow, error) {
+	rows, err := q.db.Query(ctx, listActiveDestinationEntries, arg.UserID, arg.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*ListActiveDestinationEntriesRow{}
+	for rows.Next() {
+		var i ListActiveDestinationEntriesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveNames = `-- name: ListActiveNames :many
 SELECT name
 FROM /* TEMPLATE: schema */files
@@ -1035,12 +1073,14 @@ FROM /* TEMPLATE: schema */files
 WHERE user_id = $1
   AND parent_id IS NOT DISTINCT FROM $2::uuid
   AND status = 'active'
+  AND name = ANY($3::text[])
 FOR UPDATE
 `
 
 type LockActiveDestinationEntriesParams struct {
 	UserID   int64       `json:"user_id"`
 	ParentID pgtype.UUID `json:"parent_id"`
+	Names    []string    `json:"names"`
 }
 
 type LockActiveDestinationEntriesRow struct {
@@ -1048,8 +1088,13 @@ type LockActiveDestinationEntriesRow struct {
 	Name string      `json:"name"`
 }
 
+// Locks only the destination entries the move collides with by name. Locking every
+// child of the destination held the whole folder for the length of the
+// transaction, which in a large folder contended with every other writer of that
+// folder. A name that appears after this statement is still caught by the unique
+// index on active child names.
 func (q *Queries) LockActiveDestinationEntries(ctx context.Context, arg LockActiveDestinationEntriesParams) ([]*LockActiveDestinationEntriesRow, error) {
-	rows, err := q.db.Query(ctx, lockActiveDestinationEntries, arg.UserID, arg.ParentID)
+	rows, err := q.db.Query(ctx, lockActiveDestinationEntries, arg.UserID, arg.ParentID, arg.Names)
 	if err != nil {
 		return nil, err
 	}

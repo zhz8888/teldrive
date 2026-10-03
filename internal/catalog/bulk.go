@@ -192,20 +192,39 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 		}
 	}
 
-	destination, err := queries.LockActiveDestinationEntries(ctx, sqlcgen.LockActiveDestinationEntriesParams{
+	// The names of the folder are read without a lock, and only the entries a moved
+	// name actually collides with are locked below: locking every child held the
+	// whole destination for the length of the transaction.
+	siblings, err := queries.ListActiveDestinationEntries(ctx, sqlcgen.ListActiveDestinationEntriesParams{
 		UserID: userID, ParentID: dbtypes.OptionalUUID(parentID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list bulk move destination entries: %w", err)
+	}
+	movedNames := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		movedNames[locked[id].Name] = struct{}{}
+	}
+	usedNames := make(map[string]struct{}, len(siblings)+len(ids))
+	colliding := make([]string, 0, len(ids))
+	for _, entry := range siblings {
+		usedNames[entry.Name] = struct{}{}
+		if _, collides := movedNames[entry.Name]; collides {
+			colliding = append(colliding, entry.Name)
+		}
+	}
+	destination, err := queries.LockActiveDestinationEntries(ctx, sqlcgen.LockActiveDestinationEntriesParams{
+		UserID: userID, ParentID: dbtypes.OptionalUUID(parentID), Names: colliding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("lock bulk move destination entries: %w", err)
 	}
-	usedNames := make(map[string]struct{}, len(destination)+len(ids))
 	conflicts := make(map[string]uuid.UUID, len(destination))
 	for _, entry := range destination {
 		entryID, ok := dbtypes.GoogleUUID(entry.ID)
 		if !ok {
 			return nil, ErrConflict
 		}
-		usedNames[entry.Name] = struct{}{}
 		conflicts[entry.Name] = entryID
 	}
 

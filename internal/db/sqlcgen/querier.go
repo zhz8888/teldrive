@@ -87,6 +87,7 @@ type Querier interface {
 	// is cleared with it, because the new attempt starts from nothing.
 	InsertPendingBots(ctx context.Context, arg InsertPendingBotsParams) ([]*Bot, error)
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]*ApiKey, error)
+	ListActiveDestinationEntries(ctx context.Context, arg ListActiveDestinationEntriesParams) ([]*ListActiveDestinationEntriesRow, error)
 	ListActiveNames(ctx context.Context, arg ListActiveNamesParams) ([]string, error)
 	ListBots(ctx context.Context, arg ListBotsParams) ([]*Bot, error)
 	ListChannelReferencedParts(ctx context.Context, arg ListChannelReferencedPartsParams) ([]*ListChannelReferencedPartsRow, error)
@@ -130,6 +131,11 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]*User, error)
 	LoadFileSubtree(ctx context.Context, arg LoadFileSubtreeParams) ([]*LoadFileSubtreeRow, error)
 	LoadFileSubtrees(ctx context.Context, arg LoadFileSubtreesParams) ([]*LoadFileSubtreesRow, error)
+	// Locks only the destination entries the move collides with by name. Locking every
+	// child of the destination held the whole folder for the length of the
+	// transaction, which in a large folder contended with every other writer of that
+	// folder. A name that appears after this statement is still caught by the unique
+	// index on active child names.
 	LockActiveDestinationEntries(ctx context.Context, arg LockActiveDestinationEntriesParams) ([]*LockActiveDestinationEntriesRow, error)
 	LockActiveFiles(ctx context.Context, arg LockActiveFilesParams) ([]*File, error)
 	LockActiveFolder(ctx context.Context, arg LockActiveFolderParams) (*File, error)
