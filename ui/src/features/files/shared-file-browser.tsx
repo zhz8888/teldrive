@@ -65,6 +65,13 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
   const enqueue = useUploadStore((state) => state.enqueue);
   const fileActions = useFileActions();
   const atRoot = !search.parentId;
+  // Ancestor ids learned while walking down. Keys are the displayed path relative
+  // to the share root; the root itself is known without an id.
+  const ancestry = useRef(
+    new Map<string, { parentId?: string; permission?: SharedBrowserSearch["permission"] }>([
+      ["/", {}],
+    ]),
+  );
 
   const sharedQuery = useSharedFilePages(atRoot && mode === "shared");
   const sharedWithMeQuery = useSharedWithMePages(atRoot && mode === "with-me");
@@ -243,13 +250,10 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
 
   const openFile = (file: FileEntry) => {
     if (file.kind === "folder") {
-      navigate({
-        path: joinPath(search.path, file.name),
-        parentId: file.id,
-        query: "",
-        view: search.view,
-        permission: mode === "with-me" ? permissionFor(file) : undefined,
-      });
+      const path = joinPath(search.path, file.name);
+      const permission = mode === "with-me" ? permissionFor(file) : undefined;
+      ancestry.current.set(path, { parentId: file.id, permission });
+      navigate({ path, parentId: file.id, query: "", view: search.view, permission });
       return;
     }
     if (isPreviewable(file)) {
@@ -269,14 +273,17 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
           view={search.view}
           loading={loading}
           onNavigatePath={(path) => {
-            if (path === "/") {
+            const target = path === "" ? "/" : path;
+            // The listing calls are addressed by folder id and a shared subtree
+            // does not expose the ids of its ancestors, so only a folder the user
+            // walked through in this session can be opened again; anything else
+            // falls back to the share root, which is what a deep link starts at.
+            const known = ancestry.current.get(target);
+            if (target !== "/" && !known) {
               navigate({ path: "/", query: "", view: search.view }, true);
               return;
             }
-            const parts = path.split("/").filter(Boolean);
-            if (parts.length < search.path.split("/").filter(Boolean).length) {
-              navigate({ path: "/", query: "", view: search.view }, true);
-            }
+            navigate({ path: target, query: "", view: search.view, ...known }, true);
           }}
           onViewChange={(view) => navigate({ ...search, view }, true)}
           onOpen={openFile}
