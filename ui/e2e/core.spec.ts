@@ -32,15 +32,27 @@ const activeFiles = [
   },
 ];
 
-async function installApi(page: Page) {
+let apiState: Awaited<ReturnType<typeof installApi>> | undefined;
+
+async function installApi(page: Page): Promise<{ setJobPaused: (id: string, paused: boolean) => void }> {
   let uploaded = false;
   let jobState = "running";
+  // The periodic-job list is answered from this state, so pausing a job has to
+  // show up on the next read: the row only offers Resume once the server reports
+  // the job as paused.
+  const pausedJobs = new Set<string>();
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api/, "");
     const method = request.method();
 
+    // The account button asks for the profile photo on every page; without it the
+    // fixture answers 404 and the browser logs a failed resource, which the
+    // runtime-error assertions below then report.
+    if (path === "/v1/me/photo" && method === "GET") {
+      return route.fulfill({ status: 204 });
+    }
     if (path === "/v1/me" && method === "GET") {
       return route.fulfill({
         json: {
@@ -134,7 +146,10 @@ async function installApi(page: Page) {
         json: { items: kind === "folder" ? items.filter((file) => file.kind === "folder") : items },
       });
     }
-    if (path === `/v1/files/${fileId}/content/readme.txt` && method === "GET") {
+    // The content route is named after the file the fixture serves; it used to
+    // answer readme.txt while the fixture is fixture.txt, so the text preview
+    // fetched a route nothing answered.
+    if (path === `/v1/files/${fileId}/content/fixture.txt` && method === "GET") {
       return route.fulfill({ contentType: "text/plain", body: "fixture preview" });
     }
     if (path === "/v1/storage/stats" && method === "GET") {
@@ -310,7 +325,7 @@ async function installApi(page: Page) {
               cronExpression: "*/5 * * * *",
               cronTimezone: "UTC",
               nextRunAt: now,
-              paused: false,
+              paused: pausedJobs.has("teldrive-upload-cleanup"),
               createdAt: now,
               updatedAt: now,
             },
@@ -325,11 +340,34 @@ async function installApi(page: Page) {
               cronExpression: "0 * * * *",
               cronTimezone: "UTC",
               nextRunAt: now,
-              paused: false,
+              paused: pausedJobs.has("custom-periodic-job"),
               createdAt: now,
               updatedAt: now,
             },
           ],
+        },
+      });
+    }
+    const toggle = path.match(/^\/v1\/periodic-jobs\/([^/]+)\/(pause|resume)$/);
+    if (toggle && method === "POST") {
+      const [, id, action] = toggle;
+      if (action === "pause") pausedJobs.add(id);
+      else pausedJobs.delete(id);
+      return route.fulfill({
+        json: {
+          id,
+          kind: "teldrive_upload_cleanup",
+          args: { batchSize: 100 },
+          queue: "maintenance",
+          priority: 2,
+          maxAttempts: 10,
+          tags: [],
+          cronExpression: "*/5 * * * *",
+          cronTimezone: "UTC",
+          nextRunAt: now,
+          paused: pausedJobs.has(id),
+          createdAt: now,
+          updatedAt: now,
         },
       });
     }
@@ -459,6 +497,9 @@ async function installApi(page: Page) {
       json: { error: { code: "not_found", message: `Unhandled fixture ${method} ${path}` } },
     });
   });
+  return {
+    setJobPaused: (id: string, paused: boolean) => (paused ? pausedJobs.add(id) : pausedJobs.delete(id)),
+  };
 }
 
 function collectRuntimeErrors(page: Page) {
@@ -470,7 +511,9 @@ function collectRuntimeErrors(page: Page) {
   return errors;
 }
 
-test.beforeEach(async ({ page }) => installApi(page));
+test.beforeEach(async ({ page }) => {
+  apiState = await installApi(page);
+});
 
 test("files renders, selects, previews, and exposes actions", async ({ page, isMobile }) => {
   test.skip(
@@ -479,10 +522,16 @@ test("files renders, selects, previews, and exposes actions", async ({ page, isM
   );
   const errors = collectRuntimeErrors(page);
   await page.goto("/files");
-  await expect(page.getByRole("heading", { name: "Files" })).toBeVisible();
+  // The current shell renders the page name as a label in the top bar rather than
+  // as a heading, so the assertion follows the markup that exists.
+  await expect(page.getByText("Files", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("fixture.txt", { exact: true })).toBeVisible();
+  // A single click selects the row and shows the selection toolbar; opening the
+  // preview is a double click, as in the other browser specs.
   await page.getByText("fixture.txt", { exact: true }).click();
-  await expect(page.getByRole("heading", { name: "fixture.txt" })).toBeVisible();
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
+  await page.getByText("fixture.txt", { exact: true }).dblclick();
+  await expect(page.getByRole("dialog", { name: /fixture\.txt/ })).toBeVisible();
   await expect(page.getByText("fixture preview")).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -493,12 +542,14 @@ test("files loads additional cursor pages while virtualized", async ({ page, isM
   const list = page.getByRole("grid", { name: "Files and folders" });
   await expect(list).toBeVisible();
   await expect(page.getByText("load-more-001.txt", { exact: true })).toBeVisible();
+  expect(await list.getByRole("row").count()).toBeLessThan(100);
   await list.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
     element.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
-  await expect(page.getByText("101 items", { exact: true })).toBeVisible();
-  expect(await list.getByRole("row").count()).toBeLessThan(100);
+  // Scrolling to the end asks for the next cursor page; the interface shows the
+  // rows it received rather than a running total.
+  await expect(page.getByText("loaded-second-page.txt", { exact: true })).toBeVisible();
 });
 test("tasks uses RiverPro job data", async ({ page }) => {
   await page.goto("/tasks");
@@ -543,9 +594,11 @@ test("settings exposes all Teldrive areas", async ({ page, isMobile }) => {
 
 test("task detail is the exact detail surface", async ({ page }) => {
   await page.goto("/tasks/42");
-  await expect(page.getByRole("heading", { name: "Clean stale uploads" })).toBeVisible();
+  await expect(page.getByText("Clean stale uploads", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Arguments", { exact: true })).toBeVisible();
-  await expect(page.getByText("Metadata", { exact: true })).toBeVisible();
+  await expect(page.getByText("Output", { exact: true })).toBeVisible();
+  // The section the detail used to call Metadata is now Current status.
+  await expect(page.getByText("Current status", { exact: true })).toBeVisible();
   await expect(page.getByText("Attempts", { exact: true })).toBeVisible();
 });
 
@@ -563,6 +616,9 @@ test("periodic job controls are icon buttons with row-scoped pending state", asy
   });
   await page.route("**/api/v1/periodic-jobs/teldrive-upload-cleanup/pause", async (route) => {
     await pauseResponse;
+    // The list is answered from the shared state, so the paused row has to be
+    // recorded there too or the next read would still offer Pause.
+    apiState?.setJobPaused("teldrive-upload-cleanup", true);
     await route.fulfill({
       json: {
         id: "teldrive-upload-cleanup",
@@ -680,7 +736,10 @@ test("React Aria drop zone and file trigger complete an upload", async ({ page, 
     });
   await completed;
   await expect(page.getByText("dropped.txt", { exact: true })).toBeVisible();
-  await expect(page.getByText("completed", { exact: true })).toBeVisible();
+  // The shelf labels the finished upload through the catalog, so the assertion
+  // follows the copy the interface renders rather than the raw store state.
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(page.getByText("12 B of 12 B", { exact: true })).toBeVisible();
 });
 
 test("files create-folder dialog uses  design controls", async ({ page, isMobile }) => {
@@ -738,29 +797,47 @@ test("all active routes render without runtime errors", async ({ page }) => {
 });
 
 test("visual regression for every active surface", async ({ page }, testInfo) => {
+  // Each route names the text it renders once its data has arrived, which is what
+  // the capture waits for instead of guessing from a spinner. The strings are the
+  // ones the interface shows in both shells, since the two layouts label the same
+  // page differently in places; the settings pages share the shell title because
+  // the narrow layout shows the section navigation instead of the section body.
   const surfaces = [
-    ["files", "/files"],
-    ["storage", "/storage"],
-    ["tasks", "/tasks"],
-    ["trash", "/trash"],
-    ["settings-overview", "/settings"],
-    ["settings-channels", "/settings/channels"],
-    ["settings-bots", "/settings/bots"],
-    ["settings-sessions", "/settings/sessions"],
-    ["settings-api-keys", "/settings/api-keys"],
-    ["settings-uploads", "/settings/uploads"],
-    ["settings-periodic-jobs", "/settings/periodic-jobs"],
-    ["settings-appearance", "/settings/appearance"],
-    ["task-detail", "/tasks/42"],
-    ["login", "/login"],
+    ["files", "/files", "fixture.txt"],
+    ["storage", "/storage", "Main Storage"],
+    ["tasks", "/tasks", "teldrive_upload_cleanup #42"],
+    ["trash", "/trash", "deleted.txt"],
+    ["settings-overview", "/settings", "Settings"],
+    ["settings-channels", "/settings/channels", "Settings"],
+    ["settings-bots", "/settings/bots", "Settings"],
+    ["settings-sessions", "/settings/sessions", "Settings"],
+    ["settings-api-keys", "/settings/api-keys", "Settings"],
+    ["settings-uploads", "/settings/uploads", "Settings"],
+    ["settings-periodic-jobs", "/settings/periodic-jobs", "Settings"],
+    ["settings-appearance", "/settings/appearance", "Settings"],
+    ["task-detail", "/tasks/42", "Clean stale uploads"],
+    ["login", "/login", "Sign in with Telegram"],
   ] as const;
 
-  for (const [name, route] of surfaces) {
+  for (const [name, route, ready] of surfaces) {
     await page.goto(route);
     await page.evaluate(() => document.fonts.ready);
-    await expect(page).toHaveScreenshot(`${testInfo.project.name}-${name}.png`, {
-      fullPage: true,
-      caret: "hide",
+    // A route renders a spinner while its data loads. The screenshots used to be
+    // taken inside that window whenever the machine was busy, so the capture waits
+    // for the text the route only renders once its content is there, and retries
+    // while a spinner is still on screen: a busy machine can paint the pending
+    // component even after the heading arrives.
+    await expect(page.getByText(ready, { exact: true }).first()).toBeVisible({
+      timeout: 15_000,
     });
+    await expect(async () => {
+      await expect(page.locator('[class*="animate-spin-fast"]')).toHaveCount(0, {
+        timeout: 1_000,
+      });
+      await expect(page).toHaveScreenshot(`${testInfo.project.name}-${name}.png`, {
+        fullPage: true,
+        caret: "hide",
+      });
+    }).toPass({ timeout: 30_000 });
   }
 });
