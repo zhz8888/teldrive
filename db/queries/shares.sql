@@ -3,7 +3,6 @@ INSERT INTO /* TEMPLATE: schema */file_shares (
     id,
     file_id,
     owner_id,
-    token_prefix,
     token_hash,
     password_hash,
     expires_at,
@@ -13,7 +12,6 @@ INSERT INTO /* TEMPLATE: schema */file_shares (
     sqlc.arg(id),
     sqlc.arg(file_id),
     sqlc.arg(owner_id),
-    sqlc.arg(token_prefix),
     sqlc.arg(token_hash),
     sqlc.narg(password_hash),
     sqlc.narg(expires_at),
@@ -93,13 +91,6 @@ SET revoked_at = now()
 WHERE id = sqlc.arg(id)
   AND owner_id = sqlc.arg(owner_id)
   AND revoked_at IS NULL;
-
--- name: RevokeExpiredShares :execrows
-UPDATE /* TEMPLATE: schema */file_shares
-SET revoked_at = now()
-WHERE revoked_at IS NULL
-  AND expires_at IS NOT NULL
-  AND expires_at <= now();
 
 -- name: CreateFileAccessGrant :one
 INSERT INTO /* TEMPLATE: schema */file_access_grants (
@@ -192,25 +183,6 @@ SET revoked_at = now(), updated_at = now()
 WHERE id = sqlc.arg(id)
   AND owner_id = sqlc.arg(owner_id)
   AND revoked_at IS NULL;
-
--- name: GetFileAccessGrantForOwner :one
-SELECT *
-FROM /* TEMPLATE: schema */file_access_grants
-WHERE id = sqlc.arg(id)
-  AND owner_id = sqlc.arg(owner_id)
-  AND revoked_at IS NULL;
-
--- name: GetActiveFileAnyOwner :one
-SELECT *
-FROM /* TEMPLATE: schema */files
-WHERE id = sqlc.arg(file_id)
-  AND status = 'active';
-
--- name: ListActiveFileIDsAnyOwner :many
-SELECT id
-FROM /* TEMPLATE: schema */files
-WHERE id = ANY(sqlc.arg(file_ids)::uuid[])
-  AND status = 'active';
 
 -- name: ResolveFileAccessMany :many
 WITH RECURSIVE params AS (

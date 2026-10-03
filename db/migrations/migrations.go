@@ -28,9 +28,13 @@ import (
 const schemaTemplateMarker = "/* TEMPLATE: schema */"
 
 // schemaNamePattern validates a configured schema name before it is interpolated
-// into SQL. It accepts the unquoted identifier form only, which is what goose
-// can safely qualify; anything else is rejected rather than escaped.
-var schemaNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// into SQL. It accepts lower-case unquoted identifiers only: every rendered
+// migration qualifies the schema with a quoted identifier, while goose's version
+// table is qualified without quotes, and PostgreSQL folds an unquoted mixed-case
+// name to lower case. A name that needs quoting would therefore put the version
+// table and the migrated objects in different schemas, so such a name is rejected
+// at startup instead.
+var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // Files contains every versioned TelDrive SQL migration.
 //
@@ -48,6 +52,10 @@ func Up(ctx context.Context, db *sql.DB, schema string) error {
 		goose.DialectPostgres,
 		db,
 		rendered,
+		// The version table is qualified without quotes, which is safe because
+		// schemaNamePattern accepts only the lower-case form PostgreSQL keeps
+		// unchanged; quoting it here would make goose's own existence check look
+		// for a different name and try to create the table twice.
 		goose.WithTableName(schema+".migrations"),
 	)
 	if err != nil {

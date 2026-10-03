@@ -28,19 +28,6 @@ SELECT
 FROM /* TEMPLATE: schema */user_events AS event_rows
 WHERE event_rows.user_id = sqlc.arg(cursor_user_id);
 
--- name: InsertUserEvent :one
-INSERT INTO /* TEMPLATE: schema */user_events (
-    user_id, event_type, resource_type, resource_id, generation, payload
-) VALUES (
-    sqlc.arg(user_id),
-    sqlc.arg(event_type),
-    sqlc.arg(resource_type),
-    sqlc.narg(resource_id),
-    sqlc.narg(generation),
-    sqlc.arg(payload)
-)
-RETURNING id, user_id, event_type, resource_type, resource_id, generation, payload, occurred_at;
-
 -- name: DeleteUserEventsBefore :execrows
 DELETE FROM /* TEMPLATE: schema */user_events
 WHERE occurred_at < sqlc.arg(cutoff);

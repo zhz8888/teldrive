@@ -88,14 +88,6 @@ INSERT INTO /* TEMPLATE: schema */telegram_login_flows (
 )
 RETURNING *;
 
--- name: GetTelegramLoginFlowForUpdate :one
-SELECT *
-FROM /* TEMPLATE: schema */telegram_login_flows
-WHERE id = sqlc.arg(id)
-  AND completed_at IS NULL
-  AND expires_at > now()
-FOR UPDATE;
-
 -- name: UpdateTelegramLoginFlowState :one
 UPDATE /* TEMPLATE: schema */telegram_login_flows
 SET telegram_state_ciphertext = sqlc.arg(telegram_state_ciphertext),

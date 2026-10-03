@@ -144,17 +144,6 @@ WHERE target_file.user_id = sqlc.arg(user_id)
   AND target_file.id IN (SELECT target.id FROM target)
 RETURNING target_file.*;
 
--- name: MarkFileDeletionPending :one
-UPDATE /* TEMPLATE: schema */files
-SET status = 'deletion_pending',
-    deleted_at = COALESCE(deleted_at, now()),
-    generation = generation + 1,
-    updated_at = now()
-WHERE id = sqlc.arg(file_id)
-  AND user_id = sqlc.arg(user_id)
-  AND status = 'trashed'
-RETURNING *;
-
 -- name: DeleteFileCatalogRowsByIDs :execrows
 DELETE FROM /* TEMPLATE: schema */files
 WHERE id = ANY(sqlc.arg(file_ids)::uuid[])
@@ -174,14 +163,6 @@ SELECT *
 FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = ANY(sqlc.arg(file_ids)::uuid[])
 ORDER BY file_id, part_no;
-
--- name: SumFilePartSizes :one
-SELECT
-    COALESCE(sum(plain_size), 0)::bigint AS plain_size,
-    COALESCE(sum(stored_size), 0)::bigint AS stored_size,
-    count(*)::integer AS part_count
-FROM /* TEMPLATE: schema */file_parts
-WHERE file_id = sqlc.arg(file_id);
 
 -- name: ResolveActiveChildFolder :one
 SELECT id

@@ -195,8 +195,8 @@ INSERT INTO teldrive.upload_sessions (
 		t.Fatalf("create upload after schema cutover: %v", err)
 	}
 	if _, err := source.Pool.Exec(ctx, `
-INSERT INTO teldrive.file_shares (file_id,owner_id,token_prefix,token_hash)
-VALUES ($1,101,'prefix',decode('01020304','hex'))`, rootFileID); err != nil {
+INSERT INTO teldrive.file_shares (file_id,owner_id,token_hash)
+VALUES ($1,101,decode('01020304','hex'))`, rootFileID); err != nil {
 		t.Fatalf("create share after schema cutover: %v", err)
 	}
 	rows, err := source.Pool.Query(ctx, `SELECT event_type, count(*) FROM teldrive.user_events GROUP BY event_type`)

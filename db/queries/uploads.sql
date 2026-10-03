@@ -207,17 +207,6 @@ WHERE id = sqlc.arg(upload_id)
   AND state = 'open'
 RETURNING *;
 
--- name: GetStoredUploadPartSummary :one
-SELECT
-    count(*)::integer AS part_count,
-    COALESCE(sum(plain_size), 0)::bigint AS plain_size,
-    COALESCE(sum(stored_size), 0)::bigint AS stored_size,
-    COALESCE(min(part_no), 0)::integer AS min_part_no,
-    COALESCE(max(part_no), 0)::integer AS max_part_no
-FROM /* TEMPLATE: schema */upload_parts
-WHERE upload_id = sqlc.arg(upload_id)
-  AND state = 'stored';
-
 -- name: ListStoredUploadPartHashes :many
 SELECT block_hashes
 FROM /* TEMPLATE: schema */upload_parts

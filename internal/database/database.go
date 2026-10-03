@@ -32,9 +32,11 @@ const (
 )
 
 // schemaNamePattern matches the PostgreSQL identifiers accepted as TelDrive
-// schema names; quoting is never performed, so anything outside this set is
-// rejected by Config.validate.
-var schemaNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// schema names. Only lower-case unquoted identifiers are accepted: the rendered
+// migrations quote the schema while the goose version table does not, so a name
+// PostgreSQL would fold differently would split the version table from the
+// objects it tracks. Anything outside this set is rejected by Config.validate.
+var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // ErrLegacySchema reports that the target database holds a TelDrive v1 schema.
 // Migrate wraps it, so callers must test it with errors.Is.

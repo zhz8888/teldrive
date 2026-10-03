@@ -381,10 +381,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Created, error) 
 	if err != nil {
 		return nil, err
 	}
-	prefix := secret
-	if len(prefix) > 16 {
-		prefix = prefix[:16]
-	}
 	var passwordHash *string
 	if in.Password != nil {
 		hash, err := hashSharePassword(*in.Password)
@@ -395,7 +391,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Created, error) 
 	}
 	row, err := s.queries.CreateFileShare(ctx, sqlcgen.CreateFileShareParams{
 		ID: dbtypes.UUID(uuid.New()), FileID: dbtypes.UUID(in.FileID), OwnerID: in.OwnerID,
-		TokenPrefix: prefix, TokenHash: hash, PasswordHash: dbtypes.OptionalText(passwordHash),
+		TokenHash: hash, PasswordHash: dbtypes.OptionalText(passwordHash),
 		ExpiresAt: dbtypes.OptionalTime(in.ExpiresAt), MaxDownloads: dbtypes.OptionalInt8(in.MaxDownloads),
 		Permission: in.Permission,
 	})
