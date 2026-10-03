@@ -42,6 +42,7 @@ import type { FileEntry } from "@/api/types";
 // document loader below uses it because its effect must not re-run on a locale
 // change: reloading the file would lose the reader position.
 import { type MessageKey, t as translate, useI18n } from "@/lib/i18n";
+import { useMediaQuery } from "@/lib/use-media-query";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
 import RotateIcon from "~icons/gravity-ui/arrow-rotate-right";
 import MenuIcon from "~icons/gravity-ui/bars";
@@ -106,6 +107,11 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   const runtimeRef = useRef<PdfRuntime | null>(null);
   const closeRef = useRef(onClose);
   const drawerState = useOverlayState();
+  // The sidebar is an aside on a wide viewport and a drawer on a narrow one. Only
+  // the arrangement the viewport uses is mounted: rendering both put the whole
+  // thumbnail list in the tree twice on a phone, and the sidebar draws a tile for
+  // every page of the document.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
   const { t } = useI18n();
 
   const initialPage = 1;
@@ -499,7 +505,7 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
             size="sm"
             variant="ghost"
             aria-label={t("components.pdfReader.openSidebar")}
-            className="lg:hidden"
+            className={isDesktop ? "hidden" : undefined}
           >
             <MenuIcon className="size-4" />
           </Button>
@@ -880,8 +886,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       ) : null}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {sidebarOpen ? (
-          <aside className="hidden w-64 shrink-0 border-r border-border bg-surface/80 lg:block xl:w-72">
+        {isDesktop && sidebarOpen ? (
+          <aside className="w-64 shrink-0 border-r border-border bg-surface/80 xl:w-72">
             {sidebar}
           </aside>
         ) : null}

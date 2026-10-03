@@ -23,6 +23,7 @@ import {
 // publication loader below uses it because its effect must not re-run on a locale
 // change: reloading the book would lose the reading position.
 import { type MessageKey, t as translate, useI18n } from "@/lib/i18n";
+import { useMediaQuery } from "@/lib/use-media-query";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
 import MenuIcon from "~icons/gravity-ui/bars";
 import LeftIcon from "~icons/gravity-ui/chevron-left";
@@ -793,16 +794,3 @@ function nextAnimationFrame() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() =>
-    typeof window === "undefined" ? false : window.matchMedia(query).matches,
-  );
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-  return matches;
-}
