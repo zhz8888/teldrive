@@ -574,7 +574,8 @@ FROM jsonb_to_recordset(sqlc.arg(parts)::jsonb) AS input(
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
     deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
+    updated_at = now(),
+    generation = generation + 1
 WHERE user_id = sqlc.arg(user_id)
   AND id = ANY(sqlc.arg(file_ids)::uuid[]);
 
@@ -600,13 +601,15 @@ WHERE target_file.user_id = sqlc.arg(user_id)
 RETURNING target_file.*;
 
 
--- name: MarkAllTrashedDeletionPending :execrows
+-- name: MarkAllTrashedDeletionPending :many
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
     deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
+    updated_at = now(),
+    generation = generation + 1
 WHERE user_id = sqlc.arg(user_id)
-  AND status = 'trashed';
+  AND status = 'trashed'
+RETURNING id;
 
 -- name: ListFilePartMessageRefs :many
 SELECT channel_id, message_id

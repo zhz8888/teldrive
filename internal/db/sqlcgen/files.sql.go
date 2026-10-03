@@ -1160,21 +1160,35 @@ func (q *Queries) LockActiveFolder(ctx context.Context, arg LockActiveFolderPara
 	return &i, err
 }
 
-const markAllTrashedDeletionPending = `-- name: MarkAllTrashedDeletionPending :execrows
+const markAllTrashedDeletionPending = `-- name: MarkAllTrashedDeletionPending :many
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
     deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
+    updated_at = now(),
+    generation = generation + 1
 WHERE user_id = $1
   AND status = 'trashed'
+RETURNING id
 `
 
-func (q *Queries) MarkAllTrashedDeletionPending(ctx context.Context, userID int64) (int64, error) {
-	result, err := q.db.Exec(ctx, markAllTrashedDeletionPending, userID)
+func (q *Queries) MarkAllTrashedDeletionPending(ctx context.Context, userID int64) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, markAllTrashedDeletionPending, userID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markFileDeletionPending = `-- name: MarkFileDeletionPending :one
@@ -1223,7 +1237,8 @@ const markFileIDsDeletionPending = `-- name: MarkFileIDsDeletionPending :exec
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
     deleted_at = COALESCE(deleted_at, now()),
-    updated_at = now()
+    updated_at = now(),
+    generation = generation + 1
 WHERE user_id = $1
   AND id = ANY($2::uuid[])
 `

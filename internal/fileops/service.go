@@ -36,6 +36,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -174,8 +175,9 @@ type copiedFileRecord struct {
 type copiedFilePartRecord struct {
 	// FileID is the newly generated identifier of the copied file that owns the part.
 	FileID uuid.UUID `json:"file_id"`
-	// PartNo is the zero-based part index within that file and identifies the byte
-	// range the part covers.
+	// PartNo is the one-based part number carried over from the source row, which
+	// identifies the byte range the part covers and matches the part_no > 0
+	// constraint on the table.
 	PartNo int32 `json:"part_no"`
 	// ChannelID is the Telegram channel holding the copied message.
 	ChannelID int64 `json:"channel_id"`
@@ -243,8 +245,9 @@ func NewService(pool *pgxpool.Pool, catalogService *catalog.Service, channelServ
 // catalog.ErrInvalidParent, catalog.ErrNotAFile, ErrNotFound, ErrInvalidInput,
 // telegramstore.ErrSizeMismatch and the channels errors — and are wrapped with context
 // otherwise. Every error return except the final lookup of the inserted root happens
-// before the commit, so a failed call leaves no new catalog row behind, though Telegram
-// messages may remain if the compensating delete failed.
+// before the commit, so a failed call leaves no new catalog row behind. A commit that
+// fails is the one case where the outcome is unknown: the published messages are then
+// kept rather than deleted, because the rows may have been written.
 func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error) {
 	if in.UserID <= 0 || in.FileID == uuid.Nil {
 		return nil, ErrInvalidInput
@@ -333,6 +336,22 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 	if err := queries.AcquireAdvisoryTransactionLock(ctx, copyDestinationLockID(in.UserID, in.ParentID)); err != nil {
 		compensate()
 		return nil, fmt.Errorf("lock copy destination: %w", err)
+	}
+	if in.ParentID != nil {
+		// The parent was read before the Telegram copy started, so it may have
+		// been trashed, purged or replaced since. Reading it again under the
+		// destination lock keeps the copy from landing in a folder that is no
+		// longer active, which would leave rows that no listing shows and that
+		// the purge of that folder cannot delete.
+		if _, err := queries.LockActiveFolder(ctx, sqlcgen.LockActiveFolderParams{
+			UserID: in.UserID, FolderID: dbtypes.UUID(*in.ParentID),
+		}); err != nil {
+			compensate()
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, catalog.ErrInvalidParent
+			}
+			return nil, fmt.Errorf("lock copy destination folder: %w", err)
+		}
 	}
 	conflict, conflictErr := queries.LockUploadDestinationConflict(ctx, sqlcgen.LockUploadDestinationConflictParams{
 		UserID: in.UserID, ParentID: dbtypes.OptionalUUID(in.ParentID), Name: rootName,
@@ -426,7 +445,7 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 	insertedFiles, err := queries.InsertCopiedFiles(ctx, encodedFiles)
 	if err != nil {
 		compensate()
-		return nil, fmt.Errorf("insert copied catalog rows: %w", err)
+		return nil, classifyWriteError("insert copied catalog rows", err)
 	}
 	if len(insertedFiles) != len(fileRecords) {
 		compensate()
@@ -449,7 +468,12 @@ func (s *Service) Copy(ctx context.Context, in CopyInput) (*sqlcgen.File, error)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		compensate()
+		// A failed commit does not mean the transaction was rolled back: the
+		// server may have committed before the connection broke, so deleting the
+		// messages published for this copy could leave brand-new catalog rows
+		// pointing at messages that no longer exist, which nothing can repair.
+		// Keeping them is the safer failure: at worst the rows were not written
+		// and the messages are orphans the cleanup sweep removes.
 		return nil, fmt.Errorf("commit file copy: %w", err)
 	}
 	s.catalog.InvalidateFiles(ctx, in.UserID, replacedIDs...)
@@ -601,6 +625,34 @@ func splitCopyName(name string) (string, string) {
 	return name[:index], name[index:]
 }
 
+// classifyWriteError turns a PostgreSQL unique-violation (SQLSTATE 23505) into
+// catalog.ErrConflict, so a name that a concurrent upload or copy claimed first is
+// reported as a conflict rather than an internal failure. Everything else is wrapped
+// with the action that failed.
+func classifyWriteError(action string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return catalog.ErrConflict
+	}
+	return fmt.Errorf("%s: %w", action, err)
+}
+
+// releaseAdvisoryLocks drops the given session-level advisory locks on the
+// connection behind queries, using a context that survives request cancellation.
+// Only the named locks are touched, never pg_advisory_unlock_all, because the
+// pooled connection may carry locks taken by other packages. Unlocking a lock
+// the session does not hold reports false and changes nothing.
+func releaseAdvisoryLocks(queries *sqlcgen.Queries, lockIDs []int64) {
+	if len(lockIDs) == 0 {
+		return
+	}
+	unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, lockID := range lockIDs {
+		_, _ = queries.ReleaseAdvisoryLock(unlockCtx, lockID)
+	}
+}
+
 // copyDestinationLockID derives the advisory lock key that serializes concurrent
 // copies landing in the same destination folder. The key is the leading 64 bits of a
 // SHA-256 over a copy-specific namespace, the big-endian user ID and the parent UUID,
@@ -635,7 +687,16 @@ func (s *Service) CleanTrash(ctx context.Context, userID int64) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("mark trash deletion pending: %w", err)
 	}
-	return count, nil
+	fileIDs := make([]uuid.UUID, 0, len(count))
+	for _, id := range count {
+		if value, ok := dbtypes.GoogleUUID(id); ok {
+			fileIDs = append(fileIDs, value)
+		}
+	}
+	// The rows changed status, so every cached copy of them would otherwise keep
+	// reporting "trashed" until the process restarted: this cache has no TTL.
+	s.catalog.InvalidateFiles(ctx, userID, fileIDs...)
+	return int64(len(count)), nil
 }
 
 // QueuePurge marks the subtree rooted at fileID as deletion_pending so the purge sweep
@@ -728,18 +789,7 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	lockedRoots := make([]uuid.UUID, 0, len(uniqueRoots))
 	heldLockIDs := make([]int64, 0, len(uniqueRoots))
 	defer func() {
-		if len(heldLockIDs) == 0 {
-			return
-		}
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		// Release only the locks this call actually took. The connection is
-		// pooled and the same one may carry session-level locks taken by other
-		// packages, so a blanket pg_advisory_unlock_all would drop locks this
-		// caller does not own.
-		for _, lockID := range heldLockIDs {
-			_, _ = lockQueries.ReleaseAdvisoryLock(unlockCtx, lockID)
-		}
+		releaseAdvisoryLocks(lockQueries, heldLockIDs)
 	}()
 	rootByLockID := make(map[int64]uuid.UUID, len(uniqueRoots))
 	lockIDs := make([]int64, 0, len(uniqueRoots))
@@ -750,6 +800,10 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	}
 	locks, err := lockQueries.TryAdvisoryLocks(ctx, lockIDs)
 	if err != nil {
+		// The statement can take some of these locks and then abort before their
+		// rows reach this side, so the whole requested set is released: unlocking
+		// a lock this session does not hold reports false and changes nothing.
+		releaseAdvisoryLocks(lockQueries, lockIDs)
 		return fmt.Errorf("acquire purge advisory locks: %w", err)
 	}
 	for _, lock := range locks {
