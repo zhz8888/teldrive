@@ -135,7 +135,11 @@ func (l *Loader) Load(flags *pflag.FlagSet) (Config, error) {
 		Tag: "koanf",
 		DecoderConfig: &mapstructure.DecoderConfig{
 			MatchName: func(mapKey, fieldName string) bool {
-				return normalizeKey(mapKey) == normalizeKey(fieldName)
+				normalized := normalizeKey(mapKey)
+				// A key made only of dashes and underscores normalizes to the
+				// empty string, which must not match a field whose own name is
+				// the ignored marker.
+				return normalized != "" && normalized == normalizeKey(fieldName)
 			},
 			DecodeHook: mapstructure.ComposeDecodeHookFunc(
 				mapstructure.StringToTimeDurationHookFunc(),
@@ -146,6 +150,17 @@ func (l *Loader) Load(flags *pflag.FlagSet) (Config, error) {
 			Result:           &cfg,
 			WeaklyTypedInput: true,
 		},
+	}
+	// A field tagged koanf:"-" must stay unreachable from configuration. The
+	// decoder matches the literal tag value first and only then asks MatchName,
+	// so the key has to be removed from the data before decoding: otherwise a
+	// key such as "database.-" reaches a field that is meant to be set in code
+	// only, which is exactly the safety switch the tag protects.
+	for _, key := range k.Keys() {
+		leaf := key[strings.LastIndexByte(key, '.')+1:]
+		if normalizeKey(leaf) == "" {
+			k.Delete(key)
+		}
 	}
 	if err := k.UnmarshalWithConf("", &cfg, unmarshal); err != nil {
 		return Config{}, fmt.Errorf("%w: decode configuration: %v", ErrInvalid, err)

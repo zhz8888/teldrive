@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,7 +99,7 @@ func httpRequestLogger(logger *slog.Logger, security *requestSecurity) func(http
 				logger.LogAttrs(r.Context(), level, "http.request",
 					slog.Int("status", status),
 					slog.String("method", r.Method),
-					slog.String("path", r.URL.Path),
+					slog.String("path", logPath(r.URL.Path)),
 					slog.String("query", redactQuery(r.URL.RawQuery)),
 					slog.String("ip", clientAddress(r, security)),
 					slog.String("user_agent", r.UserAgent()),
@@ -113,14 +114,15 @@ func httpRequestLogger(logger *slog.Logger, security *requestSecurity) func(http
 }
 
 // clientAddress returns the client address recorded in the request log, without the
-// port. When the immediate peer is a trusted proxy it is the first X-Forwarded-For
-// entry, which is the address the original client used according to the proxy chain;
-// for every other peer, including a direct connection, the header is ignored and the
-// connection peer is reported instead. That is the same stance requestSecurity takes
-// for the scheme: forwarding headers are only ever believed from a trusted proxy, so
-// a client cannot choose its own log entry. Only a well-formed IP is taken from the
-// header, so a malformed value cannot inject arbitrary text into the log, and an
-// absent or unparsable peer address is reported exactly as written.
+// port. When the immediate peer is a trusted proxy it is the last X-Forwarded-For
+// entry, which is the address that proxy appended itself: the earlier entries are
+// whatever the client sent, so taking the first of them would let any client choose
+// its own log entry. For every other peer, including a direct connection, the header
+// is ignored and the connection peer is reported instead. That is the same stance
+// requestSecurity takes for the scheme: forwarding headers are only ever believed
+// from a trusted proxy. Only a well-formed IP is taken from the header, so a
+// malformed value cannot inject arbitrary text into the log, and an absent or
+// unparsable peer address is reported exactly as written.
 func clientAddress(r *http.Request, security *requestSecurity) string {
 	if r == nil {
 		return ""
@@ -129,11 +131,26 @@ func clientAddress(r *http.Request, security *requestSecurity) string {
 	if security == nil || !security.isTrustedProxy(r) {
 		return peer
 	}
-	forwarded, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ",")
+	forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if index := strings.LastIndexByte(forwarded, ','); index >= 0 {
+		forwarded = strings.TrimSpace(forwarded[index+1:])
+	}
 	if address, err := netip.ParseAddr(hostWithoutPort(forwarded)); err == nil {
 		return address.String()
 	}
 	return peer
+}
+
+// logPath returns the request path as it should be logged. A path arrives
+// percent-decoded, so a request for "/v1/x%0A<text>" carries a real newline and
+// the text log format would print it as a second line, which lets a client forge
+// log entries. A path containing control characters is quoted instead, which
+// keeps the value readable and on one line.
+func logPath(value string) string {
+	if strings.ContainsFunc(value, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 // hostWithoutPort strips the port from an address, returning the address as written

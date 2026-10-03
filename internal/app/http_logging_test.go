@@ -168,7 +168,8 @@ func TestClientAddressTrustsForwardedHeaderOnlyFromTrustedProxy(t *testing.T) {
 	}{
 		{name: "direct peer keeps its address", remoteAddr: "198.51.100.7:5555", forwarded: "203.0.113.9", want: "198.51.100.7"},
 		{name: "trusted proxy reports the client", remoteAddr: "10.0.0.1:5555", forwarded: "203.0.113.9", want: "203.0.113.9", security: security},
-		{name: "trusted proxy entry with port is trimmed", remoteAddr: "10.0.0.1:5555", forwarded: "203.0.113.9:4444, 10.0.0.1", want: "203.0.113.9", security: security},
+		{name: "trusted proxy entry with port is trimmed", remoteAddr: "10.0.0.1:5555", forwarded: "203.0.113.9, 198.51.100.8:4444", want: "198.51.100.8", security: security},
+		{name: "a forged leading entry is ignored", remoteAddr: "10.0.0.1:5555", forwarded: "1.2.3.4, 203.0.113.9", want: "203.0.113.9", security: security},
 		{name: "trusted IPv6 proxy reports the client", remoteAddr: "[2001:db8::1]:5555", forwarded: "2001:db8::9", want: "2001:db8::9", security: security},
 		{name: "trusted proxy without a header falls back to its peer", remoteAddr: "10.0.0.1:5555", want: "10.0.0.1", security: security},
 		{name: "malformed header from a trusted proxy is ignored", remoteAddr: "10.0.0.1:5555", forwarded: "not-an-address", want: "10.0.0.1", security: security},
@@ -188,6 +189,29 @@ func TestClientAddressTrustsForwardedHeaderOnlyFromTrustedProxy(t *testing.T) {
 			}
 			if got := clientAddress(request, test.security); got != test.want {
 				t.Fatalf("clientAddress() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// TestLogPathEscapesControlCharacters checks that a path carrying a decoded
+// newline cannot forge a second line in the text log format.
+func TestLogPathEscapesControlCharacters(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "plain path is unchanged", path: "/api/v1/files", want: "/api/v1/files"},
+		{name: "newline is quoted", path: "/api/v1/x\nforged entry", want: `"/api/v1/x\nforged entry"`},
+		{name: "carriage return is quoted", path: "/api/v1/x\rforged", want: `"/api/v1/x\rforged"`},
+		{name: "escape sequence is quoted", path: "/api/v1/x\x1b[31m", want: `"/api/v1/x\x1b[31m"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := logPath(test.path); got != test.want {
+				t.Fatalf("logPath(%q) = %q, want %q", test.path, got, test.want)
 			}
 		})
 	}

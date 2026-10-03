@@ -394,18 +394,22 @@ func hasExplicitAPICredential(r *http.Request) bool {
 }
 
 // isSameOriginBrowserRequest reports whether r can be attributed to the UI served by
-// this server. It first trusts the browser-set Sec-Fetch-Site header, where
-// same-origin, same-site and none count as same-origin (none is a direct navigation
-// or a non-browser agent) while cross-site does not. When that header is absent, as
-// in older browsers, it falls back to requiring an Origin header whose host equals
-// r.Host and whose scheme matches the connection security; a missing, unparsable or
-// scheme-mismatched Origin is therefore not same-origin. A nil request is not.
+// this server. It first consults the browser-set Sec-Fetch-Site header, where
+// same-origin and none count as same-origin (none is a direct navigation or a
+// non-browser agent) while cross-site does not. same-site does not count on its own:
+// it only says the request came from the same registrable domain, so a sibling
+// subdomain of the deployment would pass while still carrying the session cookie,
+// which SameSite=Lax permits for same-site requests. Those requests fall through to
+// the Origin comparison below. When the header is absent, as in older browsers, the
+// Origin header must have a host equal to r.Host and a scheme matching the connection
+// security; a missing, unparsable or scheme-mismatched Origin is therefore not
+// same-origin. A nil request is not.
 func isSameOriginBrowserRequest(r *http.Request) bool {
 	if r == nil {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
-	case "same-origin", "same-site", "none":
+	case "same-origin", "none":
 		return true
 	case "cross-site":
 		return false

@@ -235,7 +235,7 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 	cleanupTelegramDownloads := telegram.downloadClients != nil
 	defer func() {
 		if cleanupTelegramDownloads {
-			closeCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+			closeCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(cfg.HTTP.ShutdownTimeout))
 			defer cancel()
 			_ = telegram.downloadClients.Close(closeCtx)
 		}
@@ -441,7 +441,14 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", a.config.HTTP.Address, err)
 	}
-	return a.Serve(ctx, listener)
+	if err := a.Serve(ctx, listener); err != nil {
+		// Serve refuses a call when another Serve is running or the app is
+		// closed, and it deliberately leaves a caller-provided listener alone.
+		// This listener belongs to Run, so nobody else can close it.
+		_ = listener.Close()
+		return err
+	}
+	return nil
 }
 
 // Serve is Run with a caller-provided listener, which makes lifecycle behavior
@@ -474,7 +481,7 @@ func (a *App) Serve(ctx context.Context, listener net.Listener) error {
 	if a.config.Jobs.RunWorkers {
 		if err := a.jobs.Start(ctx); err != nil {
 			_ = listener.Close()
-			closeCtx, cancel := context.WithTimeout(context.Background(), a.config.HTTP.ShutdownTimeout)
+			closeCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(a.config.HTTP.ShutdownTimeout))
 			defer cancel()
 			return errors.Join(err, a.events.Close(closeCtx))
 		}
@@ -491,11 +498,11 @@ func (a *App) Serve(ctx context.Context, listener net.Listener) error {
 
 	select {
 	case err := <-serveErrors:
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.config.HTTP.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(a.config.HTTP.ShutdownTimeout))
 		defer cancel()
 		return errors.Join(err, a.Shutdown(shutdownCtx))
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), a.config.HTTP.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(a.config.HTTP.ShutdownTimeout))
 		defer cancel()
 		shutdownErr := a.Shutdown(shutdownCtx)
 		serveErr := <-serveErrors
@@ -564,11 +571,18 @@ func (a *App) Close() error {
 	if a == nil {
 		return nil
 	}
-	timeout := a.config.HTTP.ShutdownTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout(a.config.HTTP.ShutdownTimeout))
 	defer cancel()
 	return a.Shutdown(ctx)
+}
+
+// shutdownTimeout returns the budget a graceful shutdown gets for the configured
+// value, falling back to the documented default when it is not positive. A zero
+// or negative duration would make context.WithTimeout expire immediately, which
+// turns a graceful shutdown into an abrupt one.
+func shutdownTimeout(configured time.Duration) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	return 10 * time.Second
 }

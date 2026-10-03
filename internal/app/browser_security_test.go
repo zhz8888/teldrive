@@ -86,7 +86,7 @@ func TestBrowserCSRFMiddleware(t *testing.T) {
 		{name: "bearer client bypass", method: http.MethodDelete, cookie: true, headers: map[string]string{"Authorization": "Bearer token", "Sec-Fetch-Site": "cross-site"}, wantStatus: http.StatusNoContent},
 		{name: "no browser cookie", method: http.MethodPost, headers: map[string]string{"Sec-Fetch-Site": "cross-site"}, wantStatus: http.StatusNoContent},
 		{name: "same origin fetch metadata", method: http.MethodPost, cookie: true, headers: map[string]string{"Sec-Fetch-Site": "same-origin"}, wantStatus: http.StatusNoContent},
-		{name: "same site fetch metadata", method: http.MethodPost, cookie: true, headers: map[string]string{"Sec-Fetch-Site": "same-site"}, wantStatus: http.StatusNoContent},
+		{name: "same site fetch metadata is not same origin", method: http.MethodPost, cookie: true, headers: map[string]string{"Sec-Fetch-Site": "same-site"}, wantStatus: http.StatusForbidden},
 		{name: "matching origin fallback", method: http.MethodPost, cookie: true, headers: map[string]string{"Origin": "http://drive.example.test"}, wantStatus: http.StatusNoContent},
 		{name: "cross site rejected", method: http.MethodPost, cookie: true, headers: map[string]string{"Sec-Fetch-Site": "cross-site"}, wantStatus: http.StatusForbidden},
 		{name: "missing origin rejected", method: http.MethodPost, cookie: true, wantStatus: http.StatusForbidden},

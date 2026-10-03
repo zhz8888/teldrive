@@ -369,3 +369,37 @@ func TestLoaderRejectsUnsupportedConfigExtension(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+// TestLoaderIgnoresHiddenKeysFromFiles checks that a key shaped like the ignored
+// marker cannot reach a field tagged koanf:"-". The decoder matches the literal
+// tag value before it consults MatchName, so such a key has to be dropped from
+// the loaded data; otherwise a config file could flip a setting that is meant to
+// be set from code only.
+func TestLoaderIgnoresHiddenKeysFromFiles(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := `
+database:
+  url: "postgres://file/teldrive"
+  "-": true
+security:
+  signing-key: "0123456789abcdef0123456789abcdef"
+  data-key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loader := newLoader(func(string) (string, bool) { return "", false }, func() (string, error) { return "", nil })
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	loader.RegisterFlags(flags)
+	if err := flags.Parse([]string{"--config", path}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loader.Load(flags)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Database.AllowLegacySchema {
+		t.Fatal(`a "-" key reached the field tagged koanf:"-"`)
+	}
+}
