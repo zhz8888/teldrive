@@ -411,17 +411,6 @@ type ApiKey struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
-type AuditEvent struct {
-	ID           pgtype.UUID        `json:"id"`
-	UserID       pgtype.Int8        `json:"user_id"`
-	Action       string             `json:"action"`
-	ResourceType string             `json:"resource_type"`
-	ResourceID   pgtype.Text        `json:"resource_id"`
-	Metadata     []byte             `json:"metadata"`
-	RequestID    pgtype.Text        `json:"request_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-}
-
 type Bot struct {
 	BotID               int64              `json:"bot_id"`
 	UserID              int64              `json:"user_id"`

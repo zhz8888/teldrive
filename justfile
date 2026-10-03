@@ -50,8 +50,14 @@ generate-api: generate-openapi
     test ! -e internal/api/gen/oas_unimplemented_gen.go
     test "$(grep -c '^\s*[A-Z][A-Za-z0-9]*(ctx context.Context' internal/api/gen/oas_server_gen.go)" -eq "$(grep -c 'operationId:' {{openapi_spec}})"
 
+# Remove the files sqlc owns in its output directory. schema_template.go and its
+# test are handwritten and are left alone; everything else there is regenerated.
+clean-db:
+    rm -f internal/db/sqlcgen/db.go internal/db/sqlcgen/models.go internal/db/sqlcgen/querier.go
+    find internal/db/sqlcgen -name '*.sql.go' -delete
+
 # Generate the typed PostgreSQL query layer.
-generate-db:
+generate-db: clean-db
     # sqlc rewrites the whole generated package, so a version other than the one
     # the committed files were produced with would show up as a large unrelated
     # diff and can even make patchsqlc fail to match what it patches.
@@ -173,11 +179,5 @@ check: generate lint test-unit coverage
     bun run --cwd {{ui_dir}} build
     bun run --cwd {{docs_dir}} build
 
-clean-generated:
+clean-generated: clean-db
     rm -rf openapi internal/api/gen ui/src/api/schema.ts ui/dist coverage.out
-    # internal/db/sqlcgen holds handwritten files next to the generated ones
-    # (schema_template.go carries the schema rewriting the generator cannot emit),
-    # so only the generated files are removed here: deleting the directory would
-    # leave a tree that no generator can rebuild.
-    rm -f internal/db/sqlcgen/db.go internal/db/sqlcgen/models.go internal/db/sqlcgen/querier.go
-    find internal/db/sqlcgen -name '*.sql.go' -delete
