@@ -64,15 +64,35 @@ test("the document loads every script from a file, never inline", () => {
 const cjkPattern = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
 const translationRoot = join(sourceRoot, "lib", "i18n");
 
+// callArguments returns the text between the parentheses of a call whose opening
+// parenthesis was already consumed, so a check can read a whole call instead of
+// one line of it.
+function callArguments(source: string, from: number): string {
+  let depth = 1;
+  for (let index = from; index < source.length; index++) {
+    const character = source[index];
+    if (character === "(") depth++;
+    else if (character === ")" && --depth === 0) return source.slice(from, index);
+  }
+  return source.slice(from);
+}
+
+// lineNumberAt returns the one-based line number of an offset.
+function lineNumberAt(source: string, offset: number): number {
+  return source.slice(0, offset).split("\n").length;
+}
+
 test("translated text lives only in the translation module", () => {
   // Interface copy is keyed, never inlined: a literal Chinese string outside the
   // catalogs is either a missed translation or a message that belongs in a log.
+  // The document counts as interface copy and is scanned with the sources; the
+  // end-to-end specs are not shipped and assert Chinese copy on purpose.
   const offenders: string[] = [];
-  for (const path of sourceFiles(sourceRoot)) {
+  for (const path of [...sourceFiles(sourceRoot), join(process.cwd(), "index.html")]) {
     if (path.startsWith(translationRoot)) continue;
     const lines = readFileSync(path, "utf8").split("\n");
     lines.forEach((line, index) => {
-      if (cjkPattern.test(line)) offenders.push(`${relative(sourceRoot, path)}:${index + 1}`);
+      if (cjkPattern.test(line)) offenders.push(`${relative(process.cwd(), path)}:${index + 1}`);
     });
   }
   expect(offenders).toEqual([]);
@@ -81,15 +101,18 @@ test("translated text lives only in the translation module", () => {
 test("log output is never translated", () => {
   // Console output, job traces and diagnostics are read by operators and pasted
   // into bug reports, so they stay English whatever the interface language is.
+  // The whole call is read rather than one line of it, because an argument that
+  // sits on the next line used to pass unnoticed.
   const offenders: string[] = [];
   for (const path of sourceFiles(sourceRoot)) {
-    const lines = readFileSync(path, "utf8").split("\n");
-    lines.forEach((line, index) => {
-      if (!/console\.(log|info|warn|error|debug)\s*\(/.test(line)) return;
-      if (/\bt\(|translate\(|useI18n\(/.test(line)) {
-        offenders.push(`${relative(sourceRoot, path)}:${index + 1}`);
+    const source = readFileSync(path, "utf8");
+    for (const match of source.matchAll(/console\.(?:log|info|warn|error|debug)\s*\(/g)) {
+      const start = match.index ?? 0;
+      const call = callArguments(source, start + match[0].length);
+      if (/\bt\(|translate\(|useI18n\(/.test(call)) {
+        offenders.push(`${relative(sourceRoot, path)}:${lineNumberAt(source, start)}`);
       }
-    });
+    }
   }
   expect(offenders).toEqual([]);
 });
