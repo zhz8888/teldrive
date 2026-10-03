@@ -199,7 +199,12 @@ type CreateInput struct {
 	// accepted, and any other value is rejected with ErrUnsupportedConflictPolicy.
 	ConflictPolicy sqlcgen.NameConflictPolicy
 	// PartSize is the size in bytes every part but the last must have; a
-	// non-positive value selects defaultPartSize.
+	// non-positive value selects defaultPartSize and anything above maxPartSize
+	// is rejected. The value chosen here also decides the file hash: the hash is
+	// computed from the block hashes of each part, so two uploads of the same
+	// bytes with different part sizes produce different hash values, and only
+	// part sizes that are multiples of treehash.BlockSize make the result equal
+	// to a whole-file pass over those bytes.
 	PartSize int64
 }
 
@@ -261,16 +266,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSe
 	}
 	if in.PartSize > maxPartSize {
 		return nil, ErrInvalidInput
-	}
-	if remainder := in.PartSize % treehash.BlockSize; remainder != 0 {
-		// The file hash is computed from the block hashes of each part, so part
-		// boundaries have to fall on tree-hash block boundaries for the result to
-		// equal the digest of a whole-file pass over the same bytes. The client
-		// reads the effective size back from the session it just created.
-		in.PartSize += treehash.BlockSize - remainder
-		if in.PartSize > maxPartSize {
-			return nil, ErrInvalidInput
-		}
 	}
 	modTime := in.ModTime
 	if modTime.IsZero() {
