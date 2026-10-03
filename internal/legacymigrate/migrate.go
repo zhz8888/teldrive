@@ -858,55 +858,119 @@ func migrateBots(ctx context.Context, source legacyReader, tx pgx.Tx, cipher *se
 //
 // Both tables are written with COPY in the caller's transaction, so a failure
 // rolls back the whole copy rather than leaving a partially migrated tree.
+// migrateFiles copies the legacy files and their parts into the target schema.
+//
+// Both copies stream rather than materializing a row slice: the files are
+// transformed one at a time, and the parts cursor releases each file's parsed
+// parts once they have been written. A legacy library therefore costs the metadata
+// it was read into once, instead of that plus a second copy of every row, which for
+// a library of a million parts is the difference between a migration and an
+// out-of-memory kill.
 func migrateFiles(ctx context.Context, tx pgx.Tx, files []legacyFile, cfg Config) error {
-	fileRows := make([][]any, 0, len(files))
-	partRows := make([][]any, 0)
-	for _, f := range files {
-		status := "active"
-		var deletedAt *time.Time
-		if f.Status != "active" {
-			status = "deletion_pending"
-			t := f.UpdatedAt
-			deletedAt = &t
+	fileIndex := 0
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Target.Schema, "files"}, legacyFileColumns, pgx.CopyFromFunc(func() ([]any, error) {
+		// pgx ends a stream when the source returns no row and no error; an error
+		// aborts the copy, so the end of the slice is signalled with nil row and
+		// nil error.
+		if fileIndex >= len(files) {
+			return nil, nil
 		}
-		enc := false
-		var keyVersion *int
-		if f.Encrypted {
-			enc = true
-			v := cfg.EncryptionKeyVersion
-			keyVersion = &v
-		}
-		var size *int64
-		if f.Kind == "file" {
-			size = f.Size
-		}
-		var hashAlg, hashValue *string
-		if f.Hash != nil && *f.Hash != "" {
-			// The digest is a tree hash over the parts, but the algorithm a file
-			// records is the identifier the API contract declares, so a migrated
-			// row carries the same value as a freshly completed upload.
-			alg := string(treehash.TypeBlake3)
-			hashAlg, hashValue = &alg, f.Hash
-		}
-		fileRows = append(fileRows, []any{f.ID, f.UserID, f.ParentID, f.Name, f.Kind, f.MimeType, size, hashAlg, hashValue, enc, keyVersion, status, f.UpdatedAt, int64(1), f.CreatedAt, f.UpdatedAt, deletedAt})
-		if f.Kind != "file" || len(f.Parts) == 0 {
-			continue
-		}
-		for i, p := range f.Parts {
-			var salt *string
-			if p.Salt != "" {
-				salt = &p.Salt
-			}
-			partRows = append(partRows, []any{f.ID, int32(i + 1), *f.ChannelID, p.ID, nil, nil, salt, f.CreatedAt})
-		}
-	}
-	if _, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Target.Schema, "files"}, []string{"id", "user_id", "parent_id", "name", "kind", "mime_type", "size", "hash_algorithm", "hash_value", "encryption", "encryption_key_version", "status", "mod_time", "generation", "created_at", "updated_at", "deleted_at"}, pgx.CopyFromRows(fileRows)); err != nil {
+		row := legacyFileRow(files[fileIndex], cfg)
+		fileIndex++
+		return row, nil
+	})); err != nil {
 		return fmt.Errorf("copy files: %w", err)
 	}
-	if len(partRows) > 0 {
-		if _, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Target.Schema, "file_parts"}, []string{"file_id", "part_no", "channel_id", "message_id", "plain_size", "stored_size", "salt", "created_at"}, pgx.CopyFromRows(partRows)); err != nil {
-			return fmt.Errorf("copy file parts: %w", err)
-		}
+	parts := legacyPartCursor{files: files}
+	if !parts.hasRows() {
+		return nil
+	}
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Target.Schema, "file_parts"}, legacyPartColumns, pgx.CopyFromFunc(parts.next)); err != nil {
+		return fmt.Errorf("copy file parts: %w", err)
 	}
 	return nil
+}
+
+// legacyFileColumns and legacyPartColumns are the target columns of the two copies
+// above, in the order the row builders produce their values.
+var (
+	legacyFileColumns = []string{"id", "user_id", "parent_id", "name", "kind", "mime_type", "size", "hash_algorithm", "hash_value", "encryption", "encryption_key_version", "status", "mod_time", "generation", "created_at", "updated_at", "deleted_at"}
+	legacyPartColumns = []string{"file_id", "part_no", "channel_id", "message_id", "plain_size", "stored_size", "salt", "created_at"}
+)
+
+// legacyFileRow maps one legacy file onto the columns of the target files table.
+// A non-active legacy status becomes a pending deletion, an encrypted file carries
+// the configured key version, and the recorded digest is described with the
+// algorithm the API contract declares, so a migrated row looks like a freshly
+// completed upload.
+func legacyFileRow(f legacyFile, cfg Config) []any {
+	status := "active"
+	var deletedAt *time.Time
+	if f.Status != "active" {
+		status = "deletion_pending"
+		t := f.UpdatedAt
+		deletedAt = &t
+	}
+	enc := false
+	var keyVersion *int
+	if f.Encrypted {
+		enc = true
+		v := cfg.EncryptionKeyVersion
+		keyVersion = &v
+	}
+	var size *int64
+	if f.Kind == "file" {
+		size = f.Size
+	}
+	var hashAlg, hashValue *string
+	if f.Hash != nil && *f.Hash != "" {
+		alg := string(treehash.TypeBlake3)
+		hashAlg, hashValue = &alg, f.Hash
+	}
+	return []any{f.ID, f.UserID, f.ParentID, f.Name, f.Kind, f.MimeType, size, hashAlg, hashValue, enc, keyVersion, status, f.UpdatedAt, int64(1), f.CreatedAt, f.UpdatedAt, deletedAt}
+}
+
+// legacyPartCursor walks the parts of the legacy files in file order. It clears a
+// file's parts as soon as the last of them is handed out, so the memory the
+// migration holds shrinks while it writes.
+type legacyPartCursor struct {
+	files []legacyFile
+	file  int
+	part  int
+}
+
+// hasRows reports whether any legacy file contributes a part, which is what the
+// caller checks before starting a copy that would otherwise write nothing.
+func (c *legacyPartCursor) hasRows() bool {
+	for _, f := range c.files {
+		if f.Kind == "file" && len(f.Parts) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// next returns the next part row, or no row at all once every part has been
+// written, which is how pgx ends a copy stream. It is called by pgx while the copy
+// runs, so it must be safe to call after the end.
+func (c *legacyPartCursor) next() ([]any, error) {
+	for c.file < len(c.files) {
+		f := &c.files[c.file]
+		if f.Kind != "file" || c.part >= len(f.Parts) {
+			c.file++
+			c.part = 0
+			continue
+		}
+		p := f.Parts[c.part]
+		c.part++
+		if c.part == len(f.Parts) {
+			f.Parts = nil
+		}
+		var salt *string
+		if p.Salt != "" {
+			salt = &p.Salt
+		}
+		return []any{f.ID, int32(c.part), *f.ChannelID, p.ID, nil, nil, salt, f.CreatedAt}, nil
+	}
+	return nil, nil
 }
