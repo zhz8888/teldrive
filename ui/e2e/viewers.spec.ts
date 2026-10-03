@@ -8,6 +8,14 @@ const epubId = "72222222-2222-4222-8222-222222222222";
 const pdf = readFileSync(new URL("./fixtures/viewers/sample.pdf", import.meta.url));
 const epub = makeEpub();
 
+// foliate-view is a custom element: the DOM types only know it as an element,
+// while its instance carries the parsed book and the active renderer, which is
+// what these assertions read from inside the page.
+type FoliateView = HTMLElement & {
+  book?: { metadata?: { title?: string }; sections?: unknown[] };
+  renderer?: Element | null;
+};
+
 const files = [
   file(pdfId, "reader-sample.pdf", "application/pdf", pdf.byteLength),
   file(epubId, "reader-sample.epub", "application/epub+zip", epub.byteLength),
@@ -271,20 +279,23 @@ test("EPUB renders in its dedicated reader, navigates, and closes cleanly", asyn
   const foliate = dialog.locator("foliate-view");
   await expect
     .poll(() =>
-      foliate.evaluate(
-        (element) =>
-          `${String(element.book?.metadata?.title || "")}:${element.book?.sections?.length ?? 0}`,
-      ),
+      foliate.evaluate((element) => {
+        const view = element as FoliateView;
+        return `${String(view.book?.metadata?.title || "")}:${view.book?.sections?.length ?? 0}`;
+      }),
     )
     .toBe("TelDrive Reader Fixture:2");
   await expect(foliate).toHaveAttribute("data-rendered-content", /A Quiet Beginning/);
   await expect
     .poll(() =>
-      foliate.evaluate((element) => ({
-        flow: element.renderer?.getAttribute("flow"),
-        gap: element.renderer?.getAttribute("gap"),
-        columns: element.renderer?.getAttribute("max-column-count"),
-      })),
+      foliate.evaluate((element) => {
+        const view = element as FoliateView;
+        return {
+          flow: view.renderer?.getAttribute("flow"),
+          gap: view.renderer?.getAttribute("gap"),
+          columns: view.renderer?.getAttribute("max-column-count"),
+        };
+      }),
     )
     .toEqual({ flow: "paginated", gap: "6%", columns: "2" });
 

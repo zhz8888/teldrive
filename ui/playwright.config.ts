@@ -17,7 +17,10 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    reducedMotion: "reduce",
+    // No reducedMotion here: it is a browser-context option rather than a runner
+    // option, so as a direct key it never reached the pages, and applying it for
+    // real leaves toasts on screen past their dismissal and blocks the controls
+    // underneath. Screenshot stability comes from the animations setting above.
     colorScheme: "dark",
   },
   projects: [

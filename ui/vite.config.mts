@@ -4,7 +4,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import Icons from "unplugin-icons/vite";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import babel from "@rolldown/plugin-babel";
 
 const pdfJsRoot = path.resolve(import.meta.dirname, "node_modules/pdfjs-dist");
@@ -21,7 +21,7 @@ async function assetFiles(directory: string): Promise<string[]> {
   return files.flat();
 }
 
-function pdfJsAssets() {
+function pdfJsAssets(): Plugin {
   return {
     name: "pdfjs-assets",
     enforce: "pre" as const,
