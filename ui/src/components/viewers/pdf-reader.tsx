@@ -1158,6 +1158,34 @@ function PdfSidebar({
   );
 }
 
+// One IntersectionObserver serves every thumbnail. The sidebar renders a tile for
+// each page, so a long document used to mount one observer per page, and that
+// registration cost dominated opening the panel. Entries stay observed, because a
+// thumbnail has to notice when it scrolls back into view.
+const thumbnailCallbacks = new WeakMap<Element, (visible: boolean) => void>();
+let thumbnailObserver: IntersectionObserver | undefined;
+
+function observeThumbnail(element: Element, onVisibilityChange: (visible: boolean) => void) {
+  if (typeof IntersectionObserver === "undefined") {
+    onVisibilityChange(true);
+    return () => {};
+  }
+  thumbnailObserver ??= new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        thumbnailCallbacks.get(entry.target)?.(entry.isIntersecting);
+      }
+    },
+    { rootMargin: "300px" },
+  );
+  thumbnailCallbacks.set(element, onVisibilityChange);
+  thumbnailObserver.observe(element);
+  return () => {
+    thumbnailCallbacks.delete(element);
+    thumbnailObserver?.unobserve(element);
+  };
+}
+
 function PdfThumbnail({
   document,
   pageNumber,
@@ -1180,15 +1208,7 @@ function PdfThumbnail({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[entries.length - 1];
-        if (entry) setVisible(entry.isIntersecting);
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(host);
-    return () => observer.disconnect();
+    return observeThumbnail(host, setVisible);
   }, []);
 
   useEffect(() => {
