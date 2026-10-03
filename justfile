@@ -75,11 +75,18 @@ docs-generate: generate-openapi
 generate: generate-api generate-db generate-ui docs-generate
     go mod tidy
 
+# keep-dist-placeholder restores the tracked file that makes ui/dist exist in a
+# fresh clone, which is what go:embed needs. The UI build empties its output
+# directory, so every recipe that builds the interface restores it afterwards.
+keep-dist-placeholder:
+    touch {{ui_dir}}/dist/.gitkeep
+
 ui-check: generate-ui
     bun run --cwd {{ui_dir}} lint
     bun run --cwd {{ui_dir}} typecheck
     bun run --cwd {{ui_dir}} test
     bun run --cwd {{ui_dir}} build
+    just keep-dist-placeholder
 
 # Run the fully static Astro + Fumadocs documentation site.
 docs-dev: docs-generate
@@ -90,6 +97,7 @@ docs-build: docs-generate
 
 build: generate-ui
     bun run --cwd {{ui_dir}} build
+    just keep-dist-placeholder
     mkdir -p bin
     CGO_ENABLED=0 go build -trimpath -ldflags '{{ldflags}}' -o {{binary}} ./cmd/teldrive
 
