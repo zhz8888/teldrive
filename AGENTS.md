@@ -24,6 +24,11 @@
 
 - Start from `config.sample.yaml` or `config.sample.toml`. Settings are read from the file, then `TELDRIVE_*` environment variables, then flags; the justfile loads a root `.env` for every recipe.
 
+## Memory
+
+- Do not add code that reads or applies `GOMEMLIMIT`: the Go runtime already reads that variable at startup, so such code duplicates it. `runtime/debug.SetMemoryLimit(-1)` is a no-op on current Go, so an "off" branch written that way fails silently; use `math.MaxInt64` to clear a ceiling.
+- `uploads.max-concurrent-downloads` bounds download memory. Each open range buffers `telegram.download-read-buffers` megabytes, so that product is the process ceiling; a setting that only caps throughput cannot substitute for it.
+
 ## Testing
 
 - Mutation-check guard tests: delete the guard line and confirm the test fails. Validation tests are the ones that keep passing while short-circuiting on an upstream guard, so a new guard test is unfinished until this has been done.

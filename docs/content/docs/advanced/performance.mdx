@@ -118,7 +118,7 @@ Give the Go runtime a memory ceiling so the collector reacts before the kernel d
 GOMEMLIMIT=384MiB teldrive run
 ```
 
-The runtime reads this variable itself at startup, so no configuration key is needed; `off` removes the ceiling. Leave it unset on a host with headroom.
+The runtime reads this variable itself at startup, so no configuration key is needed and **no code should be added to read or apply it**: doing so would duplicate the runtime, and `runtime/debug.SetMemoryLimit(-1)` is a no-op on current Go, so an "off" branch written that way would silently fail. `off` removes the ceiling. Leave the variable unset on a host with headroom.
 
 Hashing is the first thing to give up when a single core cannot keep up, at the cost of storing parts with no checksum:
 
