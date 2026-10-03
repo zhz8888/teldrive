@@ -56,7 +56,7 @@ The **Default** column is the runtime default, not a production recommendation.
 | `http.idle-timeout` | `--http-idle-timeout` | `TELDRIVE_HTTP_IDLE_TIMEOUT` | `2m0s` | `gte=0` | HTTP keep-alive idle timeout |
 | `http.read-header-timeout` | `--http-read-header-timeout` | `TELDRIVE_HTTP_READ_HEADER_TIMEOUT` | `10s` | `gte=0` | Maximum time to read request headers |
 | `http.read-timeout` | `--http-read-timeout` | `TELDRIVE_HTTP_READ_TIMEOUT` | `1h0m0s` | `gte=0` | Maximum time to read an entire request; zero disables it for streaming uploads |
-| `http.shutdown-timeout` | `--http-shutdown-timeout` | `TELDRIVE_HTTP_SHUTDOWN_TIMEOUT` | `10s` | `gte=0` | Graceful shutdown timeout |
+| `http.shutdown-timeout` | `--http-shutdown-timeout` | `TELDRIVE_HTTP_SHUTDOWN_TIMEOUT` | `10s` | `gt=0` | Graceful shutdown timeout |
 | `http.trusted-proxies` | `--http-trusted-proxies` | `TELDRIVE_HTTP_TRUSTED_PROXIES` | — | — | Proxy IP addresses or CIDRs trusted to set forwarding headers |
 | `http.write-timeout` | `--http-write-timeout` | `TELDRIVE_HTTP_WRITE_TIMEOUT` | `1h0m0s` | `gte=0` | Maximum response write duration; zero disables it for streaming |
 ## Jobs
