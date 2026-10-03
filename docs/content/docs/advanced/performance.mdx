@@ -87,6 +87,46 @@ telegram:
   rate-burst: 10
 ```
 
+## Small hosts
+
+A host with one core and a gigabyte of memory is enough to run the server, as long as the memory-hungry settings are not left at their defaults. The numbers below assume PostgreSQL runs elsewhere; if it shares the box, subtract its footprint from the budget as well.
+
+Memory is spent almost entirely on downloads. Each open range buffers `telegram.download-read-buffers` megabytes of prefetched Telegram chunks, so the memory ceiling is that number multiplied by `uploads.max-concurrent-downloads`. Uploads are streamed and encrypt in 64 KiB pooled blocks, so they cost little by comparison.
+
+```yaml
+telegram:
+  upload-threads: 2
+  download-read-buffers: 8
+  download-read-parallel: 2
+
+uploads:
+  max-concurrent-downloads: 2
+
+database:
+  max-connections: 10
+
+cache:
+  memory:
+    size: 2MB
+```
+
+That is 16 MiB of download buffers at the default limit, where the defaults would have allowed 128 MiB with no ceiling on the number of streams.
+
+Give the Go runtime a memory ceiling so the collector reacts before the kernel does. Without one the collector waits until the heap has doubled, which on a small host is often after the kernel has started reclaiming:
+
+```bash
+GOMEMLIMIT=384MiB teldrive run
+```
+
+The runtime reads this variable itself at startup, so no configuration key is needed; `off` removes the ceiling. Leave it unset on a host with headroom.
+
+Hashing is the first thing to give up when a single core cannot keep up, at the cost of storing parts with no checksum:
+
+```yaml
+uploads:
+  hashing-enabled: false
+```
+
 ## Tuning order
 
 1. Fix proxy/time-out errors.
