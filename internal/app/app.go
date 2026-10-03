@@ -288,7 +288,7 @@ func New(ctx context.Context, cfg config.Config, dependencies Dependencies) (*Ap
 		UploadThreads: cfg.Telegram.UploadThreads, RandomizePartNames: cfg.Telegram.RandomizePartNames,
 		DisableHashing: !cfg.Uploads.HashingEnabled,
 	})
-	downloader := transfer.NewDownloader(catalogService, storage, keys)
+	downloader := transfer.NewDownloader(catalogService, storage, keys, cfg.Uploads.MaxConcurrentDownloads)
 	fileService, err := fileops.NewService(pool, catalogService, channelService, storage)
 	if err != nil {
 		return nil, fmt.Errorf("create file operations service: %w", err)

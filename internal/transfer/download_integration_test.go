@@ -44,7 +44,7 @@ func TestDownloaderReadsAcrossTelegramParts(t *testing.T) {
 	}
 	fileID, _ := dbtypes.GoogleUUID(file.ID)
 
-	downloader := transfer.NewDownloader(fileCatalog, storage, nil)
+	downloader := transfer.NewDownloader(fileCatalog, storage, nil, 0)
 	download, err := downloader.Open(context.Background(), transfer.DownloadRequest{
 		UserID: 1001, FileID: fileID, Offset: 3, Length: 5,
 	})
@@ -104,7 +104,7 @@ func TestDownloaderDecryptsRangeAcrossCipherBlocks(t *testing.T) {
 
 	offset := int64(65536 - 17)
 	length := int64(100)
-	downloader := transfer.NewDownloader(fileCatalog, storage, keys)
+	downloader := transfer.NewDownloader(fileCatalog, storage, keys, 0)
 	download, err := downloader.Open(context.Background(), transfer.DownloadRequest{
 		UserID: 1001, FileID: fileID, Offset: offset, Length: length,
 	})

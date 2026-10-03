@@ -99,7 +99,7 @@ func TestDownloadReaderSeekAndConcurrentReadAt(t *testing.T) {
 		102: []byte("efgh"),
 		103: []byte("ij"),
 	}}
-	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	download, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7,
 		FileID: fileID,
 		Offset: 2,
@@ -153,7 +153,7 @@ func TestDownloaderResolvesAndBackfillsMissingPartSizes(t *testing.T) {
 	}
 	storage := &downloadStorage{data: map[int64][]byte{101: []byte("abcd"), 102: []byte("ef")}}
 
-	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	download, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7, FileID: fileID, Length: -1,
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func TestDownloaderResolvesAndBackfillsMissingPartSizes(t *testing.T) {
 		t.Fatalf("backfills = %d, want 2", len(catalog.backfills))
 	}
 
-	if _, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	if _, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7, FileID: fileID, Length: 0,
 	}); err != nil {
 		t.Fatalf("second Open() error = %v", err)
@@ -197,7 +197,7 @@ func TestDownloaderReusesOneSessionAcrossReadsAndParts(t *testing.T) {
 		},
 	}
 	storage := &downloadStorage{data: map[int64][]byte{101: first, 102: second}}
-	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	download, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7, FileID: fileID, Length: -1,
 	})
 	if err != nil {
@@ -237,7 +237,7 @@ func TestDownloadReaderReusesRangeForSmallSequentialReads(t *testing.T) {
 		}},
 	}
 	storage := &downloadStorage{data: map[int64][]byte{101: payload}}
-	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	download, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7, FileID: fileID, Length: -1,
 	})
 	if err != nil {
@@ -278,7 +278,7 @@ func TestDownloadReaderRejectsPrematurePartEOF(t *testing.T) {
 	// The part promises four bytes but the stored document holds two, the case a
 	// cancelled Telegram fill reports as (0, io.EOF).
 	storage := &downloadStorage{data: map[int64][]byte{101: []byte("ab")}}
-	download, err := NewDownloader(catalog, storage, nil).Open(context.Background(), DownloadRequest{
+	download, err := NewDownloader(catalog, storage, nil, 0).Open(context.Background(), DownloadRequest{
 		UserID: 7, FileID: fileID, Length: -1,
 	})
 	if err != nil {

@@ -143,6 +143,12 @@ type Uploads struct {
 	SessionTTL       time.Duration `koanf:"session-ttl" default:"168h" validate:"gt=0" description:"Lifetime of resumable upload sessions"`
 	HashingEnabled   bool          `koanf:"hashing-enabled" default:"true" description:"Compute and store BLAKE3 hashes for uploaded files"`
 	LocalImportRoots []string      `koanf:"local-import-roots" default:"" description:"Absolute server directories allowed as local background-upload sources; empty disables local imports"`
+	// MaxConcurrentDownloads bounds how many byte ranges may be open at once.
+	// Each one buffers telegram.download-read-buffers megabytes in memory, so an
+	// unbounded server is driven into the OOM killer by a handful of concurrent
+	// downloads on a small host. A request waits for a free slot rather than
+	// being refused, and is abandoned only when its own context is cancelled.
+	MaxConcurrentDownloads int `koanf:"max-concurrent-downloads" default:"4" validate:"min=1,max=256" description:"Maximum number of downloads open at the same time"`
 }
 
 // Jobs controls whether this process runs the River background job workers or

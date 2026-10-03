@@ -90,13 +90,44 @@ type Downloader struct {
 	// encrypted files, which fail with ErrEncryptionKey; unencrypted files still
 	// download.
 	keys KeyProvider
+	// slots bounds how many ranges may be open at once. A token is taken before a
+	// range is opened and returned when its reader is closed, so the buffers held
+	// in memory stay bounded no matter how many clients ask at once.
+	slots chan struct{}
 }
 
-// NewDownloader returns a Downloader over the given boundaries. Any of them may
-// be nil: Open then reports ErrDownloadNotConfigured when catalog or storage is
-// missing, and encrypted files report ErrEncryptionKey when keys is missing.
-func NewDownloader(catalog FileCatalog, storage telegramstore.Storage, keys KeyProvider) *Downloader {
-	return &Downloader{catalog: catalog, storage: storage, keys: keys}
+// defaultMaxConcurrentDownloads is the number of ranges a Downloader allows when
+// the caller does not set one. It is deliberately small: every range buffers
+// telegram.download-read-buffers megabytes, so this is the multiplier that
+// decides the process memory ceiling under download load.
+const defaultMaxConcurrentDownloads = 4
+
+// NewDownloader returns a Downloader over the given boundaries. Any of them may be
+// nil: Open then reports ErrDownloadNotConfigured when catalog or storage is
+// missing, and encrypted files report ErrEncryptionKey when keys is missing. A
+// maxConcurrent of zero or less selects defaultMaxConcurrentDownloads, so a
+// caller cannot accidentally build a Downloader that admits unbounded memory.
+func NewDownloader(catalog FileCatalog, storage telegramstore.Storage, keys KeyProvider, maxConcurrent int) *Downloader {
+	if maxConcurrent <= 0 {
+		maxConcurrent = defaultMaxConcurrentDownloads
+	}
+	return &Downloader{catalog: catalog, storage: storage, keys: keys, slots: make(chan struct{}, maxConcurrent)}
+}
+
+// acquire takes one download slot, waiting for a free one until ctx is done. The
+// returned function gives the slot back and is meant to be called once. A
+// Downloader built without slots admits every request, which keeps a
+// zero-value Downloader usable where only one range is ever opened.
+func (d *Downloader) acquire(ctx context.Context) (func(), error) {
+	if d.slots == nil {
+		return func() {}, nil
+	}
+	select {
+	case d.slots <- struct{}{}:
+		return func() { <-d.slots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // DownloadRequest selects the byte range of one active file to read.
@@ -192,6 +223,22 @@ func (d *Downloader) openOrigin(ctx context.Context, request DownloadRequest) (*
 	if err != nil {
 		return nil, err
 	}
+	// A range buffers prefetched chunks in memory, so the number open at once is
+	// what decides the process memory ceiling. The slot is taken before the
+	// storage session is opened, because a request waiting its turn must not
+	// already be holding a Telegram client.
+	release, err := d.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// handedOff records that the returned reader now owns the slot and returns it
+	// on Close; every path that returns before that gives it back here.
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			release()
+		}
+	}()
 	session, err := d.openDownloadSession(ctx, request.UserID)
 	if err != nil {
 		return nil, err
@@ -230,11 +277,14 @@ func (d *Downloader) openOrigin(ctx context.Context, request DownloadRequest) (*
 	}
 
 	keepSession = true
+	// The reader now owns the slot and returns it on Close.
+	handedOff = true
 	return &Download{
 		Reader: &downloadReader{
 			ctx:          ctx,
 			session:      session,
 			sessionOwner: true,
+			release:      release,
 			userID:       request.UserID,
 			file:         file,
 			parts:        segments,
@@ -351,6 +401,9 @@ type downloadReader struct {
 	// sessionOwner reports whether Close must close session (the Downloader
 	// opened it) or leave it to the caller.
 	sessionOwner bool
+	// release returns the download slot this reader holds. It is nil when the
+	// reader was built without a bounded Downloader.
+	release func()
 	// userID is the owner sent with every storage request.
 	userID int64
 	// file is the catalog row the range was planned from; it decides whether
@@ -559,6 +612,12 @@ func (r *downloadReader) Close() error {
 		r.reader = nil
 	}
 	r.mu.Unlock()
+	// The slot goes back with the session it was taken for, so a reader that
+	// is closed exactly once cannot leak it.
+	if release := r.release; release != nil {
+		r.release = nil
+		release()
+	}
 	if r.sessionOwner {
 		return r.session.Close()
 	}
