@@ -1076,6 +1076,9 @@ function PdfFindBar({
   );
 }
 
+/** Pages the thumbnail list adds at a time. */
+const pageBatch = 40;
+
 function PdfSidebar({
   file,
   document,
@@ -1098,6 +1101,30 @@ function PdfSidebar({
   onNavigateMobile: () => void;
 }) {
   const { t } = useI18n();
+  // The panel draws a tile per page, and a long document would otherwise mount one
+  // component for every page while the panel opens. The list grows by a batch when
+  // the reader reaches its end, and a page opened from the outline brings its
+  // neighbours with it so the list around it is ready.
+  const [renderedPages, setRenderedPages] = useState(pageBatch);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const hasMorePages = Boolean(document) && renderedPages < (document?.numPages ?? 0);
+
+  useEffect(() => {
+    setRenderedPages((value) => Math.max(value, pageNumber + pageBatch));
+  }, [pageNumber]);
+
+  useEffect(() => {
+    setRenderedPages(pageBatch);
+  }, [document]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    return observeVisibility(sentinel, (visible) => {
+      if (visible) setRenderedPages((value) => value + pageBatch);
+    });
+  }, [hasMorePages]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface/75">
       <div className="border-b border-border px-4 py-3">
@@ -1126,7 +1153,10 @@ function PdfSidebar({
         <Tabs.Panel id="thumbnails" className="min-h-0 flex-1 overflow-y-auto py-2">
           {document ? (
             <div className="grid grid-cols-1 gap-2 px-1 pb-3">
-              {Array.from({ length: document.numPages }, (_, index) => index + 1).map((page) => (
+              {Array.from(
+                { length: Math.min(renderedPages, document.numPages) },
+                (_, index) => index + 1,
+              ).map((page) => (
                 <PdfThumbnail
                   key={page}
                   document={document}
@@ -1138,6 +1168,7 @@ function PdfSidebar({
                   }}
                 />
               ))}
+              {hasMorePages ? <div ref={sentinelRef} aria-hidden className="h-1" /> : null}
             </div>
           ) : (
             <SidebarEmpty label={t("components.pdfReader.preparingPages")} />
@@ -1164,31 +1195,32 @@ function PdfSidebar({
   );
 }
 
-// One IntersectionObserver serves every thumbnail. The sidebar renders a tile for
-// each page, so a long document used to mount one observer per page, and that
-// registration cost dominated opening the panel. Entries stay observed, because a
-// thumbnail has to notice when it scrolls back into view.
-const thumbnailCallbacks = new WeakMap<Element, (visible: boolean) => void>();
-let thumbnailObserver: IntersectionObserver | undefined;
+// One IntersectionObserver serves every element that needs to know when it is on
+// screen. The sidebar renders a tile for each page, so a long document used to
+// mount one observer per page, and that registration cost dominated opening the
+// panel. Entries stay observed, because a tile has to notice when it scrolls back
+// into view.
+const visibilityCallbacks = new WeakMap<Element, (visible: boolean) => void>();
+let visibilityObserver: IntersectionObserver | undefined;
 
-function observeThumbnail(element: Element, onVisibilityChange: (visible: boolean) => void) {
+function observeVisibility(element: Element, onVisibilityChange: (visible: boolean) => void) {
   if (typeof IntersectionObserver === "undefined") {
     onVisibilityChange(true);
     return () => {};
   }
-  thumbnailObserver ??= new IntersectionObserver(
+  visibilityObserver ??= new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        thumbnailCallbacks.get(entry.target)?.(entry.isIntersecting);
+        visibilityCallbacks.get(entry.target)?.(entry.isIntersecting);
       }
     },
     { rootMargin: "300px" },
   );
-  thumbnailCallbacks.set(element, onVisibilityChange);
-  thumbnailObserver.observe(element);
+  visibilityCallbacks.set(element, onVisibilityChange);
+  visibilityObserver.observe(element);
   return () => {
-    thumbnailCallbacks.delete(element);
-    thumbnailObserver?.unobserve(element);
+    visibilityCallbacks.delete(element);
+    visibilityObserver?.unobserve(element);
   };
 }
 
@@ -1214,7 +1246,7 @@ function PdfThumbnail({
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    return observeThumbnail(host, setVisible);
+    return observeVisibility(host, setVisible);
   }, []);
 
   useEffect(() => {

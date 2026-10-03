@@ -5,7 +5,9 @@ import { strToU8, zipSync } from "fflate";
 const now = "2026-08-01T12:00:00Z";
 const pdfId = "71111111-1111-4111-8111-111111111111";
 const epubId = "72222222-2222-4222-8222-222222222222";
+const longPdfId = "73333333-3333-4333-8333-333333333333";
 const pdf = readFileSync(new URL("./fixtures/viewers/sample.pdf", import.meta.url));
+const longPdf = readFileSync(new URL("./fixtures/viewers/sample-long.pdf", import.meta.url));
 const epub = makeEpub();
 
 // foliate-view is a custom element: the DOM types only know it as an element,
@@ -19,6 +21,7 @@ type FoliateView = HTMLElement & {
 const files = [
   file(pdfId, "reader-sample.pdf", "application/pdf", pdf.byteLength),
   file(epubId, "reader-sample.epub", "application/epub+zip", epub.byteLength),
+  file(longPdfId, "reader-long.pdf", "application/pdf", longPdf.byteLength),
 ];
 
 type ViewerApiStats = { pdfContentRequests: number };
@@ -99,6 +102,9 @@ async function installViewerApi(page: Page, stats?: ViewerApiStats) {
     if (content === pdfId) {
       if (stats) stats.pdfContentRequests += 1;
       return route.fulfill({ body: pdf, contentType: "application/pdf" });
+    }
+    if (content === longPdfId) {
+      return route.fulfill({ body: longPdf, contentType: "application/pdf" });
     }
     if (content === epubId) {
       return route.fulfill({ body: epub, contentType: "application/epub+zip" });
@@ -189,6 +195,47 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test("the thumbnail panel of a long document grows as it is scrolled", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await installViewerApi(page);
+  await page.goto("/files?view=list");
+  await openFile(page, "reader-long.pdf");
+
+  const dialog = page.getByRole("dialog", { name: "reader-long.pdf" });
+  await expect(dialog).toBeVisible();
+
+  // The sidebar is an aside on a wide viewport and a drawer on a narrow one, so the
+  // tiles are read from whichever arrangement the viewport uses.
+  const viewportWidth = page.viewportSize()?.width ?? 0;
+  if (viewportWidth < 1024) {
+    await dialog.getByRole("button", { name: "Open PDF sidebar" }).click();
+  }
+  const host =
+    viewportWidth >= 1024
+      ? dialog
+      : page.getByRole("dialog", { name: "Document navigation" });
+  const tiles = host.getByRole("button", { name: /^Go to page / });
+  await expect(tiles.first()).toBeVisible({ timeout: 30_000 });
+  await expect(host.getByRole("button", { name: "Go to page 1", exact: true })).toBeVisible();
+
+  // The panel renders a batch of tiles rather than one per page, so the last page of
+  // a hundred and twenty page document is not mounted while the first is on screen.
+  const mounted = await tiles.count();
+  expect(mounted).toBeLessThan(120);
+  await expect(host.getByRole("button", { name: "Go to page 120", exact: true })).toHaveCount(0);
+
+  const panel = host.locator('[role="tabpanel"]').first();
+  await panel.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect
+    .poll(() => tiles.count(), { timeout: 15_000 })
+    .toBeGreaterThan(mounted);
   expect(errors).toEqual([]);
 });
 
