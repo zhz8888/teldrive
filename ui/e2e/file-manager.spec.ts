@@ -160,12 +160,15 @@ async function installFileApi(page: Page) {
       uploadSequence++;
       return route.fulfill({
         status: 201,
+        // The shape of UploadSession: modTime is required by the contract, and a
+        // userId field does not exist there, so a mock carrying one would let a
+        // schema change pass unnoticed.
         json: {
           id: `66666666-6666-4666-8666-${String(uploadSequence).padStart(12, "0")}`,
-          userId: 1,
           parentId: body.parentId,
           name: body.name,
           expectedSize: body.size,
+          modTime: now,
           partSize: 512 * 1024 * 1024,
           state: "open",
           encryption: body.encryption,
@@ -182,7 +185,25 @@ async function installFileApi(page: Page) {
     if (uploadMatch) {
       const [, uploadId, parts, , complete] = uploadMatch;
       if (method === "GET" && parts) return route.fulfill({ json: { items: [] } });
-      if (method === "PUT" && parts) return route.fulfill({ status: 204 });
+      if (method === "PUT" && parts) {
+        // The contract answers an uploaded part with the stored UploadPart and
+        // declares 200 and 201, never an empty 204, so the client path is exercised
+        // against the response it will actually receive.
+        const partNo = Number(uploadMatch[3] ?? 1);
+        const plainSize = request.postDataBuffer()?.length ?? 0;
+        return route.fulfill({
+          status: 201,
+          json: {
+            uploadId,
+            partNo,
+            state: "stored",
+            plainSize,
+            storedSize: plainSize,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
       if (method === "POST" && complete) {
         return route.fulfill({
           json: file({
