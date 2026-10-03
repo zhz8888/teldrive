@@ -181,7 +181,8 @@ namespace Uploads {
     | ErrorResponse<400>
     | ErrorResponse<401>
     | ErrorResponse<422>
-    | ErrorResponse<503>;
+    | ErrorResponse<503>
+    | ErrorResponse<403>;
 
   /** Create a durable upload session. */
   @post
@@ -203,7 +204,8 @@ namespace Uploads {
     | JsonResponse<200, UploadSession>
     | ErrorResponse<401>
     | ErrorResponse<404>
-    | ErrorResponse<410>;
+    | ErrorResponse<410>
+    | ErrorResponse<403>;
 
   /** List parts already known to the upload session. */
   @get
@@ -213,7 +215,9 @@ namespace Uploads {
     | JsonResponse<200, CursorPage<UploadPart>>
     | ErrorResponse<401>
     | ErrorResponse<404>
-    | ErrorResponse<410>;
+    | ErrorResponse<410>
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /**
    * Upload one part. The `(uploadId, partNo)` pair is the idempotency key.
@@ -237,7 +241,8 @@ namespace Uploads {
     | ErrorResponse<413>
     | ErrorResponse<422>
     | ErrorResponse<429>
-    | ErrorResponse<503>;
+    | ErrorResponse<503>
+    | ErrorResponse<403>;
 
   /**
    * Validate all parts and transactionally publish the file. A successful response
@@ -252,7 +257,8 @@ namespace Uploads {
     | ErrorResponse<404>
     | ErrorResponse<409>
     | ErrorResponse<410>
-    | ErrorResponse<422>;
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /** Abort an upload and schedule physical Telegram cleanup. */
   @delete
@@ -262,5 +268,6 @@ namespace Uploads {
     | EmptyResponse<204>
     | ErrorResponse<401>
     | ErrorResponse<404>
-    | ErrorResponse<409>;
+    | ErrorResponse<409>
+    | ErrorResponse<403>;
 }

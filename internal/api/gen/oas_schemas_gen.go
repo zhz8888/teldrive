@@ -38,6 +38,10 @@ type AbortUploadConflict ErrorEnvelope
 
 func (*AbortUploadConflict) abortUploadRes() {}
 
+type AbortUploadForbidden ErrorEnvelope
+
+func (*AbortUploadForbidden) abortUploadRes() {}
+
 // AbortUploadNoContent is response for AbortUpload operation.
 type AbortUploadNoContent struct{}
 
@@ -436,6 +440,10 @@ type BulkMoveFilesConflict ErrorEnvelope
 
 func (*BulkMoveFilesConflict) bulkMoveFilesRes() {}
 
+type BulkMoveFilesForbidden ErrorEnvelope
+
+func (*BulkMoveFilesForbidden) bulkMoveFilesRes() {}
+
 type BulkMoveFilesNotFound ErrorEnvelope
 
 func (*BulkMoveFilesNotFound) bulkMoveFilesRes() {}
@@ -451,6 +459,10 @@ func (*BulkMoveFilesUnprocessableEntity) bulkMoveFilesRes() {}
 type BulkTrashFilesConflict ErrorEnvelope
 
 func (*BulkTrashFilesConflict) bulkTrashFilesRes() {}
+
+type BulkTrashFilesForbidden ErrorEnvelope
+
+func (*BulkTrashFilesForbidden) bulkTrashFilesRes() {}
 
 type BulkTrashFilesNotFound ErrorEnvelope
 
@@ -667,6 +679,10 @@ func (*CompleteUploadConflict) completeUploadRes() {}
 type CompleteUploadCreated CopyFileCreatedHeaders
 
 func (*CompleteUploadCreated) completeUploadRes() {}
+
+type CompleteUploadForbidden ErrorEnvelope
+
+func (*CompleteUploadForbidden) completeUploadRes() {}
 
 type CompleteUploadGone ErrorEnvelope
 
@@ -887,6 +903,10 @@ func (s *CopyFileCreatedHeaders) SetResponse(val FileEntry) {
 func (*CopyFileCreatedHeaders) copyFileRes()     {}
 func (*CopyFileCreatedHeaders) createFolderRes() {}
 
+type CopyFileForbidden ErrorEnvelope
+
+func (*CopyFileForbidden) copyFileRes() {}
+
 type CopyFileNotFound ErrorEnvelope
 
 func (*CopyFileNotFound) copyFileRes() {}
@@ -991,9 +1011,17 @@ type CreateJobConflict ErrorEnvelope
 
 func (*CreateJobConflict) createJobRes() {}
 
+type CreateJobForbidden ErrorEnvelope
+
+func (*CreateJobForbidden) createJobRes() {}
+
 type CreateJobUnauthorized ErrorEnvelope
 
 func (*CreateJobUnauthorized) createJobRes() {}
+
+type CreateJobUnprocessableEntity ErrorEnvelope
+
+func (*CreateJobUnprocessableEntity) createJobRes() {}
 
 type CreatePeriodicJobBadRequest ErrorEnvelope
 
@@ -1010,6 +1038,10 @@ func (*CreatePeriodicJobForbidden) createPeriodicJobRes() {}
 type CreatePeriodicJobUnauthorized ErrorEnvelope
 
 func (*CreatePeriodicJobUnauthorized) createPeriodicJobRes() {}
+
+type CreatePeriodicJobUnprocessableEntity ErrorEnvelope
+
+func (*CreatePeriodicJobUnprocessableEntity) createPeriodicJobRes() {}
 
 type CreatePublicShareFolderForbidden ErrorEnvelope
 
@@ -1078,6 +1110,10 @@ func (*CreateUploadConflict) createUploadRes() {}
 type CreateUploadImportBadRequest ErrorEnvelope
 
 func (*CreateUploadImportBadRequest) createUploadImportRes() {}
+
+type CreateUploadImportForbidden ErrorEnvelope
+
+func (*CreateUploadImportForbidden) createUploadImportRes() {}
 
 type CreateUploadImportServiceUnavailable ErrorEnvelope
 
@@ -3228,11 +3264,7 @@ func (*ErrorEnvelope) getFileCategoryStatisticsRes() {}
 func (*ErrorEnvelope) getJobStatisticsRes()          {}
 func (*ErrorEnvelope) getStorageStatsRes()           {}
 func (*ErrorEnvelope) healthReadyRes()               {}
-func (*ErrorEnvelope) listApiKeysRes()               {}
-func (*ErrorEnvelope) listBotsRes()                  {}
-func (*ErrorEnvelope) listChannelsRes()              {}
 func (*ErrorEnvelope) listJobQueuesRes()             {}
-func (*ErrorEnvelope) listSessionsRes()              {}
 func (*ErrorEnvelope) logoutCookieSessionRes()       {}
 func (*ErrorEnvelope) logoutSessionRes()             {}
 
@@ -4876,6 +4908,10 @@ func (s *GetProfilePhotoOKHeaders) SetResponse(val GetProfilePhotoOK) {
 
 func (*GetProfilePhotoOKHeaders) getProfilePhotoRes() {}
 
+type GetProfilePhotoRequestEntityTooLarge ErrorEnvelope
+
+func (*GetProfilePhotoRequestEntityTooLarge) getProfilePhotoRes() {}
+
 type GetProfilePhotoTooManyRequests ErrorEnvelope
 
 func (*GetProfilePhotoTooManyRequests) getProfilePhotoRes() {}
@@ -4899,6 +4935,10 @@ func (*GetPublicShareTooManyRequests) getPublicShareRes() {}
 type GetPublicShareUnauthorized ErrorEnvelope
 
 func (*GetPublicShareUnauthorized) getPublicShareRes() {}
+
+type GetUploadForbidden ErrorEnvelope
+
+func (*GetUploadForbidden) getUploadRes() {}
 
 type GetUploadGone ErrorEnvelope
 
@@ -6428,6 +6468,14 @@ func (s *ListApiKeysOK) SetNextCursor(val OptCursor) {
 
 func (*ListApiKeysOK) listApiKeysRes() {}
 
+type ListApiKeysUnauthorized ErrorEnvelope
+
+func (*ListApiKeysUnauthorized) listApiKeysRes() {}
+
+type ListApiKeysUnprocessableEntity ErrorEnvelope
+
+func (*ListApiKeysUnprocessableEntity) listApiKeysRes() {}
+
 type ListBotsOK struct {
 	Items      []BotSummary `json:"items"`
 	NextCursor OptCursor    `json:"nextCursor"`
@@ -6455,6 +6503,14 @@ func (s *ListBotsOK) SetNextCursor(val OptCursor) {
 
 func (*ListBotsOK) listBotsRes() {}
 
+type ListBotsUnauthorized ErrorEnvelope
+
+func (*ListBotsUnauthorized) listBotsRes() {}
+
+type ListBotsUnprocessableEntity ErrorEnvelope
+
+func (*ListBotsUnprocessableEntity) listBotsRes() {}
+
 type ListChannelsOK struct {
 	Items      []ChannelSummary `json:"items"`
 	NextCursor OptCursor        `json:"nextCursor"`
@@ -6481,6 +6537,14 @@ func (s *ListChannelsOK) SetNextCursor(val OptCursor) {
 }
 
 func (*ListChannelsOK) listChannelsRes() {}
+
+type ListChannelsUnauthorized ErrorEnvelope
+
+func (*ListChannelsUnauthorized) listChannelsRes() {}
+
+type ListChannelsUnprocessableEntity ErrorEnvelope
+
+func (*ListChannelsUnprocessableEntity) listChannelsRes() {}
 
 type ListFileAccessGrantsNotFound ErrorEnvelope
 
@@ -6529,6 +6593,10 @@ type ListFileSharesUnauthorized ErrorEnvelope
 
 func (*ListFileSharesUnauthorized) listFileSharesRes() {}
 
+type ListFileSharesUnprocessableEntity ErrorEnvelope
+
+func (*ListFileSharesUnprocessableEntity) listFileSharesRes() {}
+
 type ListFilesNotFound ErrorEnvelope
 
 func (*ListFilesNotFound) listFilesRes() {}
@@ -6575,6 +6643,10 @@ func (*ListJobsBadRequest) listJobsRes() {}
 type ListJobsUnauthorized ErrorEnvelope
 
 func (*ListJobsUnauthorized) listJobsRes() {}
+
+type ListJobsUnprocessableEntity ErrorEnvelope
+
+func (*ListJobsUnprocessableEntity) listJobsRes() {}
 
 type ListPeriodicJobsForbidden ErrorEnvelope
 
@@ -6658,6 +6730,14 @@ func (s *ListSessionsOK) SetNextCursor(val OptCursor) {
 
 func (*ListSessionsOK) listSessionsRes() {}
 
+type ListSessionsUnauthorized ErrorEnvelope
+
+func (*ListSessionsUnauthorized) listSessionsRes() {}
+
+type ListSessionsUnprocessableEntity ErrorEnvelope
+
+func (*ListSessionsUnprocessableEntity) listSessionsRes() {}
+
 type ListSharedOK struct {
 	Items      []FileEntry `json:"items"`
 	NextCursor OptCursor   `json:"nextCursor"`
@@ -6728,6 +6808,10 @@ type ListSharedWithMeUnprocessableEntity ErrorEnvelope
 
 func (*ListSharedWithMeUnprocessableEntity) listSharedWithMeRes() {}
 
+type ListUploadPartsForbidden ErrorEnvelope
+
+func (*ListUploadPartsForbidden) listUploadPartsRes() {}
+
 type ListUploadPartsGone ErrorEnvelope
 
 func (*ListUploadPartsGone) listUploadPartsRes() {}
@@ -6766,6 +6850,10 @@ func (*ListUploadPartsOK) listUploadPartsRes() {}
 type ListUploadPartsUnauthorized ErrorEnvelope
 
 func (*ListUploadPartsUnauthorized) listUploadPartsRes() {}
+
+type ListUploadPartsUnprocessableEntity ErrorEnvelope
+
+func (*ListUploadPartsUnprocessableEntity) listUploadPartsRes() {}
 
 type ListUploadsOK struct {
 	Items      []UploadSession `json:"items"`
@@ -6827,6 +6915,10 @@ func (*LogoutSessionNoContent) logoutSessionRes() {}
 type MoveFileConflict ErrorEnvelope
 
 func (*MoveFileConflict) moveFileRes() {}
+
+type MoveFileForbidden ErrorEnvelope
+
+func (*MoveFileForbidden) moveFileRes() {}
 
 type MoveFileNotFound ErrorEnvelope
 
@@ -9186,6 +9278,10 @@ type PutUploadPartCreated UploadPart
 
 func (*PutUploadPartCreated) putUploadPartRes() {}
 
+type PutUploadPartForbidden ErrorEnvelope
+
+func (*PutUploadPartForbidden) putUploadPartRes() {}
+
 type PutUploadPartGone ErrorEnvelope
 
 func (*PutUploadPartGone) putUploadPartRes() {}
@@ -10836,6 +10932,10 @@ type TrashFileConflict ErrorEnvelope
 
 func (*TrashFileConflict) trashFileRes() {}
 
+type TrashFileForbidden ErrorEnvelope
+
+func (*TrashFileForbidden) trashFileRes() {}
+
 // TrashFileNoContent is response for TrashFile operation.
 type TrashFileNoContent struct{}
 
@@ -10937,6 +11037,10 @@ func (*UpdatePeriodicJobNotFound) updatePeriodicJobRes() {}
 type UpdatePeriodicJobUnauthorized ErrorEnvelope
 
 func (*UpdatePeriodicJobUnauthorized) updatePeriodicJobRes() {}
+
+type UpdatePeriodicJobUnprocessableEntity ErrorEnvelope
+
+func (*UpdatePeriodicJobUnprocessableEntity) updatePeriodicJobRes() {}
 
 type UpdatePublicShareFileForbidden ErrorEnvelope
 

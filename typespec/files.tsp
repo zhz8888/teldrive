@@ -359,7 +359,8 @@ namespace Files {
     | ErrorResponse<404>
     | ErrorResponse<409>
     | ErrorResponse<412>
-    | ErrorResponse<422>;
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /** Copy a file or folder to another destination. */
   @post
@@ -370,7 +371,8 @@ namespace Files {
     | ErrorResponse<401>
     | ErrorResponse<404>
     | ErrorResponse<409>
-    | ErrorResponse<422>;
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /** Move a file or folder to trash. */
   @delete
@@ -380,7 +382,8 @@ namespace Files {
     | EmptyResponse<204>
     | ErrorResponse<401>
     | ErrorResponse<404>
-    | ErrorResponse<409>;
+    | ErrorResponse<409>
+    | ErrorResponse<403>;
 
   /** Restore a trashed file or folder. */
   @post
@@ -495,7 +498,8 @@ namespace Files {
     | ErrorResponse<401>
     | ErrorResponse<404>
     | ErrorResponse<409>
-    | ErrorResponse<422>;
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /** Transactionally move multiple files or folders to trash. */
   @post
@@ -506,7 +510,8 @@ namespace Files {
     | ErrorResponse<401>
     | ErrorResponse<404>
     | ErrorResponse<409>
-    | ErrorResponse<422>;
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   /** Aggregate active file counts and bytes by category. */
   @get

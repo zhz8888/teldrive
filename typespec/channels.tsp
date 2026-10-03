@@ -60,7 +60,8 @@ namespace Channels {
   @operationId("listChannels")
   op list(...CursorQuery):
     | JsonResponse<200, CursorPage<ChannelSummary>>
-    | ErrorResponse<401>;
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
   /** List Telegram channels where the authenticated user can add administrators. */
   @get
@@ -116,7 +117,8 @@ namespace Bots {
   @operationId("listBots")
   op list(...CursorQuery):
     | JsonResponse<200, CursorPage<BotSummary>>
-    | ErrorResponse<401>;
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
   @post
   @operationId("createBots")

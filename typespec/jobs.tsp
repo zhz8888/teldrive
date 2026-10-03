@@ -174,7 +174,8 @@ namespace Jobs {
   op list(...JobListQuery):
     | JsonResponse<200, JobPage>
     | ErrorResponse<400>
-    | ErrorResponse<401>;
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
   @post
   @operationId("createJob")
@@ -182,7 +183,9 @@ namespace Jobs {
     | JsonResponse<201, Job>
     | ErrorResponse<400>
     | ErrorResponse<401>
-    | ErrorResponse<409>;
+    | ErrorResponse<409>
+    | ErrorResponse<422>
+    | ErrorResponse<403>;
 
   @get
   @route("/statistics")
@@ -269,7 +272,8 @@ namespace PeriodicJobs {
     | ErrorResponse<400>
     | ErrorResponse<401>
     | ErrorResponse<403>
-    | ErrorResponse<409>;
+    | ErrorResponse<409>
+    | ErrorResponse<422>;
 
   @get
   @route("/catalog")
@@ -289,7 +293,8 @@ namespace PeriodicJobs {
     | ErrorResponse<400>
     | ErrorResponse<401>
     | ErrorResponse<403>
-    | ErrorResponse<404>;
+    | ErrorResponse<404>
+    | ErrorResponse<422>;
 
   @delete
   @route("/{periodicJobId}")

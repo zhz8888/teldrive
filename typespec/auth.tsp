@@ -325,7 +325,8 @@ namespace Account {
     | ProfilePhotoResponse
     | EmptyResponse<204>
     | ErrorResponse<401>
-    | ErrorResponse<429>;
+    | ErrorResponse<429>
+    | ErrorResponse<413>;
   /** Revoke the current session. */
   @post
   @route("/auth/logout")
@@ -390,7 +391,8 @@ namespace ApiKeys {
   @operationId("listApiKeys")
   op list(...CursorQuery):
     | JsonResponse<200, CursorPage<ApiKeySummary>>
-    | ErrorResponse<401>;
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
   @post
   @operationId("createApiKey")
@@ -418,7 +420,8 @@ namespace Sessions {
   @operationId("listSessions")
   op list(...CursorQuery):
     | JsonResponse<200, CursorPage<SessionSummary>>
-    | ErrorResponse<401>;
+    | ErrorResponse<401>
+    | ErrorResponse<422>;
 
   /** Revoke one TelDrive session. Revoking the current session invalidates its bearer token immediately. */
   @delete

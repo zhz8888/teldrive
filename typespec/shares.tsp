@@ -136,7 +136,8 @@ namespace Shares {
   op listForFile(...CursorQuery, @path fileId: Uuid):
     | JsonResponse<200, CursorPage<ShareSummary>>
     | ErrorResponse<401>
-    | ErrorResponse<404>;
+    | ErrorResponse<404>
+    | ErrorResponse<422>;
 
   @patch
   @route("/shares/{shareId}")
