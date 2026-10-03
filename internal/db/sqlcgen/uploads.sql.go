@@ -552,39 +552,6 @@ func (q *Queries) GetAllUploadPartSummary(ctx context.Context, uploadID pgtype.U
 	return &i, err
 }
 
-const getStoredUploadPartSummary = `-- name: GetStoredUploadPartSummary :one
-SELECT
-    count(*)::integer AS part_count,
-    COALESCE(sum(plain_size), 0)::bigint AS plain_size,
-    COALESCE(sum(stored_size), 0)::bigint AS stored_size,
-    COALESCE(min(part_no), 0)::integer AS min_part_no,
-    COALESCE(max(part_no), 0)::integer AS max_part_no
-FROM /* TEMPLATE: schema */upload_parts
-WHERE upload_id = $1
-  AND state = 'stored'
-`
-
-type GetStoredUploadPartSummaryRow struct {
-	PartCount  int32 `json:"part_count"`
-	PlainSize  int64 `json:"plain_size"`
-	StoredSize int64 `json:"stored_size"`
-	MinPartNo  int32 `json:"min_part_no"`
-	MaxPartNo  int32 `json:"max_part_no"`
-}
-
-func (q *Queries) GetStoredUploadPartSummary(ctx context.Context, uploadID pgtype.UUID) (*GetStoredUploadPartSummaryRow, error) {
-	row := q.db.QueryRow(ctx, getStoredUploadPartSummary, uploadID)
-	var i GetStoredUploadPartSummaryRow
-	err := row.Scan(
-		&i.PartCount,
-		&i.PlainSize,
-		&i.StoredSize,
-		&i.MinPartNo,
-		&i.MaxPartNo,
-	)
-	return &i, err
-}
-
 const getUploadPart = `-- name: GetUploadPart :one
 SELECT upload_id, part_no, channel_id, message_id, plain_size, stored_size, checksum, salt, state, lease_token, lease_expires_at, last_error_code, created_at, updated_at, block_hashes
 FROM /* TEMPLATE: schema */upload_parts

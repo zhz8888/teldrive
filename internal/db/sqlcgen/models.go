@@ -512,7 +512,6 @@ type FileShare struct {
 	ID            pgtype.UUID        `json:"id"`
 	FileID        pgtype.UUID        `json:"file_id"`
 	OwnerID       int64              `json:"owner_id"`
-	TokenPrefix   string             `json:"token_prefix"`
 	TokenHash     []byte             `json:"token_hash"`
 	PasswordHash  pgtype.Text        `json:"password_hash"`
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`

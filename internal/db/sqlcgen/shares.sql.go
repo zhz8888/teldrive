@@ -64,7 +64,6 @@ INSERT INTO /* TEMPLATE: schema */file_shares (
     id,
     file_id,
     owner_id,
-    token_prefix,
     token_hash,
     password_hash,
     expires_at,
@@ -78,17 +77,15 @@ INSERT INTO /* TEMPLATE: schema */file_shares (
     $5,
     $6,
     $7,
-    $8,
-    $9
+    $8
 )
-RETURNING id, file_id, owner_id, token_prefix, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
+RETURNING id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 `
 
 type CreateFileShareParams struct {
 	ID           pgtype.UUID        `json:"id"`
 	FileID       pgtype.UUID        `json:"file_id"`
 	OwnerID      int64              `json:"owner_id"`
-	TokenPrefix  string             `json:"token_prefix"`
 	TokenHash    []byte             `json:"token_hash"`
 	PasswordHash pgtype.Text        `json:"password_hash"`
 	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
@@ -101,7 +98,6 @@ func (q *Queries) CreateFileShare(ctx context.Context, arg CreateFileShareParams
 		arg.ID,
 		arg.FileID,
 		arg.OwnerID,
-		arg.TokenPrefix,
 		arg.TokenHash,
 		arg.PasswordHash,
 		arg.ExpiresAt,
@@ -113,7 +109,6 @@ func (q *Queries) CreateFileShare(ctx context.Context, arg CreateFileShareParams
 		&i.ID,
 		&i.FileID,
 		&i.OwnerID,
-		&i.TokenPrefix,
 		&i.TokenHash,
 		&i.PasswordHash,
 		&i.ExpiresAt,
@@ -126,40 +121,8 @@ func (q *Queries) CreateFileShare(ctx context.Context, arg CreateFileShareParams
 	return &i, err
 }
 
-const getActiveFileAnyOwner = `-- name: GetActiveFileAnyOwner :one
-SELECT id, user_id, parent_id, name, kind, mime_type, size, hash_algorithm, hash_value, encryption, encryption_key_version, status, mod_time, generation, created_at, updated_at, deleted_at
-FROM /* TEMPLATE: schema */files
-WHERE id = $1
-  AND status = 'active'
-`
-
-func (q *Queries) GetActiveFileAnyOwner(ctx context.Context, fileID pgtype.UUID) (*File, error) {
-	row := q.db.QueryRow(ctx, getActiveFileAnyOwner, fileID)
-	var i File
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.ParentID,
-		&i.Name,
-		&i.Kind,
-		&i.MimeType,
-		&i.Size,
-		&i.HashAlgorithm,
-		&i.HashValue,
-		&i.Encryption,
-		&i.EncryptionKeyVersion,
-		&i.Status,
-		&i.ModTime,
-		&i.Generation,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return &i, err
-}
-
 const getActiveShareByTokenHash = `-- name: GetActiveShareByTokenHash :one
-SELECT fs.id, fs.file_id, fs.owner_id, fs.token_prefix, fs.token_hash, fs.password_hash, fs.expires_at, fs.max_downloads, fs.download_count, fs.created_at, fs.revoked_at, fs.permission, f.name AS file_name, f.kind AS file_kind, f.status AS file_status
+SELECT fs.id, fs.file_id, fs.owner_id, fs.token_hash, fs.password_hash, fs.expires_at, fs.max_downloads, fs.download_count, fs.created_at, fs.revoked_at, fs.permission, f.name AS file_name, f.kind AS file_kind, f.status AS file_status
 FROM /* TEMPLATE: schema */file_shares fs
 JOIN /* TEMPLATE: schema */files f ON f.id = fs.file_id
 WHERE fs.token_hash = $1
@@ -173,7 +136,6 @@ type GetActiveShareByTokenHashRow struct {
 	ID            pgtype.UUID        `json:"id"`
 	FileID        pgtype.UUID        `json:"file_id"`
 	OwnerID       int64              `json:"owner_id"`
-	TokenPrefix   string             `json:"token_prefix"`
 	TokenHash     []byte             `json:"token_hash"`
 	PasswordHash  pgtype.Text        `json:"password_hash"`
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
@@ -194,7 +156,6 @@ func (q *Queries) GetActiveShareByTokenHash(ctx context.Context, tokenHash []byt
 		&i.ID,
 		&i.FileID,
 		&i.OwnerID,
-		&i.TokenPrefix,
 		&i.TokenHash,
 		&i.PasswordHash,
 		&i.ExpiresAt,
@@ -210,38 +171,8 @@ func (q *Queries) GetActiveShareByTokenHash(ctx context.Context, tokenHash []byt
 	return &i, err
 }
 
-const getFileAccessGrantForOwner = `-- name: GetFileAccessGrantForOwner :one
-SELECT id, file_id, owner_id, grantee_id, permission, expires_at, created_at, updated_at, revoked_at
-FROM /* TEMPLATE: schema */file_access_grants
-WHERE id = $1
-  AND owner_id = $2
-  AND revoked_at IS NULL
-`
-
-type GetFileAccessGrantForOwnerParams struct {
-	ID      pgtype.UUID `json:"id"`
-	OwnerID int64       `json:"owner_id"`
-}
-
-func (q *Queries) GetFileAccessGrantForOwner(ctx context.Context, arg GetFileAccessGrantForOwnerParams) (*FileAccessGrant, error) {
-	row := q.db.QueryRow(ctx, getFileAccessGrantForOwner, arg.ID, arg.OwnerID)
-	var i FileAccessGrant
-	err := row.Scan(
-		&i.ID,
-		&i.FileID,
-		&i.OwnerID,
-		&i.GranteeID,
-		&i.Permission,
-		&i.ExpiresAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.RevokedAt,
-	)
-	return &i, err
-}
-
 const getFileShareForOwner = `-- name: GetFileShareForOwner :one
-SELECT id, file_id, owner_id, token_prefix, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
+SELECT id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 FROM /* TEMPLATE: schema */file_shares
 WHERE id = $1
   AND owner_id = $2
@@ -259,7 +190,6 @@ func (q *Queries) GetFileShareForOwner(ctx context.Context, arg GetFileShareForO
 		&i.ID,
 		&i.FileID,
 		&i.OwnerID,
-		&i.TokenPrefix,
 		&i.TokenHash,
 		&i.PasswordHash,
 		&i.ExpiresAt,
@@ -279,7 +209,7 @@ WHERE id = $1
   AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > now())
   AND (max_downloads IS NULL OR download_count < max_downloads)
-RETURNING id, file_id, owner_id, token_prefix, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
+RETURNING id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 `
 
 func (q *Queries) IncrementShareDownloadCount(ctx context.Context, id pgtype.UUID) (*FileShare, error) {
@@ -289,7 +219,6 @@ func (q *Queries) IncrementShareDownloadCount(ctx context.Context, id pgtype.UUI
 		&i.ID,
 		&i.FileID,
 		&i.OwnerID,
-		&i.TokenPrefix,
 		&i.TokenHash,
 		&i.PasswordHash,
 		&i.ExpiresAt,
@@ -300,33 +229,6 @@ func (q *Queries) IncrementShareDownloadCount(ctx context.Context, id pgtype.UUI
 		&i.Permission,
 	)
 	return &i, err
-}
-
-const listActiveFileIDsAnyOwner = `-- name: ListActiveFileIDsAnyOwner :many
-SELECT id
-FROM /* TEMPLATE: schema */files
-WHERE id = ANY($1::uuid[])
-  AND status = 'active'
-`
-
-func (q *Queries) ListActiveFileIDsAnyOwner(ctx context.Context, fileIds []pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listActiveFileIDsAnyOwner, fileIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []pgtype.UUID{}
-	for rows.Next() {
-		var id pgtype.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listFileAccessGrantsForOwner = `-- name: ListFileAccessGrantsForOwner :many
@@ -391,7 +293,7 @@ func (q *Queries) ListFileAccessGrantsForOwner(ctx context.Context, arg ListFile
 }
 
 const listFileShares = `-- name: ListFileShares :many
-SELECT id, file_id, owner_id, token_prefix, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
+SELECT id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 FROM /* TEMPLATE: schema */file_shares
 WHERE owner_id = $1
   AND file_id = $2
@@ -433,7 +335,6 @@ func (q *Queries) ListFileShares(ctx context.Context, arg ListFileSharesParams) 
 			&i.ID,
 			&i.FileID,
 			&i.OwnerID,
-			&i.TokenPrefix,
 			&i.TokenHash,
 			&i.PasswordHash,
 			&i.ExpiresAt,
@@ -728,22 +629,6 @@ func (q *Queries) ResolveFileAccessMany(ctx context.Context, arg ResolveFileAcce
 	return items, nil
 }
 
-const revokeExpiredShares = `-- name: RevokeExpiredShares :execrows
-UPDATE /* TEMPLATE: schema */file_shares
-SET revoked_at = now()
-WHERE revoked_at IS NULL
-  AND expires_at IS NOT NULL
-  AND expires_at <= now()
-`
-
-func (q *Queries) RevokeExpiredShares(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, revokeExpiredShares)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const revokeFileAccessGrant = `-- name: RevokeFileAccessGrant :execrows
 UPDATE /* TEMPLATE: schema */file_access_grants
 SET revoked_at = now(), updated_at = now()
@@ -854,7 +739,7 @@ WHERE id = $8
     OR $6::bigint IS NULL
     OR $6::bigint >= download_count
   )
-RETURNING id, file_id, owner_id, token_prefix, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
+RETURNING id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 `
 
 type UpdateFileShareParams struct {
@@ -886,7 +771,6 @@ func (q *Queries) UpdateFileShare(ctx context.Context, arg UpdateFileShareParams
 		&i.ID,
 		&i.FileID,
 		&i.OwnerID,
-		&i.TokenPrefix,
 		&i.TokenHash,
 		&i.PasswordHash,
 		&i.ExpiresAt,

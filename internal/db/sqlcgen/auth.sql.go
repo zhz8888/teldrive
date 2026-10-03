@@ -336,31 +336,6 @@ func (q *Queries) GetTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*Te
 	return &i, err
 }
 
-const getTelegramLoginFlowForUpdate = `-- name: GetTelegramLoginFlowForUpdate :one
-SELECT id, method, phone_number_ciphertext, telegram_state_ciphertext, password_required, expires_at, completed_at, created_at
-FROM /* TEMPLATE: schema */telegram_login_flows
-WHERE id = $1
-  AND completed_at IS NULL
-  AND expires_at > now()
-FOR UPDATE
-`
-
-func (q *Queries) GetTelegramLoginFlowForUpdate(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error) {
-	row := q.db.QueryRow(ctx, getTelegramLoginFlowForUpdate, id)
-	var i TelegramLoginFlow
-	err := row.Scan(
-		&i.ID,
-		&i.Method,
-		&i.PhoneNumberCiphertext,
-		&i.TelegramStateCiphertext,
-		&i.PasswordRequired,
-		&i.ExpiresAt,
-		&i.CompletedAt,
-		&i.CreatedAt,
-	)
-	return &i, err
-}
-
 const getUser = `-- name: GetUser :one
 SELECT user_id, display_name, username, premium, created_at, updated_at, role, disabled_at
 FROM /* TEMPLATE: schema */users

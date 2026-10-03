@@ -110,52 +110,6 @@ func (q *Queries) GetUserEventCursorState(ctx context.Context, arg GetUserEventC
 	return &i, err
 }
 
-const insertUserEvent = `-- name: InsertUserEvent :one
-INSERT INTO /* TEMPLATE: schema */user_events (
-    user_id, event_type, resource_type, resource_id, generation, payload
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6
-)
-RETURNING id, user_id, event_type, resource_type, resource_id, generation, payload, occurred_at
-`
-
-type InsertUserEventParams struct {
-	UserID       int64       `json:"user_id"`
-	EventType    string      `json:"event_type"`
-	ResourceType string      `json:"resource_type"`
-	ResourceID   pgtype.Text `json:"resource_id"`
-	Generation   pgtype.Int8 `json:"generation"`
-	Payload      []byte      `json:"payload"`
-}
-
-func (q *Queries) InsertUserEvent(ctx context.Context, arg InsertUserEventParams) (*UserEvent, error) {
-	row := q.db.QueryRow(ctx, insertUserEvent,
-		arg.UserID,
-		arg.EventType,
-		arg.ResourceType,
-		arg.ResourceID,
-		arg.Generation,
-		arg.Payload,
-	)
-	var i UserEvent
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.EventType,
-		&i.ResourceType,
-		&i.ResourceID,
-		&i.Generation,
-		&i.Payload,
-		&i.OccurredAt,
-	)
-	return &i, err
-}
-
 const listUserEventsAfter = `-- name: ListUserEventsAfter :many
 SELECT id, user_id, event_type, resource_type, resource_id, generation, payload, occurred_at
 FROM /* TEMPLATE: schema */user_events

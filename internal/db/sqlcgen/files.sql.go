@@ -1191,48 +1191,6 @@ func (q *Queries) MarkAllTrashedDeletionPending(ctx context.Context, userID int6
 	return items, nil
 }
 
-const markFileDeletionPending = `-- name: MarkFileDeletionPending :one
-UPDATE /* TEMPLATE: schema */files
-SET status = 'deletion_pending',
-    deleted_at = COALESCE(deleted_at, now()),
-    generation = generation + 1,
-    updated_at = now()
-WHERE id = $1
-  AND user_id = $2
-  AND status = 'trashed'
-RETURNING id, user_id, parent_id, name, kind, mime_type, size, hash_algorithm, hash_value, encryption, encryption_key_version, status, mod_time, generation, created_at, updated_at, deleted_at
-`
-
-type MarkFileDeletionPendingParams struct {
-	FileID pgtype.UUID `json:"file_id"`
-	UserID int64       `json:"user_id"`
-}
-
-func (q *Queries) MarkFileDeletionPending(ctx context.Context, arg MarkFileDeletionPendingParams) (*File, error) {
-	row := q.db.QueryRow(ctx, markFileDeletionPending, arg.FileID, arg.UserID)
-	var i File
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.ParentID,
-		&i.Name,
-		&i.Kind,
-		&i.MimeType,
-		&i.Size,
-		&i.HashAlgorithm,
-		&i.HashValue,
-		&i.Encryption,
-		&i.EncryptionKeyVersion,
-		&i.Status,
-		&i.ModTime,
-		&i.Generation,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return &i, err
-}
-
 const markFileIDsDeletionPending = `-- name: MarkFileIDsDeletionPending :exec
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
@@ -1686,28 +1644,6 @@ type RevokeSharesForFileSubtreesParams struct {
 func (q *Queries) RevokeSharesForFileSubtrees(ctx context.Context, arg RevokeSharesForFileSubtreesParams) error {
 	_, err := q.db.Exec(ctx, revokeSharesForFileSubtrees, arg.UserID, arg.FileIds)
 	return err
-}
-
-const sumFilePartSizes = `-- name: SumFilePartSizes :one
-SELECT
-    COALESCE(sum(plain_size), 0)::bigint AS plain_size,
-    COALESCE(sum(stored_size), 0)::bigint AS stored_size,
-    count(*)::integer AS part_count
-FROM /* TEMPLATE: schema */file_parts
-WHERE file_id = $1
-`
-
-type SumFilePartSizesRow struct {
-	PlainSize  int64 `json:"plain_size"`
-	StoredSize int64 `json:"stored_size"`
-	PartCount  int32 `json:"part_count"`
-}
-
-func (q *Queries) SumFilePartSizes(ctx context.Context, fileID pgtype.UUID) (*SumFilePartSizesRow, error) {
-	row := q.db.QueryRow(ctx, sumFilePartSizes, fileID)
-	var i SumFilePartSizesRow
-	err := row.Scan(&i.PlainSize, &i.StoredSize, &i.PartCount)
-	return &i, err
 }
 
 const trashFile = `-- name: TrashFile :one
