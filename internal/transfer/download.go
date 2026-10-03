@@ -377,6 +377,35 @@ type downloadReader struct {
 	// readerEnd is the range position just past the last byte the open reader is
 	// expected to yield; it is only meaningful while reader is non-nil.
 	readerEnd int64
+
+	// cipherMu guards ciphers, which is separate from mu because a reader is
+	// opened while mu may already be held.
+	cipherMu sync.Mutex
+	// ciphers holds the content cipher of each part opened so far, keyed by the
+	// part salt. Deriving a part key costs an scrypt pass, and a sequential
+	// download opens one reader per part while a client using ReadAt opens one per
+	// call, so without this the same key would be derived again and again.
+	ciphers map[string]*contentcrypto.Cipher
+}
+
+// partCipher returns the content cipher of the part identified by salt, deriving
+// its key at most once per download. It is safe for concurrent use, and the
+// cipher it returns has no per-stream state.
+func (r *downloadReader) partCipher(salt string) (*contentcrypto.Cipher, error) {
+	r.cipherMu.Lock()
+	defer r.cipherMu.Unlock()
+	if cached, ok := r.ciphers[salt]; ok {
+		return cached, nil
+	}
+	cipher, err := contentcrypto.NewCipher(r.key, salt)
+	if err != nil {
+		return nil, err
+	}
+	if r.ciphers == nil {
+		r.ciphers = make(map[string]*contentcrypto.Cipher)
+	}
+	r.ciphers[salt] = cipher
+	return cipher, nil
 }
 
 // Read streams the range sequentially from the current position, opening and
@@ -584,7 +613,7 @@ func (r *downloadReader) openPartReader(segment downloadSegment, partOffset, spa
 		if !segment.part.Salt.Valid || segment.part.Salt.String == "" {
 			return nil, ErrCorruptPartLayout
 		}
-		cipher, cipherErr := contentcrypto.NewCipher(r.key, segment.part.Salt.String)
+		cipher, cipherErr := r.partCipher(segment.part.Salt.String)
 		if cipherErr != nil {
 			return nil, fmt.Errorf("create part cipher: %w", cipherErr)
 		}
