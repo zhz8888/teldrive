@@ -325,8 +325,11 @@ func (p *Pipeline) UploadPart(ctx context.Context, request UploadPartRequest) (*
 		return nil, p.failPart(ctx, request, claim.LeaseToken, "telegram_upload_failed", err)
 	}
 	if renewErr := pendingRenewError(renewErrors); renewErr != nil {
+		// The bytes are published but the lease could not be renewed. Failing the
+		// part clears its lease so a retry can claim it again instead of waiting
+		// out the lease and being told the part is busy.
 		cleanupErr := p.deleteUploaded(ctx, request.UserID, stored)
-		return nil, errors.Join(renewErr, cleanupErr)
+		return nil, p.failPart(ctx, request, claim.LeaseToken, "lease_renewal_failed", errors.Join(renewErr, cleanupErr))
 	}
 	if stored.ChannelID != channelID || stored.MessageID <= 0 || stored.Size != storedSize {
 		cleanupErr := p.deleteUploaded(ctx, request.UserID, stored)

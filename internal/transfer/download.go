@@ -563,8 +563,11 @@ func (r *downloadReader) readSegmentAt(p []byte, segment downloadSegment, off in
 	}
 	defer reader.Close()
 	n, err := io.ReadFull(reader, p)
-	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
-		return n, err
+	if errors.Is(err, io.EOF) {
+		// The segment promised this span but the reader ended before supplying a
+		// single byte. Reporting plain EOF would tell the caller the range ended
+		// normally, so it is normalized the same way the sequential path does.
+		return n, io.ErrUnexpectedEOF
 	}
 	return n, err
 }
