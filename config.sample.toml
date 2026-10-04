@@ -95,7 +95,9 @@ max-connections-per-user = 5
 heartbeat = "20s"
 write-timeout = "10s"
 ticket-ttl = "2m"
-retention = "168h"
+# There is no `events.retention` key. How long replayable events survive is the
+# `retention` argument of the built-in *User event cleanup* periodic job, which
+# defaults to 48h; change it through the periodic-jobs API, not here.
 cleanup-interval = "1h"
 connect-timeout = "10s"
 ping-interval = "5s"
