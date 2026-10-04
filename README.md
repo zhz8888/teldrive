@@ -5,13 +5,13 @@
 **English** · [简体中文](README.zh-CN.md)
 
 Teldrive turns Telegram into self-hosted cloud storage. The server keeps file metadata in
-PostgreSQL, stores file payloads in Telegram channels, and serves a web UI, an HTTP API and
-rclone's native backend from one binary.
+PostgreSQL, stores file payloads in Telegram channels, and serves a web UI and an HTTP API from
+one binary.
 
 ## Highlights
 
 - **One binary** — the React web UI is embedded in the Go server, so the same process answers
-  the browser, the API and `rclone`.
+  the browser and the API.
 - **Contract-first API** — TypeSpec under `typespec/` owns the HTTP contract; the OpenAPI
   document, the Go server, the TypeScript client types and the API reference are generated
   from it.
@@ -120,8 +120,10 @@ generation rules and test harness.
 
 - Guides: <https://tgdrive.github.io/teldrive>
 - API reference: <https://tgdrive.github.io/teldrive/api/>
-- rclone: choose the native `teldrive` backend and set `api_host` plus an API key created in
-  **Settings → API keys**
+- rclone: this repository ships **no rclone backend**. `rclone config` will not offer a
+  `teldrive` type unless you obtained one separately; what Teldrive provides is the HTTP API such
+  a backend drives, authenticated with an API key created in **Settings → API keys**. See
+  [Rclone setup](https://tgdrive.github.io/teldrive/rclone/setup)
 
 ## Best practices
 

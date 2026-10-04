@@ -5,11 +5,11 @@
 **简体中文** · [English](README.md)
 
 Teldrive 把 Telegram 变成自建的云存储：服务端把文件元数据放在 PostgreSQL，把文件内容放在
-Telegram 频道，并由**同一个二进制**同时提供 Web 界面、HTTP API 和 rclone 的原生后端。
+Telegram 频道，并由**同一个二进制**同时提供 Web 界面和 HTTP API。
 
 ## 主要特性
 
-- **单二进制交付** —— React 前端被嵌入 Go 服务端，浏览器、API 与 `rclone` 由同一个进程响应。
+- **单二进制交付** —— React 前端被嵌入 Go 服务端，浏览器与 API 由同一个进程响应。
 - **契约优先的 API** —— `typespec/` 下的 TypeSpec 是 HTTP 契约的唯一来源，OpenAPI 文档、
   Go 服务端、TypeScript 客户端类型与 API 参考文档都由它生成。
 - **可续传上传与流式下载** —— 持久化的上传会话、分片级重试、HTTP Range 下载，以及从 URL
@@ -113,7 +113,9 @@ just test-race
 
 - 使用指南：<https://tgdrive.github.io/teldrive>
 - API 参考：<https://tgdrive.github.io/teldrive/api/>
-- rclone：选择原生 `teldrive` 后端，填写 `api_host` 与在**设置 → API 密钥**中创建的密钥
+- rclone：本仓库**不包含 rclone 后端**。除非你另行获取，否则 `rclone config` 不会提供
+  `teldrive` 类型；Teldrive 提供的是该后端所驱动的 HTTP API，认证使用在**设置 → API 密钥**中
+  创建的密钥。参见 [rclone 配置](https://tgdrive.github.io/teldrive/rclone/setup)
 
 ## 最佳实践
 
