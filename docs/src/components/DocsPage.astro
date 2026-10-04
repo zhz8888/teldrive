@@ -1,0 +1,70 @@
+---
+import { render, type CollectionEntry } from 'astro:content';
+import { Docs } from './docs';
+import { getMdxComponents } from './mdx';
+import '../styles/global.css';
+import { getLocaleSource, localizedURL } from '../lib/source';
+import { getPageImageUrl } from '../lib/shared';
+import Layout from './layout.astro';
+import type { LocaleCode } from '../lib/i18n';
+import type { TOCItemType } from 'fumadocs-core/toc';
+import { findNeighbour } from 'fumadocs-core/page-tree';
+
+interface Props {
+  page: CollectionEntry<'docs'>;
+  locale: LocaleCode;
+}
+
+const { page, locale } = Astro.props;
+
+const { source, tree } = await getLocaleSource(locale);
+const { Content, headings } = await render(page);
+const mdxComponents = getMdxComponents(locale);
+
+const slugs = typeof Astro.params.slug === 'string' ? Astro.params.slug.split('/') : [];
+const docsPage = source.getPage(slugs)!;
+const image = getPageImageUrl(docsPage, locale).url;
+
+const neighbours = findNeighbour(tree, docsPage.url);
+const withLocale = <T extends { url: string } | undefined>(item: T): T => {
+  if (item === undefined) return item;
+  return { ...item, url: localizedURL(locale, item.url) } as T;
+};
+
+const sourceFile = slugs.length > 0 ? `${slugs.join('/')}.mdx` : 'index.mdx';
+const editUrl = `https://github.com/tgdrive/teldrive/edit/v2/docs/content/docs/${locale}/${sourceFile}`;
+
+const toc: TOCItemType[] = headings.map((heading) => ({
+  depth: heading.depth,
+  title: heading.text,
+  url: '#' + heading.slug,
+}));
+
+const isChinese = locale === 'zh';
+---
+
+<Layout lang={isChinese ? 'zh-CN' : 'en'}>
+  <title>{page.data.title}</title>
+  <meta name="title" content={page.data.title} />
+  <meta name="description" content={page.data.description} />
+  <meta property="og:image" content={image} />
+  <Docs
+    tree={tree}
+    pathname={Astro.url.pathname}
+    params={Astro.params}
+    locale={locale}
+    page={{ toc, footer: { items: { prev: withLocale(neighbours[0]), next: withLocale(neighbours[1]) } } }}
+    client:load
+  >
+    <h1 class="font-semibold text-3xl">{page.data.title}</h1>
+    <p class="text-lg text-fd-muted-foreground mb-8">{page.data.description}</p>
+    <div class="prose flex-1">
+      <Content components={mdxComponents} />
+    </div>
+    <div class="mt-10 border-t pt-6 text-sm text-fd-muted-foreground">
+      <a class="hover:text-fd-foreground hover:underline" href={editUrl}>
+        {isChinese ? '在 GitHub 上编辑此页' : 'Edit this page on GitHub'}
+      </a>
+    </div>
+  </Docs>
+</Layout>

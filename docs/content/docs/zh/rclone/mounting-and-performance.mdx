@@ -1,0 +1,72 @@
+---
+title: 挂载与性能
+description: 挂载 Teldrive 服务器并调优 VFS 与服务端并发。
+---
+
+这里的调优建议适用于任何挂载 Teldrive 的方式——rclone 后端、HTTP/WebDAV 桥接，或专门开发的客户端。真正起约束作用的限制由**服务器**强制执行，而不是客户端。
+
+## 挂载
+
+只有当你的 rclone 构建中确实存在对应后端时，`teldrive:` 这个远程才存在；本仓库并未附带任何
+后端，因此请把下面的 `<remote>` 替换成你客户端实际可用的远程名：
+
+```bash
+mkdir -p ~/mnt/teldrive
+rclone mount <remote>: ~/mnt/teldrive
+```
+
+对于需要大量随机寻址写入的应用程序，请使用 VFS 缓存：
+
+```bash
+rclone mount <remote>: ~/mnt/teldrive \
+  --vfs-cache-mode full \
+  --vfs-cache-max-size 20Gi \
+  --vfs-cache-max-age 24h
+```
+
+请按本地可用磁盘空间来估算缓存大小。
+
+## 服务端分片大小
+
+分片大小的决定权在 Teldrive 而非客户端。未指定分片大小的会话使用 `uploads.default-part-size`（默认 `512MiB`）；指定了分片大小的会话，如果超过 `uploads.max-part-size`（默认 `4GiB`）则会被**拒绝**。`max-part-size` 必须不小于 `default-part-size`，且必须是它的整数倍。
+
+后台导入还接受一个介于 64 MiB 与实际上限之间的 `chunkSize`，该上限取 2000 MiB 与 `max-part-size` 中的较小值。超出该范围的 `chunkSize`会被**拒绝**而非被限制：任务会以 `chunk size must be between 64 MiB and <ceiling> MiB` 失败。范围内的取值会取整到最接近的 16 MiB。
+
+参见[上传与事件](/configuration/uploads-and-events)。
+
+## 下载内存才是挂载的真正约束
+
+挂载的读取量远大于写入量。每个打开的字节范围都会缓冲 `telegram.download-read-buffers` × 1 MiB 的预取 Telegram 分块，而 `uploads.max-concurrent-downloads` 限制了同时可打开的范围数量。二者的乘积就是进程下载内存上限——在随附的默认值下为 128 MiB（`4 × 32`）。
+
+超出该限制的请求会**排队**等待空闲名额，而不会被直接拒绝，因此调高上限是把内存压力转化为延迟，而不是转化为失败。请先调高客户端的 `--transfers`，再考虑服务端上限；如果确实需要调高服务端数值，请先调 `download-read-buffers`，再调 `max-concurrent-downloads`，并重新核算两者的乘积。
+
+## 上传并发
+
+上传会将以下三个因素相乘：
+
+- 客户端的 `--transfers`；
+- 单个传输内的分片并发数（如果客户端提供了该选项）；
+- Teldrive 的 `telegram.upload-threads`。
+
+请从保守的设置开始：
+
+```bash
+rclone copy /srv/data <remote>:/archive \
+  --transfers 2 \
+  --checkers 4 \
+  --progress
+```
+
+在监控内存、CPU、Telegram 错误和 PostgreSQL 负载的同时，每次只调高一项设置。
+
+## 哈希校验
+
+Teldrive 默认计算 BLAKE3 哈希（`uploads.hashing-enabled`）。除非你有经过实测的理由，否则请保持开启——关闭它只会跳过服务端哈希计算，而客户端提交的校验和始终会被验证。
+
+## 加密
+
+加密上传要求由*客户端*按会话请求（在创建上传的请求中带上 `encryption: true`），并且服务器必须配置好 `encryption.keys`。挂载本身无法自行开启该功能。
+
+参见[内容加密](/advanced/encryption)。
+
+如果挂载无法列出远端，请先修复认证和连通性问题，再去排查客户端设置。参见 [Rclone 配置](/rclone/setup)。

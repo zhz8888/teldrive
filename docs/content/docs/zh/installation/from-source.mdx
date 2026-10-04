@@ -1,0 +1,101 @@
+---
+title: 从源码构建
+description: 从仓库构建并测试 Teldrive。
+---
+
+## 环境要求
+
+- Go 1.26
+- Bun
+- Just
+- Git
+- `sqlc` **必须是 v1.31.1** —— `just generate-db` 以及因此 `just check` 会拒绝任何其他版本
+- Playwright 浏览器 —— `bunx playwright install chromium`，`just ui-check` 和 `just check` 需要它们
+- PostgreSQL 18，用于运行服务端
+- Podman，用于 `just image`、集成测试和竞态测试
+
+或者全部跳过——Nix flake 提供了完整的工具链：
+
+```bash
+nix develop
+```
+
+## 构建
+
+```bash
+git clone https://github.com/tgdrive/teldrive.git
+cd teldrive
+just install-tools
+just build
+./bin/teldrive version
+```
+
+`just build` 会生成 UI 的 API 客户端、构建 Vite/React 界面，并把它嵌入 Go 二进制文件。
+
+## 开发
+
+没有配置时，Teldrive 会拒绝启动。请先创建根目录下的 `.env`（它已被 git 忽略），或创建一个 `config.toml`：
+
+```bash
+TELDRIVE_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/teldrive?sslmode=disable
+TELDRIVE_SECURITY_SIGNING_KEY=<at least 32 characters>
+TELDRIVE_SECURITY_DATA_KEY=<base64 of exactly 32 bytes>
+```
+
+使用[快速开始生成器](/getting-started/quick-start)的 **.env** 输出可以得到兼容的值。`justfile` 会为每条 recipe 加载 `.env`。
+
+```bash
+just dev
+```
+
+这会在 `http://127.0.0.1:8080` 上运行后端，并在 `http://127.0.0.1:5173` 上运行 Vite 开发服务器，后者把 `/api` 代理到后端。开发期间请打开 Vite 的地址；后端自身在 `:8080` 上的 UI 提供的是此前构建好的产物。不要提交生产环境的密钥。
+
+## 验证改动
+
+```bash
+just test-unit
+just ui-check
+just check
+```
+
+`just check` 会运行代码生成、lint、构建、测试和覆盖率检查。
+
+## 生成代码
+
+`typespec/` 下的 TypeSpec 是 HTTP 契约的来源。修改 API 之后：
+
+```bash
+just generate-api
+just generate-ui
+```
+
+或者：
+
+```bash
+just generate
+```
+
+修改 SQL/查询之后：
+
+```bash
+just generate-db
+```
+
+请使用仓库提供的 target，而不是直接编辑生成的 OpenAPI/API/SQLC 产物。
+
+## 容器镜像
+
+```bash
+just image
+```
+
+该命令用 Podman 构建根目录的 `Dockerfile`，并在**本地**把结果标记为 `teldrive-backend:dev` —— 不会推送到 `ghcr.io`。该镜像采用多阶段构建（Bun/Vite 界面 → `golang:1.26-alpine` → `gcr.io/distroless/static-debian12:nonroot`），产出与发布归档包相同的静态二进制文件。
+
+## 文档站点
+
+```bash
+just docs-dev
+just docs-build
+```
+
+`docs/content/docs/{en,zh}/configuration/reference.mdx` 由 `just docs-generate` 生成；请不要手动编辑它。

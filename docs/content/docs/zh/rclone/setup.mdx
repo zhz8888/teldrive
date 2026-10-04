@@ -1,0 +1,59 @@
+---
+title: Rclone 配置
+description: 通过 HTTP API 将 rclone 连接到 Teldrive 服务器。
+---
+
+## 原生后端的现状
+
+Teldrive 的 README 宣传了一个原生的 `teldrive` rclone 后端，但**本仓库并未附带任何 rclone 后端**：`go.mod` 中没有 rclone 模块，`internal/` 下没有后端源码，发布归档中也没有 rclone 二进制文件或插件。除非你另行获取了该后端，否则 `rclone config` 不会提供 `teldrive` 类型。
+
+在你能够针对实际使用的构建版本读到 `rclone help backend teldrive` 之前，请把所有后端选项都视为未经证实。接下来描述的是本项目*确实*存在并纳入版本管理的能力面：HTTP API。
+
+## 1. 创建 API 密钥
+
+在 Teldrive 中打开**设置 → API 密钥**，创建一个密钥并复制该密钥。它只显示一次——服务器仅保存哈希值。
+
+## 2. 直接调用 API
+
+Teldrive 在 `/api` 下提供 API（也可通过 `/v1` 访问），使用 `Authorization: Bearer <API key>` 进行认证。
+
+这里没有可直接粘贴的配置片段：远程（remote）定义需要你的 rclone 构建中确实存在对应后端，而本仓库并未附带任何后端。在拿到可用后端之前，请直接用 `curl` 或任意 HTTP 客户端调用 API——下表就是完整的能力面。
+
+## API 提供的能力
+
+[API 参考](/api/) 中生成的契约是权威依据。rclone 风格后端所需的操作如下：
+
+| 操作 | 请求 |
+| --- | --- |
+| 列出/搜索 | `GET /api/v1/files?parentId=&path=&search=&searchType=&category=&sort=&order=` |
+| 创建文件夹 | `POST /api/v1/folders` |
+| 可续传上传 | `POST /api/v1/uploads` → `PUT /api/v1/uploads/{uploadId}/parts/{partNo}` → `POST /api/v1/uploads/{uploadId}/complete` |
+| 下载 | 配合 `Range` 的 `GET /api/v1/files/{fileId}/content/{fileName}` |
+| 复制/移动 | `POST /api/v1/files/{fileId}/copy`、`POST /api/v1/files/{fileId}/move` |
+| 移入回收站/还原/永久删除 | `DELETE /api/v1/files/{fileId}`、`POST /api/v1/files/{fileId}/restore`、`DELETE /api/v1/files/{fileId}/purge` |
+
+使用 `If-Match` / `If-None-Match` 实现乐观并发控制，并利用创建/完成操作返回的 `ETag` 和 `Location` 响应头。
+
+## 回收站操作
+
+回收站通过普通的 REST 调用访问，而不是后端命令：
+
+| 操作 | 请求 |
+| --- | --- |
+| 移入回收站 | `DELETE /api/v1/files/{fileId}` |
+| 还原 | `POST /api/v1/files/{fileId}/restore` |
+| 永久删除 | `DELETE /api/v1/files/{fileId}/purge` |
+| 清空整个回收站 | `DELETE /api/v1/files/trash` |
+
+永久删除无法撤销，清空后的回收站内容由待处理文件清除维护作业异步回收。
+
+## 测试
+
+```bash
+curl -fsS -H "Authorization: Bearer $TELDRIVE_API_KEY" \
+  https://drive.example.com/api/v1/files
+```
+
+请在**设置 → API 密钥**中吊销已泄露或已停用的密钥。
+
+参见[挂载与性能](/rclone/mounting-and-performance)。

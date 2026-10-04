@@ -1,0 +1,125 @@
+---
+title: 架构
+description: Teldrive 如何在 PostgreSQL、Telegram、API 与后台 worker 之间划分状态。
+---
+
+```text
+Browser / API client
+        │ HTTP/S
+        ▼
+   Teldrive server ─────► Telegram (file payloads)
+        │
+        ▼
+   PostgreSQL (metadata, auth, jobs, events)
+```
+
+React UI 嵌入在 Go 二进制中，无需单独的前端服务。
+
+## 代码结构
+
+```text
+cmd/teldrive            CLI entrypoint: run (alias serve) / check / version
+internal/app            composition root — migrations, services, HTTP routing,
+                        workers, startup and shutdown order
+internal/api            adapts the generated contract; domain behavior lives
+                        in the packages below, not in handlers
+internal/catalog        files, folders, listing and search
+internal/uploads        resumable upload sessions, parts and leases
+internal/transfer       upload pipeline and downloader
+internal/fileops        copy/move/trash/purge over catalog + channels + storage
+internal/shares         public shares and per-file grants
+internal/channels       Telegram channel allocation and health
+internal/bots           bot registry, verification and provisioning
+internal/botgateway     bot rotation selector, upload-aware runner, bot sessions
+internal/logingateway   Telegram login gateway (QR and phone-number flows)
+internal/telegramstore  external storage boundary (gotd in production);
+                        transfer, fileops, channels and jobs are its callers
+internal/localtelegram  filesystem backend behind telegramstore's interface
+internal/jobs           River/RiverPro runtime, workers and job management
+internal/events         SSE hub, PostgreSQL LISTEN/NOTIFY listener, tickets
+internal/contentcrypto  chunked seekable content cipher
+internal/secureblob     XChaCha20-Poly1305 for stored Telegram credentials
+internal/authn          JWTs, sessions, API keys, Telegram login flow
+internal/cache          single process-local Ristretto cache
+internal/database       pool + migration runner (app + River + RiverPro)
+internal/legacymigrate  staged v1 → v2 schema swap with a retained backup
+ui/                     Vite/React app; ui/ui.go embeds ui/dist into the binary
+```
+
+## 启动即迁移
+
+每次启动**以及每次执行 `teldrive check`** 都会按顺序完成：可选的 v1 旧版升级、schema 配置、应用迁移、River 与 RiverPro 迁移，最后才打开长生命周期连接池。迁移在连接池建立之前使用独立的短生命周期连接完成，因此 schema 升级绝不会在半迁移完成的数据库上对外提供服务。
+
+`database.auto-migrate-legacy` 默认为 `true`。当目标数据库中仍存在旧版 schema 时，Teldrive 会在 PostgreSQL advisory lock 的保护下**原地**升级：先把数据行复制到一个 staging schema，再把旧版 schema 重命名为一个带时间戳的备份，最后由 staging schema 接替它的位置。在把新的二进制程序指向一个尚未备份的 v1 数据库之前，请先把它设为 `false` —— 此时启动会直接失败，而不是执行迁移。
+
+参见[从 Teldrive v1 迁移](/deployment/v1-migration)。
+
+## PostgreSQL
+
+存储用户与认证状态、加密后的 Telegram 凭据、文件/文件夹元数据、Telegram 分片引用、频道、bot、分享、上传、任务和事件。
+
+恢复需要三样东西同时具备：一份 PostgreSQL 备份（元数据、分片引用、凭据），与之匹配的 `security.data-key` 与 `encryption.keys` 密钥材料，以及对**存放文件内容的同一 Telegram 账号和频道**的持续访问权限。文件字节本身从不存放在 PostgreSQL 中 —— 如果恢复时 Telegram 一侧已经丢失，得到的将是一份可读的目录，指向的却全是无法读取的文件。
+
+参见[备份与恢复](/deployment/backup-and-restore)。
+
+## Telegram
+
+当设置 `telegram.backend=remote` 时，文件内容由 Telegram 存储。Teldrive 负责管理各分片，并通过自身的 API 以常规文件/文件夹的形式对外提供。
+
+## 认证
+
+```text
+Browser ⇄ Teldrive ⇄ Telegram
+```
+
+- `security.signing-key`：用于签发 Teldrive 访问令牌（至少 32 个字符）。
+- `security.data-key`：封装保存在 PostgreSQL 中的每一项 Telegram 凭据 —— 用户会话数据、bot token、bot 的 Telethon 会话，以及进行中的登录流程里的手机号和 MTProto 状态。每一项值都在各自独立的认证用途下被封装，因此把密文从一个列挪到另一个列只会导致解封失败，而不会被错误地解密。
+
+第一个完成登录的 Telegram 账号将成为 **owner**（所有者）；之后登录的账号一律为 `user`。参见[首次登录](/getting-started/first-login)。
+
+## 后台任务
+
+River/RiverPro 把任务状态保存在 PostgreSQL 中（表 `river_job`、`river_queue`、`river_job_errors`、`river_periodic_job`）。系统存在两个队列，无论你增加多少个启用 worker 的实例，每个进程在每个队列上最多**并发运行 2 个任务**：
+
+| 队列 | 每个 worker 进程的并发数 | 任务类型 |
+| --- | --- | --- |
+| `maintenance` | 2 | 上传/会话清理、用户事件清理、回收站清理、待删除文件清除、孤立 Telegram 分片清理、bot 开通 |
+| `uploads` | 2 | 后台导入批次、按文件的后台导入 |
+
+River 会把每个任务恰好分派给一个 worker，因此每个队列的总任务并发数为 2 × 启用 worker 的进程数。默认情况下 worker 运行在 API 进程中：
+
+```yaml
+jobs:
+  run-workers: true
+```
+
+参见[多实例部署](/advanced/multi-instance)，了解如何拆分 API 与 worker 角色。
+
+## 实时事件
+
+UI 通过 `GET /v1/events` 订阅事件（同一接口也挂载在 `/api/v1/events` 上）。由于浏览器的 `EventSource` 无法发送 `Authorization` 请求头，UI 会先调用 `POST /v1/events/ticket`，再把返回的短期票据作为 `ticket` 查询参数传回（`events.ticket-ttl`，默认 `2m`）。
+
+事件是 PostgreSQL 中的持久化行，而不是内存中的广播：客户端会从 `Last-Event-ID`（或 `?after=`）处续传，因此实例重启或通知丢失只会延迟更新，而不会让更新丢失。这些行会在 48 小时后由用户事件清理任务清除。
+
+每个 API 实例对单个用户最多接纳 `events.max-connections-per-user` 条事件流（默认 `5`），超出后返回 **429 `too_many_event_streams`**。
+
+反向代理必须允许长连接、无缓冲的响应。Teldrive 会在每次 SSE 写入时刷新响应的写入截止时间，因此 `http.write-timeout` 不会切断健康的事件流。
+
+## 加密
+
+```text
+security.data-key  → XChaCha20-Poly1305 over Telegram/bot/login values in PostgreSQL
+encryption.keys    → per-part scrypt + chunked secretbox applied before Telegram stores the bytes
+```
+
+参见[内容加密](/advanced/encryption)。
+
+## 默认拓扑
+
+```text
+1 Teldrive instance
+1 PostgreSQL instance
+Telegram
+```
+
+只有在容量或可用性需求经过实际测量之后，才考虑横向扩展。

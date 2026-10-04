@@ -1,0 +1,65 @@
+---
+title: Telegram bot
+description: 添加 Telegram bot 并配置下载轮转。
+---
+
+Bot 是可选的。只有当你需要额外的 Telegram 客户端来提升吞吐量时才使用它们。
+
+## 添加 bot
+
+1. 使用 **@BotFather** 创建 bot。
+2. 打开**设置 → Telegram 存储 → Bot**。
+3. 每行粘贴一个令牌。
+4. 点击**添加 bot**。
+
+## 添加 bot 会做什么
+
+令牌会被立即保存，随后一个 `teldrive_provision_bots` 作业会把每个新 bot 邀请进**你的每一个存储频道**，每次最多处理三个。该作业最多重试三次，并且只重新尝试失败的频道。
+
+列表中显示为**已禁用**的 bot 表示它尚未被提升权限，或者遇到了错误。在**任务**中打开该作业——其中会列出它无法邀请的频道。bot 必须是某个频道的管理员，才能向该频道上传。
+
+## bot 的使用方式
+
+| 操作 | 使用的客户端 |
+| --- | --- |
+| 上传 | 任意一个已启用且不处于失败退避中的 bot；如果没有符合条件的，则回退到你的用户会话 |
+| 下载 | 所有已启用的 bot，上限由 `telegram.download-bots` 限定；如果没有符合条件的，则回退到你的用户会话 |
+| 其他所有操作 | 你已认证的用户会话 |
+
+## 下载轮转
+
+```yaml
+telegram:
+  download-bots: 0
+```
+
+设为 `0` 时，所有下载都通过已认证的用户账号进行。它**仅限制下载** —— 只要添加了 bot，它就会进入上传链路，无论你是否调高该值。请仅在 bot 运行正常之后再调高它，并记住真正的上限取决于你已启用的 bot 数量。
+
+单实例：
+
+```yaml
+telegram:
+  bot-rotation-backend: memory
+```
+
+多实例协同部署：
+
+```yaml
+telegram:
+  bot-rotation-backend: database
+```
+
+可选的预热客户端：
+
+```yaml
+telegram:
+  download-client-pool: true
+```
+
+这会在进程生命周期内始终保持 `max(1, download-bots)` 个 Telegram 客户端在线，以更多的内存和连接数为代价，换取更少的客户端初始化开销。除非你已经实测过每次请求的初始化开销，否则请保持默认值 `false`。
+
+## 安全
+
+BotFather 令牌属于凭证。请勿公开或提交到版本库。
+
+参见[性能调优](/advanced/performance)。

@@ -1,0 +1,103 @@
+---
+title: 健康检查
+description: 使用 Teldrive 的存活与就绪探针接口。
+---
+
+```text
+GET /health/live        # also served as GET /api/health/live
+GET /health/ready       # also served as GET /api/health/ready
+```
+
+两者都不需要认证，因此探针永远不需要 token。如果你的代理会重写或剥离 `/api` 前缀，请确保它原样放行 `/health`；在 `/health` 前面加一条认证规则会让所有探针都返回 401。
+
+## 存活探针
+
+当进程能够提供 HTTP 服务时，`/health/live` 返回 `200`：
+
+```json
+{
+  "status": "ok",
+  "version": "vX.Y.Z"
+}
+```
+
+用它来决定是否重启进程。
+
+## 就绪探针
+
+当 Teldrive 已准备好承载应用流量时，`/health/ready` 返回 `200`，响应体与上面相同。当就绪依赖检查失败时，它返回 `503`，并带有以下两种错误码之一：
+
+```json
+{"error":{"code":"not_ready","message":"service is not ready"}}
+```
+
+```json
+{"error":{"code":"not_configured","message":"a required dependency is not configured"}}
+```
+
+`not_ready` 表示探针执行了，但 PostgreSQL 没有响应 —— 数据库中断。`not_configured` 表示探针发现根本没有接上任何依赖 —— 这是部署错误。请为这两者分别设置告警，它们的成因不同。
+
+请注意，`status` 字段在所有成功响应中都是 `"ok"`。`"degraded"` 状态仅存在于内部，永远不会出现在响应中，因为失败路径返回的是错误信封。请基于 HTTP 状态码告警，而不是基于 `"degraded"` 响应体。
+
+用它来决定负载均衡的路由。
+
+## 探针未覆盖的范围
+
+两个探针都刻意做得很窄。`/health/live` 什么都不检查，`/health/ready` 也只做一项检查：对 PostgreSQL 连接池发一次 ping。即使在下列情况下，进程仍会返回 `200 ok`：
+
+- Telegram 会话无法解密，或账号被限流；
+- 所有实例的 `jobs.run-workers` 都是 `false`，队列永远不会被消费；
+- 任务运行时未能启动它的 worker；
+- `encryption.keys` 与引用它们的文件不再匹配；
+- 存储频道已满或状态异常。
+
+`/health/ready` 回答的是“这个进程是否接上了它的数据库”，而不是“这个进程能否提供文件服务”。后者需要查看访问日志和**任务**页面。
+
+## `teldrive check`
+
+`teldrive check` 是这些探针的启动前检查搭档。它会加载配置、执行迁移、打开连接池、构建加密组件和 Telegram 组件，然后在不对外提供服务的情况下退出：
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+```
+
+成功时会记录 `application.check.succeeded` 日志并以 `0` 退出；任何失败都会向 stderr 打印一条错误，并以 `1` 退出。
+
+**它不是只读的。** `check` 会执行应用迁移以及 River、RiverPro 的迁移；在 `database.auto-migrate-legacy: true`（默认）的情况下，它还会对旧版数据库执行暂存式 v1 → v2 schema 交换：把各行转换进一个过渡 schema，并把旧 schema 重命名为一个带时间戳的备份。只有在完成备份之后，才能对生产数据库运行它。
+
+`check` 检查的范围严格大于 `/health/ready`：当数据密钥有误、本地 Telegram 根目录缺失、后端不受支持，或 schema 无法迁移时，它会失败，而这些 HTTP 探针都不会检查。
+
+## 测试
+
+```bash
+curl -fsS http://127.0.0.1:8080/health/live
+curl -fsS http://127.0.0.1:8080/health/ready
+```
+
+对于对外开放的部署，还应测试 HTTPS 路径：
+
+```bash
+curl -fsS https://drive.example.com/health/ready
+```
+
+## Kubernetes
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+  periodSeconds: 20
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  periodSeconds: 10
+```
+
+## 容器注意事项
+
+官方运行时镜像基于 distroless，没有 shell、`curl` 或 `wget`。请使用编排器原生的 HTTP 探针或外部监控。
+
+请对持续的就绪失败、重启循环，以及本地检查与公网 HTTPS 检查结果不一致的情况设置告警。

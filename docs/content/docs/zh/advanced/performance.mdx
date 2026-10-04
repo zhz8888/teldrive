@@ -1,0 +1,171 @@
+---
+title: 性能调优
+description: 调优 Telegram 并发、哈希、PostgreSQL、HTTP 流式传输和内存占用。
+---
+
+调整并发之前请先做测量。
+
+## 基线
+
+记录：
+
+- 上传/下载吞吐量；
+- CPU 与内存；
+- PostgreSQL 连接数；
+- Telegram 重试/限流错误；
+- 代理超时/错误。
+
+## 上传
+
+```yaml
+telegram:
+  upload-threads: 8
+```
+
+有效范围：`1`–`32`。请逐步调高，当吞吐量不再提升，或错误与资源占用开始上升时就停止。
+
+哈希计算同样会消耗 CPU：
+
+```yaml
+uploads:
+  hashing-enabled: true
+```
+
+只有当测量表明哈希是瓶颈，且你不需要服务端计算的哈希值时，才应关闭它。
+
+## 下载
+
+```yaml
+telegram:
+  download-read-buffers: 32
+  download-read-parallel: 4
+  download-bots: 0
+```
+
+`download-read-parallel` 控制每个范围（range）并发拉取的分块数量。`download-read-buffers` 控制每个范围在内存中保留的预取的 1 MiB 分块数量。两者都会随着同时打开的范围数量成倍放大 —— 参见[下载并发](/configuration/uploads-and-events)。
+
+只有在普通的用户客户端下载已经工作正常之后，才使用 bot。
+
+## PostgreSQL
+
+```yaml
+database:
+  max-connections: 25
+  min-connections: 2
+```
+
+只有在请求确实在等待连接、且 PostgreSQL 仍有余量时，才扩大连接池。在运行多个 Teldrive 实例时，要把所有进程连接池的总和一起纳入预算。
+
+## 内存缓存
+
+```yaml
+cache:
+  memory:
+    size: 5MB
+```
+
+这是元数据/应用缓存，而不是文件内容缓存。
+
+## 超时
+
+```yaml
+http:
+  read-timeout: 1h
+  write-timeout: 1h
+```
+
+`read-timeout` 和 `write-timeout` 接受 `0`，这会**关闭**它们。当传输确实可能超过一小时时，这就是正确的设置：
+
+```yaml
+http:
+  read-timeout: 0
+  write-timeout: 0
+```
+
+相比直接关闭，更推荐调高该值；关闭会失去那道兜底保护，而它正是用来防止卡住的客户端永久占用一个连接槽的。
+
+`shutdown-timeout` 是另一份独立的预算，在 worker 实例上尤为重要：它限制了包括 River 30 秒软停止在内的整个关闭过程，默认值为 `10s`。请把它提高到 30 秒以上，让执行中的任务能够完成 —— 参见[多实例部署](/advanced/multi-instance)。
+
+如果传输总是在固定时长后失败，请检查客户端、CDN/负载均衡器、反向代理和 Teldrive 中最短的那个超时设置。
+
+## Telegram 速率限制
+
+除非你有明确理由去改动，否则请保持客户端速率限制处于启用状态：
+
+```yaml
+telegram:
+  rate-limit: true
+  rate-interval: 50ms
+  rate-burst: 10
+```
+
+## 小内存主机
+
+一个单核、1 GB 内存的主机足以运行本服务器，前提是那些吃内存的配置项没有被留在默认值上。下面的数字假设 PostgreSQL 运行在其他机器上；如果它与 Teldrive 同机，还需要把它的内存占用从预算中扣除。
+
+内存几乎全部消耗在下载上。每个打开的范围会缓冲 `telegram.download-read-buffers` × 1 MiB 的预取 Telegram 分块，因此下载侧占用的进程上限就是该数值乘以 `uploads.max-concurrent-downloads` —— 按出厂默认值算是 128 MiB。
+
+上传采用流式传输，并以复用的 64 KiB 块进行加密，因此*内容*本身不占内存。但传输层仍会缓冲：每个分片按 512 KiB 读取，并且有 `telegram.upload-threads` 个块并发处理，所以一个执行中的上传大约占用 `upload-threads × 512 KiB`（默认 8 时约 4 MiB）。与一个下载范围相比这点开销可以忽略，但它是随*并发上传数量*而非文件大小增长的 —— 承载大量并行浏览器上传的主机，应当优先把 `upload-threads` 调低。
+
+```yaml
+telegram:
+  upload-threads: 2
+  download-read-buffers: 8
+  download-read-parallel: 2
+
+uploads:
+  max-concurrent-downloads: 2
+
+database:
+  max-connections: 10
+
+cache:
+  memory:
+    size: 2MB
+```
+
+这样下载缓冲区就是 16 MiB。出厂默认值允许 128 MiB —— `download-read-buffers: 32` × `max-concurrent-downloads: 4` —— 这已经是一个硬性上限，而不是无限的流数量。超出上限的请求会为可用槽位**排队**，而不是被直接拒绝，因此提高上限只是把内存压力转化为延迟，而不是转化为失败。
+
+为 Go 运行时设置一个内存上限，让垃圾回收器在操作系统内核之前就做出反应。没有上限时，回收器会一直等到堆内存翻倍才动作，而在一台小内存主机上，这通常已经晚于内核开始回收的时点：
+
+```bash
+GOMEMLIMIT=384MiB teldrive run
+```
+
+运行时会自行在启动时读取该变量，因此不需要任何配置项，也**不应添加读取或应用它的代码**：那样做等于重复运行时的功能，而 `runtime/debug.SetMemoryLimit(-1)` 在当前 Go 版本中是个空操作，因此按这种方式实现的 "off" 分支会悄无声息地失效。`off` 会移除该上限。在内存有余量的主机上，请不要设置该变量。
+
+分片是流式传输而非缓冲的，因此出厂默认的 512 MiB 分片大小在内存上的开销，只取决于同时在途的数据量。不过在小内存主机上仍应调低它：一个失败的分片必须重新传输，分片越小，重试的代价越低。
+
+以下两条规则会在启动时一并检查，不满足则直接拒绝该配置：
+
+```text
+uploads default-part-size cannot exceed max-part-size
+uploads max-part-size must be a whole multiple of default-part-size
+```
+
+请选择一个能被 `max-part-size` 整除的 `default-part-size` —— 128 MiB 配 512 MiB，或 256 MiB 配 4 GiB，都满足要求：
+
+```yaml
+uploads:
+  default-part-size: 128MiB
+  max-part-size: 512MiB
+```
+
+这个上限对后台导入只能**部分**生效。未指定分块大小的导入，其 512 MiB 默认值会被钳制到 `max-part-size`，导入仍然成功。而*确实*指定了超过 `max-part-size`（或低于 64 MiB）分块大小的导入则会**失败**，并报 `chunk size must be between 64 MiB and <max-part-size> MiB`。在调低上限之前，请先确认你的导入客户端是否会显式发送 `chunkSize`。
+
+当单核性能跟不上时，第一个应当放弃的就是哈希，代价是存储没有校验和的分片：
+
+```yaml
+uploads:
+  hashing-enabled: false
+```
+
+## 调优顺序
+
+1. 先解决代理/超时错误。
+2. 测量一次上传和一次下载。
+3. 检查 CPU、内存和网络是否饱和。
+4. 每次只调整一个上传或下载的并发配置项。
+5. 在符合实际的并发负载下重新测试。
+6. 检查 PostgreSQL 连接池压力。
+7. 最后才考虑 bot 或横向扩展。

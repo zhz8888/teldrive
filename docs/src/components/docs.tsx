@@ -6,18 +6,22 @@ import { navigate } from 'astro:transitions/client';
 import { RootProvider } from 'fumadocs-ui/provider/astro';
 import type { AstroProviderProps } from 'fumadocs-core/framework/astro';
 import SearchDialog from './search';
+import { LocaleSwitcher } from './language-select';
+import { localizedPath } from '../lib/i18n';
 
 export function Docs({
   tree,
   children,
   pathname,
   params,
+  locale,
   page,
 }: {
   tree: Root;
   children: ReactNode;
   pathname: string;
   params: AstroProviderProps['params'];
+  locale: 'en' | 'zh';
   page?: DocsPageProps;
 }) {
   return (
@@ -34,7 +38,8 @@ export function Docs({
         themeSwitch={{ enabled: true }}
         nav={{
           title: 'Teldrive',
-          url: import.meta.env.BASE_URL,
+          url: localizedPath(locale, import.meta.env.BASE_URL),
+          children: <LocaleSwitcher pathname={pathname} />,
         }}
         sidebar={{
           defaultOpenLevel: 1,

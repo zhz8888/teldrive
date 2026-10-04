@@ -1,0 +1,104 @@
+---
+title: 安全
+description: 配置认证密钥、允许的用户、令牌有效期与内容加密。
+---
+
+## 认证密钥
+
+```yaml
+security:
+  signing-key: "..."
+  data-key: "..."
+  issuer: teldrive-v2
+  allowed-users: []
+  access-token-ttl: 15m
+  refresh-token-ttl: 720h
+  login-flow-ttl: 10m
+```
+
+### `signing-key`
+
+用于签署 Teldrive 的认证令牌。至少 32 个字符。
+
+```bash
+openssl rand -hex 32
+```
+
+修改它会使已有的已签名会话失效。
+
+### `data-key`
+
+用于加密 PostgreSQL 中的敏感值，例如 Telegram 凭据、bot 令牌、bot 会话，以及登录流程进行中的手机号和 MTProto 状态。它必须是能解码为恰好 32 字节的 Base64。
+
+```bash
+openssl rand -base64 32
+```
+
+请做好备份。没有轮换路径：所有已存储的值都使用同一把密钥，因此替换它会让这些值全部无法解密。
+
+## 允许的用户
+
+留空表示允许任何完成登录的 Telegram 用户：
+
+```yaml
+security:
+  allowed-users: []
+```
+
+把私有服务器限制为指定用户：
+
+```yaml
+security:
+  allowed-users:
+    - alice
+    - bob
+```
+
+环境变量形式：
+
+```bash
+TELDRIVE_SECURITY_ALLOWED_USERS=alice,bob
+```
+
+用户名不区分大小写，可以带或不带 `@`。
+
+## 令牌有效期
+
+| 配置项 | 默认值 |
+| --- | ---: |
+| `access-token-ttl` | `15m` |
+| `refresh-token-ttl` | `720h` |
+| `login-flow-ttl` | `10m` |
+
+## 文件内容加密
+
+`encryption.keys` 与 `security.data-key` 是彼此独立的：
+
+```yaml
+encryption:
+  active-key-version: 1
+  keys:
+    1: "YOUR_CONTENT_KEY"
+```
+
+启动时会校验三条规则，任何一条不满足都直接失败，而不会自动修正：
+
+- 如果配置了任何密钥，`active-key-version` 必须大于 `0`；
+- `active-key-version` 必须指向 `keys` 中存在且密钥非空的某个版本——它决定新上传使用的版本；
+- 每个密钥版本都必须是正整数且密钥非空，并且版本号不能重复。
+
+`keys` 还接受 `version:key` 形式、以逗号分隔的字符串，这正是命令行参数和环境变量所使用的格式：`--encryption-keys 1:KEY1,2:KEY2` / `TELDRIVE_ENCRYPTION_KEYS=1:KEY1,2:KEY2`。重复或格式错误的版本号在此同样会被拒绝。
+
+配置密钥只是让加密成为*可能*；它本身并不会加密任何内容。每个上传会话都带有自己的 `encryption` 标志——参见[内容加密与密钥轮换](/advanced/encryption)。
+
+## 密钥保管
+
+至少要保护好以下内容：
+
+- PostgreSQL 密码；
+- 签名密钥/数据密钥；
+- 内容加密密钥；
+- 自定义的 Telegram API hash（如果已配置）；
+- 代理和 bot 凭据。
+
+不要把密钥提交到 Git。恢复方面的要求参见[备份与恢复](/deployment/backup-and-restore)。

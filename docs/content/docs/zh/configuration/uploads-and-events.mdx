@@ -1,0 +1,104 @@
+---
+title: 上传与事件
+description: 配置上传会话、哈希、本地导入、worker 与 SSE 事件。
+---
+
+## 上传
+
+```yaml
+uploads:
+  session-ttl: 168h
+  hashing-enabled: true
+  local-import-roots: []
+```
+
+- `session-ttl`：可续传上传的存活时间；默认为 7 天。
+- `hashing-enabled`：在上传过程中计算 BLAKE3 哈希。关闭它只会跳过服务端的哈希计算；客户端提供的校验和仍会被校验。
+- `local-import-roots`：允许用于后台导入的服务端绝对路径；留空表示禁用导入。
+
+容器示例：
+
+```yaml
+volumes:
+  - /srv/imports:/srv/imports:ro
+
+environment:
+  TELDRIVE_UPLOADS_LOCAL_IMPORT_ROOTS: /srv/imports
+```
+
+只应暴露 Teldrive 有权读取的目录。启动本地导入任务需要 `admin` 或 `owner` 账户。
+
+### 分块大小
+
+```yaml
+uploads:
+  default-part-size: 512MiB
+  max-part-size: 4GiB
+```
+
+- `default-part-size`：会话未指定时使用的分块大小。分块越大，Telegram 文档越少、请求开销越小；分块越小，失败分块的重试代价越低，每个并发上传占用的内存也越少。在小型主机上应优先调低它。
+- `max-part-size`：会话可以请求的最大分块大小，也是后台本地导入所受的上限。请求更大的会话会被拒绝。
+
+以下两条规则会在启动时一并校验，不满足则直接拒绝该配置：
+
+```text
+uploads default-part-size cannot exceed max-part-size
+uploads max-part-size must be a whole multiple of default-part-size
+```
+
+请选择能整除 `max-part-size` 的 `default-part-size`。随附的 `512MiB` / `4GiB` 组合满足这一条件（4 GiB = 8 × 512 MiB）；`128MiB` / `512MiB` 同样满足。
+
+### 下载并发
+
+```yaml
+uploads:
+  max-concurrent-downloads: 4
+```
+
+范围 `1`–`256`，默认 `4`。它限制同时打开的字节 range 数量；超出时请求会等待空闲槽位，而不是被拒绝。
+
+它与 [`telegram.download-read-buffers`](/configuration/telegram) 一起构成进程的下载内存上限：每个打开的 range 最多缓冲相应数量的 1 MiB Telegram 分块，因此 `max-concurrent-downloads × download-read-buffers` 兆字节就是下载缓冲的预算。默认组合为 4 × 32 = 128 MB。调高其中任何一个值之前，请先阅读[性能调优](/advanced/performance)。
+
+## Worker
+
+```yaml
+jobs:
+  run-workers: true
+```
+
+默认为 `true`。仅在不应运行任务的实例上设为 `false`，并确保部署中恰好有一个实例仍保持开启：内置的周期调度是由运行 worker 的实例注册的，因此全部为 `false` 的部署完全不会执行任何维护工作。参见[多实例部署](/advanced/multi-instance)和[任务与队列](/operations/jobs-and-queues)。
+
+## 实时事件
+
+```yaml
+events:
+  batch-size: 100
+  max-connections-per-user: 5
+  heartbeat: 20s
+  write-timeout: 10s
+  ticket-ttl: 2m
+  cleanup-interval: 1h
+  connect-timeout: 10s
+  ping-interval: 5s
+  reconnect-min: 100ms
+  reconnect-max: 30s
+```
+
+UI 使用 Server-Sent Events。反向代理必须允许长连接、无缓冲的响应。
+
+- `max-connections-per-user` 按 API 实例生效；超出后会返回 `429 too_many_event_streams`。
+- `ticket-ttl`：一次性浏览器事件流票据的有效期，默认 `2m`。浏览器无法在 `EventSource` 上发送 `Authorization` 请求头，因此 UI 会先签发票据，再通过 `ticket` 查询参数传递。
+- `cleanup-interval`：清理过期票据的频率，默认 `1h`。它**不是**可重放事件的保留时长。
+- `reconnect-min` / `reconnect-max`：限定 PostgreSQL 监听器的重连退避范围；`reconnect-max` 必须不小于 `reconnect-min`。
+
+可重放事件的保留期为 **48 小时**，这是固定的默认值而不是一个配置项：它是内置 *User event cleanup* 周期任务的 `retention` 参数。请通过周期任务 API（`args.retention`）来修改它，而不是通过 `events.retention`——`events.retention` 这个配置键会被静默忽略。
+
+## 传输超时
+
+```yaml
+http:
+  read-timeout: 1h
+  write-timeout: 1h
+```
+
+如果传输总是在固定的时长后失败，请在调整 Telegram 并发之前，先对比 Teldrive、代理、负载均衡/CDN 和客户端各自的超时设置。

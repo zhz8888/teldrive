@@ -1,0 +1,75 @@
+---
+title: 快速开始
+description: 使用 PostgreSQL 和官方容器镜像运行 Teldrive。
+---
+
+import SetupGenerator from '../../../../src/components/setup-generator';
+
+需要 Docker 或 Podman，以及一个 Telegram 账号。
+
+## 1. 创建目录
+
+```bash
+mkdir -p ~/teldrive
+cd ~/teldrive
+```
+
+## 2. 生成 `compose.yaml`
+
+Teldrive 内置了公开的 Telegram 应用凭据，无需提供 `api_id` 或 `api_hash`。如果你想改用自己的凭据，请参阅[自定义 Telegram 应用](/getting-started/telegram-application)。
+
+<SetupGenerator client:load />
+
+把 **Compose** 输出复制保存为 `compose.yaml`。生成器还会输出同一批取值的 **.env**、**YAML** 和 **CLI** 三种变体 —— 如果希望 `just` 配方自动读取这套配置，请使用 **.env** 输出；如果是通过二进制方式安装，请使用 **CLI** 输出。
+
+请备份 `security.data-key` 以及每一个内容加密密钥。一旦丢失，受保护的数据将无法恢复。
+
+## 3. 启动 Teldrive
+
+Docker：
+
+```bash
+docker compose up -d
+docker compose logs -f teldrive
+```
+
+Podman：
+
+```bash
+podman compose up -d
+podman compose logs -f teldrive
+```
+
+Teldrive 会在启动过程中执行所需的数据库迁移。生成的 Compose 文件使用 `postgres:18-alpine`，并把数据库保存在 `./postgres-data` 中；Teldrive 的开发与测试均基于 PostgreSQL 18。当你把它指向自己的 PostgreSQL 时，`database.url` 中的角色必须能够在 `public` schema 中创建 `pgcrypto` 和 `pg_trgm` 扩展。
+
+## 4. 打开界面
+
+```text
+http://127.0.0.1:8080
+```
+
+生成的 Compose 文件只会在宿主机的回环地址上发布 Teldrive。如果需要远程访问，请使用带 HTTPS 的反向代理。
+
+使用 Telegram 登录，然后上传并下载一个小测试文件。
+
+## 5. 校验配置
+
+```bash
+docker compose run --rm teldrive check
+```
+
+`check` 会初始化整个应用 —— 配置、迁移、Telegram 客户端以及数据库连接池 —— 然后退出，不会对外提供服务。它**并非**只读操作：它会执行迁移，并且在默认的 `database.auto-migrate-legacy: true` 下会对旧版 v1 数据库执行原地升级。
+
+## 下一步
+
+<Cards>
+  <Card title="生产部署" href="/deployment/production">
+    HTTPS、备份、访问控制与升级。
+  </Card>
+  <Card title="配置" href="/configuration/overview">
+    配置文件、环境变量、命令行参数以及全部设置项。
+  </Card>
+  <Card title="首次登录" href="/getting-started/first-login">
+    验证存储以及初始用户的使用流程。
+  </Card>
+</Cards>

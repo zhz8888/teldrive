@@ -1,0 +1,109 @@
+---
+title: Telegram 设置
+description: 配置 Telegram 的连接、并发、频道、代理与下载客户端。
+---
+
+Teldrive 内置了公开的 Telegram 应用凭据。只有在使用自定义 Telegram 应用时，才需要覆盖 `app-id` 和 `app-hash`。
+
+## 连接
+
+```yaml
+telegram:
+  backend: remote
+  dial-timeout: 10s
+  reconnect-timeout: 5m
+  max-retries: 10
+  rate-limit: true
+  rate-interval: 50ms
+  rate-burst: 10
+```
+
+除非有明确的理由，否则请保持限流开启。
+
+## 上传
+
+```yaml
+telegram:
+  upload-threads: 8
+```
+
+有效范围：`1`–`32`。只有在实测过吞吐和 Telegram 错误之后才调高它。
+
+## 下载
+
+```yaml
+telegram:
+  download-bots: 0
+  download-client-pool: false
+  download-read-buffers: 32
+  download-read-parallel: 4
+```
+
+- `download-bots`：`0` 表示所有下载都通过已认证的用户账户进行；`1`–`32` 则限制参与下载轮换的用户**已启用** bot 的数量上限。它不会启用 bot——请先添加并启用它们（见[Bot](/using/bots)）——也不限制上传，上传始终在所有符合条件的已启用 bot 之间轮换。
+- `download-client-pool`：在 HTTP 请求之间让已认证的下载客户端保持热状态，而不是为每个请求新建一个。它会在进程生命周期内一直保持 `max(1, download-bots)` 个 Telegram 客户端处于打开状态，因此这是用持久的 Telegram 会话换取更低的单请求延迟。除非你实测过单请求的客户端建立成本，否则请保持 `false`（随附的默认值，两个配置示例也都建议保持该值）。
+- `download-read-buffers`：每个打开的 range 在内存中保留的预取 1 MiB 分块数量，范围 `1`–`256`。
+- `download-read-parallel`：每个 range 的并发分块获取数量（也是每个 range 请求的 Telegram 连接数），范围 `1`–`32`。
+
+内存和连接数都会随这些设置成比例增长。每个打开的下载 range 最多缓冲 `download-read-buffers` 个 1 MiB 的 Telegram 分块，其中最多 `download-read-parallel` 个会被并发获取。与 [`uploads.max-concurrent-downloads`](/configuration/uploads-and-events) 相乘之后，缓冲块数就是进程的下载内存上限：默认值为 4 × 32 = 128 MB。只改其中一个而另一个不变，只是在吞吐和内存之间做取舍。参见[性能调优](/advanced/performance)。
+
+## 存储频道
+
+```yaml
+telegram:
+  randomize-part-names: true
+  auto-channel-create: true
+  channel-part-limit: 500000
+  channel-name-prefix: teldrive
+```
+
+参见[存储频道](/using/channels)。
+
+## Bot 轮换
+
+```yaml
+telegram:
+  bot-rotation-backend: memory
+```
+
+单实例使用 `memory`；多个实例必须协同 bot 轮换时使用 `database`。
+
+## 代理
+
+标准 HTTP/HTTPS/SOCKS5 代理：
+
+```yaml
+telegram:
+  proxy: "socks5://user:password@proxy.example.com:1080"
+```
+
+MTProxy：
+
+```yaml
+telegram:
+  mtproxy:
+    address: "proxy.example.com:443"
+    secret: "YOUR_SECRET"
+```
+
+不要同时配置两者。MTProxy 的地址和密钥必须一起设置。
+
+## 客户端日志
+
+```yaml
+telegram:
+  client-logging: false
+```
+
+在需要 Telegram 底层诊断时临时开启。
+
+## 文件系统后端
+
+仅用于开发/测试：
+
+```yaml
+telegram:
+  backend: filesystem
+  local-root: ./var/local-telegram
+```
+
+该模式把内容存储在本地而不是 Telegram 中，并且上面所有的 gotd 设置——`upload-threads`、`download-bots`、`download-read-*`、`proxy`、`mtproxy`、`client-logging`、`channel-part-limit`、`bot-rotation-backend` 以及设备身份相关的密钥——在此模式下都不会生效。

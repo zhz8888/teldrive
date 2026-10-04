@@ -1,0 +1,43 @@
+---
+title: 自定义 Telegram 应用
+description: 替换 Teldrive 内置的公开 Telegram 应用凭据。
+---
+
+大多数安装都应直接使用内置凭据。Teldrive 默认使用 Telegram Desktop 的公开应用（`app-id` `2496`），因此标准部署完全不需要 `api_id` 或 `api_hash`。只有当你希望这些凭据归属于你自己，或者不希望你的账号流量与其他所有部署共用同一个客户端标识时，才需要配置自己的凭据。
+
+## 创建凭据
+
+1. 打开 `https://my.telegram.org`。
+2. 登录。
+3. 打开 **API 开发工具**。
+4. 创建一个应用。
+5. 复制 `api_id` 和 `api_hash`。
+
+请妥善保管 API hash，不要对外泄露。
+
+## 配置
+
+环境变量：
+
+```bash
+TELDRIVE_TELEGRAM_APP_ID=12345678
+TELDRIVE_TELEGRAM_APP_HASH=0123456789abcdef0123456789abcdef
+```
+
+YAML：
+
+```yaml
+telegram:
+  app-id: 12345678
+  app-hash: 0123456789abcdef0123456789abcdef
+```
+
+TOML：
+
+```toml
+[telegram]
+app-id = 12345678
+app-hash = "0123456789abcdef0123456789abcdef"
+```
+
+关于代理、重试、限流和文件系统后端的设置，请参阅 [Telegram 设置](/configuration/telegram)。

@@ -1,0 +1,68 @@
+---
+title: 发布版二进制文件
+description: 不使用容器，安装 Teldrive 发布归档包。
+---
+
+发布构建是面向 Linux、macOS 和 Windows 的独立静态链接二进制文件；每个目标均以 `CGO_ENABLED=0` 构建。
+
+## 安装
+
+从 GitHub Releases 下载适合你的操作系统/架构的归档包，然后在 Linux 上执行：
+
+```bash
+tar -xzf teldrive-vX.Y.Z-linux-amd64.tar.gz
+sudo install -m 0755 teldrive /usr/local/bin/teldrive
+teldrive version
+```
+
+发布目标包括 Linux `amd64`/`arm`/`arm64`、macOS `amd64`/`arm64` 以及 Windows `amd64`/`arm64`。归档包内包含 `teldrive` 二进制文件以及 `README.md` 与 `README.zh-CN.md`。Windows 归档包是 `.zip`，而不是 `.tar.gz`。
+
+目前尚未发布任何 v2 发布归档包：发布归档包在推送 `v*` 标签时生成，而仓库当前没有任何此类标签。在此之前，请从源码构建（见[从源码构建](/installation/from-source)）或使用容器镜像。
+
+在 `teldrive run` 能够启动之前，Teldrive 需要一个数据库 URL 以及两个 `security` 密钥——可以从 `config.sample.toml` 开始，或用[快速开始生成器](/getting-started/quick-start)生成。如果完全没有配置，启动会失败并提示 `security.data-key is required`。
+
+## 配置
+
+使用显式的配置路径：
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+teldrive run --config /etc/teldrive/config.toml
+```
+
+关于配置文件查找顺序和必填设置，请参见[配置概览](/configuration/overview)。
+
+## systemd
+
+```ini
+[Unit]
+Description=Teldrive
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teldrive
+Group=teldrive
+ExecStart=/usr/local/bin/teldrive run --config /etc/teldrive/config.toml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+保护配置文件：
+
+```bash
+sudo chown root:teldrive /etc/teldrive/config.toml
+sudo chmod 0640 /etc/teldrive/config.toml
+```
+
+## 监听地址
+
+如果宿主机上有本地反向代理，请保持默认的 `127.0.0.1:8080`。只有在有意对外暴露网络时才使用 `0.0.0.0:8080`。
+
+参见[反向代理与 HTTPS](/deployment/reverse-proxy)。

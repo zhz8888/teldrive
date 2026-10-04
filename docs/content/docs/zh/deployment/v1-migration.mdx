@@ -1,0 +1,94 @@
+---
+title: 从 Teldrive v1 迁移
+description: 把遗留的 v1 PostgreSQL 数据库迁移到 v2 schema。
+---
+
+Teldrive v2 通过遗留的 `public.goose_db_version` 表来检测 v1。
+
+## 迁移前
+
+1. 停止 v1 的写入；
+2. 备份 PostgreSQL；
+3. 保留旧的二进制/镜像以及配置；
+4. 为 v2 配置一个稳定的 `security.data-key`——它必须在整个安装生命周期内保持不变，因为它会重新封存迁移过来的 bot token；
+5. 如果您的 v1 安装使用过加密文件，请在 v2 中配置**内容密钥版本 1**：
+
+```yaml
+encryption:
+  active-key-version: 1
+  keys:
+    1: "<the content key your v1 server used>"
+```
+
+迁移器会把每一个迁移过来的加密文件都标记为密钥版本 1，而版本未出现在 `encryption.keys` 中的文件无法解密。请在迁移**之前**（而不是之后）加入密钥版本 1：已有行上所标记的版本在迁移时即已固定，之后无法再更改。
+
+6. 在迁移**之前**决定 v1 回收站中所有内容的去向。迁移器会把每一条状态不是恰好为 `active` 的 v1 条目映射为 `deletion_pending`，而不是 `trashed`。随后，待删除文件的清理任务会删除这些条目对应的 Telegram 消息。请先从 v1 界面中把您仍想保留的任何内容恢复出来。
+
+## 启用迁移
+
+默认值：
+
+```yaml
+database:
+  auto-migrate-legacy: true
+```
+
+`teldrive run` 和 `teldrive check` 都可以在初始化期间触发迁移。
+
+要求：
+
+- v1 和 v2 使用同一个 PostgreSQL 数据库——迁移器只连接一次，遇到其他情况会拒绝执行；
+- `database.schema` 保持其默认值 `teldrive`。这并非无关紧要的外观问题：v1 的 schema *也*叫 `teldrive`，而迁移器正是要交换这个名字。如果设置了其他任何值，启动会以 `legacy database migration requires database.schema="teldrive"` 中止，而不是执行迁移；
+- 已配置 `security.data-key`；
+- 数据库用户可以创建/重命名 schema 并迁移数据。
+
+## 迁移器会创建什么
+
+迁移器会获取一个咨询锁（advisory lock），并在独立的 schema 中分阶段完成转换：
+
+```text
+legacy source
+  ↓
+teldrive_v2_staging_<timestamp>
+  ↓ validate/swap
+teldrive
+
+teldrive_legacy_backup_<timestamp>
+```
+
+交换成功后，遗留 schema 会以 `teldrive_legacy_backup_*` 的形式保留下来。
+
+## 执行迁移
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+```
+
+或者：
+
+```bash
+docker compose run --rm teldrive check
+```
+
+请在日志中检查 `database.legacy_migration.completed` 以及所报告的行数。
+
+## 验证
+
+启动 v2 之后，请验证用户、频道、bots、目录结构、文件以及已知的下载链接。
+
+原本位于 v1 回收站中的文件现在处于 `deletion_pending` 状态，并已进入队列，等待永久删除其对应的 Telegram 消息。如果其中还有您在意的内容，请在迁移完成后立即检查回收站。
+
+在您另外拥有一份经过测试的独立 PostgreSQL 备份之前，请保留遗留备份 schema。
+
+## 禁用自动迁移
+
+```yaml
+database:
+  auto-migrate-legacy: false
+```
+
+在采用该设置后，检测到 v1 会让初始化失败，而不是执行迁移。
+
+## 回滚
+
+请恢复迁移前的 PostgreSQL 备份以及旧的应用版本/配置。不要把只迁移了一部分的数据库当作回滚方案。

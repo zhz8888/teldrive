@@ -1,0 +1,127 @@
+---
+title: "命令行、环境变量与配置参考"
+description: Teldrive 配置项与命令行参数、TELDRIVE_ 环境变量的完整对应关系（自动生成）。
+---
+
+本页由服务端配置结构自动生成。优先级：**默认值 < 配置文件 < 环境变量 < 显式命令行参数**。
+
+名称映射示例：`http.address` → `TELDRIVE_HTTP_ADDRESS` → `--http-address`。列表使用逗号分隔，加密密钥映射使用 `version:key` 形式。
+
+**默认值**一列是运行时默认值，而非生产环境推荐值。
+
+## 缓存
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `cache.memory.size` | `--cache-memory-size` | `TELDRIVE_CACHE_MEMORY_SIZE` | `5MB` | `gt=0` | 全局 Ristretto 内存缓存大小（例如 5MB、10MB） |
+## 数据库
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `database.application-name` | `--database-application-name` | `TELDRIVE_DATABASE_APPLICATION_NAME` | `teldrive-v2` | `required` | PostgreSQL 应用名称 |
+| `database.auto-migrate-legacy` | `--database-auto-migrate-legacy` | `TELDRIVE_DATABASE_AUTO_MIGRATE_LEGACY` | `true` | — | 启动时自动迁移检测到的 TelDrive v1 数据库 |
+| `database.connect-timeout` | `--database-connect-timeout` | `TELDRIVE_DATABASE_CONNECT_TIMEOUT` | `10s` | `gt=0` | PostgreSQL 连接超时时间 |
+| `database.health-check-interval` | `--database-health-check-interval` | `TELDRIVE_DATABASE_HEALTH_CHECK_INTERVAL` | `30s` | `gt=0` | PostgreSQL 连接池健康检查间隔 |
+| `database.max-connection-idle` | `--database-max-connection-idle` | `TELDRIVE_DATABASE_MAX_CONNECTION_IDLE` | `5m0s` | `gte=0` | PostgreSQL 连接的最大空闲时间 |
+| `database.max-connection-life` | `--database-max-connection-life` | `TELDRIVE_DATABASE_MAX_CONNECTION_LIFE` | `30m0s` | `gte=0` | PostgreSQL 连接的最长存活时间 |
+| `database.max-connections` | `--database-max-connections` | `TELDRIVE_DATABASE_MAX_CONNECTIONS` | `25` | `gte=1` | PostgreSQL 最大连接数 |
+| `database.min-connections` | `--database-min-connections` | `TELDRIVE_DATABASE_MIN_CONNECTIONS` | `2` | `gte=0` | PostgreSQL 最小连接数 |
+| `database.schema` | `--database-schema` | `TELDRIVE_DATABASE_SCHEMA` | `teldrive` | `required` | 存放所有 TelDrive 表与 River 表的 PostgreSQL schema |
+| `database.url` | `--database-url` | `TELDRIVE_DATABASE_URL` | — | `required` | PostgreSQL 连接 URL |
+## 加密
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `encryption.active-key-version` | `--encryption-active-key-version` | `TELDRIVE_ENCRYPTION_ACTIVE_KEY_VERSION` | `0` | `gte=0` | 新上传使用的当前服务端托管加密密钥版本 |
+| `encryption.keys` | `--encryption-keys` | `TELDRIVE_ENCRYPTION_KEYS` | — | — | 加密密钥，格式为逗号分隔的 version:key 条目 |
+## 事件
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `events.batch-size` | `--events-batch-size` | `TELDRIVE_EVENTS_BATCH_SIZE` | `100` | `min=1,max=1000` | 每批 SSE 从 PostgreSQL 读取的最大事件数 |
+| `events.cleanup-interval` | `--events-cleanup-interval` | `TELDRIVE_EVENTS_CLEANUP_INTERVAL` | `1h0m0s` | `gt=0` | 过期事件流票据的清理间隔 |
+| `events.connect-timeout` | `--events-connect-timeout` | `TELDRIVE_EVENTS_CONNECT_TIMEOUT` | `10s` | `gt=0` | PostgreSQL 事件监听器连接超时时间 |
+| `events.heartbeat` | `--events-heartbeat` | `TELDRIVE_EVENTS_HEARTBEAT` | `20s` | `gt=0` | SSE 心跳间隔 |
+| `events.max-connections-per-user` | `--events-max-connections-per-user` | `TELDRIVE_EVENTS_MAX_CONNECTIONS_PER_USER` | `5` | `min=1,max=1000` | 单个 API 实例上每个用户允许的最大 SSE 并发连接数 |
+| `events.ping-interval` | `--events-ping-interval` | `TELDRIVE_EVENTS_PING_INTERVAL` | `5s` | `gt=0` | PostgreSQL 事件监听器健康检查间隔 |
+| `events.reconnect-max` | `--events-reconnect-max` | `TELDRIVE_EVENTS_RECONNECT_MAX` | `30s` | `gt=0` | PostgreSQL 监听器最大重连延迟 |
+| `events.reconnect-min` | `--events-reconnect-min` | `TELDRIVE_EVENTS_RECONNECT_MIN` | `100ms` | `gt=0` | PostgreSQL 监听器最小重连延迟 |
+| `events.ticket-ttl` | `--events-ticket-ttl` | `TELDRIVE_EVENTS_TICKET_TTL` | `2m0s` | `gt=0` | 浏览器事件流票据的有效期 |
+| `events.write-timeout` | `--events-write-timeout` | `TELDRIVE_EVENTS_WRITE_TIMEOUT` | `10s` | `gt=0` | 单次 SSE 写入与刷新的最长耗时 |
+## HTTP
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `http.address` | `--http-address` | `TELDRIVE_HTTP_ADDRESS` | `127.0.0.1:8080` | `required` | HTTP 监听地址 |
+| `http.idle-timeout` | `--http-idle-timeout` | `TELDRIVE_HTTP_IDLE_TIMEOUT` | `2m0s` | `gte=0` | HTTP keep-alive 空闲超时时间 |
+| `http.read-header-timeout` | `--http-read-header-timeout` | `TELDRIVE_HTTP_READ_HEADER_TIMEOUT` | `10s` | `gte=0` | 读取请求头的最长等待时间 |
+| `http.read-timeout` | `--http-read-timeout` | `TELDRIVE_HTTP_READ_TIMEOUT` | `1h0m0s` | `gte=0` | 读取整个请求的最长时间；设为 0 可对流式上传关闭该限制 |
+| `http.shutdown-timeout` | `--http-shutdown-timeout` | `TELDRIVE_HTTP_SHUTDOWN_TIMEOUT` | `10s` | `gt=0` | 优雅停机的超时时间 |
+| `http.trusted-proxies` | `--http-trusted-proxies` | `TELDRIVE_HTTP_TRUSTED_PROXIES` | — | — | 允许设置转发头的代理 IP 地址或 CIDR |
+| `http.write-timeout` | `--http-write-timeout` | `TELDRIVE_HTTP_WRITE_TIMEOUT` | `1h0m0s` | `gte=0` | 响应写入的最长时间；设为 0 可对流式传输关闭该限制 |
+## 后台任务
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `jobs.run-workers` | `--jobs-run-workers` | `TELDRIVE_JOBS_RUN_WORKERS` | `true` | — | 在当前进程中运行 River 后台任务 worker |
+## 日志
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `logging.log-format` | `--logging-log-format` | `TELDRIVE_LOGGING_LOG_FORMAT` | `json` | `oneof=json text` | 日志格式：json 或 text |
+| `logging.log-level` | `--logging-log-level` | `TELDRIVE_LOGGING_LOG_LEVEL` | `info` | `oneof=debug info warn error` | 日志级别：debug、info、warn 或 error |
+## 安全
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `security.access-token-ttl` | `--security-access-token-ttl` | `TELDRIVE_SECURITY_ACCESS_TOKEN_TTL` | `15m0s` | `gt=0` | 访问令牌的有效期 |
+| `security.allowed-users` | `--security-allowed-users` | `TELDRIVE_SECURITY_ALLOWED_USERS` | — | — | 允许登录的 Telegram 用户名；留空表示允许所有用户 |
+| `security.data-key` | `--security-data-key` | `TELDRIVE_SECURITY_DATA_KEY` | — | `required` | 用于加密已存储 Telegram 凭据的密钥 |
+| `security.issuer` | `--security-issuer` | `TELDRIVE_SECURITY_ISSUER` | `teldrive-v2` | `required` | JWT 签发者（issuer） |
+| `security.login-flow-ttl` | `--security-login-flow-ttl` | `TELDRIVE_SECURITY_LOGIN_FLOW_TTL` | `10m0s` | `gt=0` | Telegram 登录流程的有效期 |
+| `security.refresh-token-ttl` | `--security-refresh-token-ttl` | `TELDRIVE_SECURITY_REFRESH_TOKEN_TTL` | `720h0m0s` | `gt=0` | 刷新令牌的有效期 |
+| `security.signing-key` | `--security-signing-key` | `TELDRIVE_SECURITY_SIGNING_KEY` | — | `required,min=32` | JWT 签名密钥 |
+## Telegram
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `telegram.app-hash` | `--telegram-app-hash` | `TELDRIVE_TELEGRAM_APP_HASH` | `8da85b0d5bfe62527e5b244c209159c3` | `required_if=Backend remote` | Telegram 应用 hash |
+| `telegram.app-id` | `--telegram-app-id` | `TELDRIVE_TELEGRAM_APP_ID` | `2496` | `required_if=Backend remote,omitempty,gt=0` | Telegram 应用 ID |
+| `telegram.app-version` | `--telegram-app-version` | `TELDRIVE_TELEGRAM_APP_VERSION` | `6.1.4 K` | `required` | Telegram 客户端应用版本 |
+| `telegram.auto-channel-create` | `--telegram-auto-channel-create` | `TELDRIVE_TELEGRAM_AUTO_CHANNEL_CREATE` | `true` | — | 自动创建存储频道 |
+| `telegram.backend` | `--telegram-backend` | `TELDRIVE_TELEGRAM_BACKEND` | `remote` | `oneof=remote filesystem` | Telegram 后端：remote 或 filesystem |
+| `telegram.bot-rotation-backend` | `--telegram-bot-rotation-backend` | `TELDRIVE_TELEGRAM_BOT_ROTATION_BACKEND` | `memory` | `oneof=memory database` | Bot 轮换后端：memory 适合单实例追求速度，database 用于集群范围协调 |
+| `telegram.channel-name-prefix` | `--telegram-channel-name-prefix` | `TELDRIVE_TELEGRAM_CHANNEL_NAME_PREFIX` | `teldrive` | `required` | 自动创建频道时使用的名称前缀 |
+| `telegram.channel-part-limit` | `--telegram-channel-part-limit` | `TELDRIVE_TELEGRAM_CHANNEL_PART_LIMIT` | `500000` | `gt=0` | 单个 Telegram 频道最多存储的分片数 |
+| `telegram.client-logging` | `--telegram-client-logging` | `TELDRIVE_TELEGRAM_CLIENT_LOGGING` | `false` | — | 通过应用日志输出 gotd 的详细 Telegram 客户端日志 |
+| `telegram.device-model` | `--telegram-device-model` | `TELDRIVE_TELEGRAM_DEVICE_MODEL` | `Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/116.0` | `required` | Telegram 客户端的设备型号 |
+| `telegram.dial-timeout` | `--telegram-dial-timeout` | `TELDRIVE_TELEGRAM_DIAL_TIMEOUT` | `10s` | `gt=0` | Telegram 连接超时时间 |
+| `telegram.download-bots` | `--telegram-download-bots` | `TELDRIVE_TELEGRAM_DOWNLOAD_BOTS` | `0` | `min=0,max=32` | 参与下载轮换的已启用 bot 上限；为 0 时使用已认证的用户账号 |
+| `telegram.download-client-pool` | `--telegram-download-client-pool` | `TELDRIVE_TELEGRAM_DOWNLOAD_CLIENT_POOL` | `false` | — | 在 HTTP 请求之间保持已认证的 Telegram 下载客户端常驻 |
+| `telegram.download-read-buffers` | `--telegram-download-read-buffers` | `TELDRIVE_TELEGRAM_DOWNLOAD_READ_BUFFERS` | `32` | `min=1,max=256` | 每个下载流在内存中预取的 Telegram 下载分块数量 |
+| `telegram.download-read-parallel` | `--telegram-download-read-parallel` | `TELDRIVE_TELEGRAM_DOWNLOAD_READ_PARALLEL` | `4` | `min=1,max=32` | 每个下载流并发拉取的 Telegram 分块数 |
+| `telegram.language-code` | `--telegram-language-code` | `TELDRIVE_TELEGRAM_LANGUAGE_CODE` | `en` | `required` | Telegram 客户端语言代码 |
+| `telegram.language-pack` | `--telegram-language-pack` | `TELDRIVE_TELEGRAM_LANGUAGE_PACK` | `webk` | — | Telegram 客户端语言包 |
+| `telegram.local-root` | `--telegram-local-root` | `TELDRIVE_TELEGRAM_LOCAL_ROOT` | `./var/local-telegram` | `required_if=Backend filesystem` | 本地 Telegram 模拟器使用的文件系统根目录 |
+| `telegram.max-retries` | `--telegram-max-retries` | `TELDRIVE_TELEGRAM_MAX_RETRIES` | `10` | `gte=0` | Telegram 传输层最大重试次数 |
+| `telegram.mtproxy.address` | `--telegram-mtproxy-address` | `TELDRIVE_TELEGRAM_MTPROXY_ADDRESS` | — | — | MTProto 代理地址，格式为 host:port |
+| `telegram.mtproxy.secret` | `--telegram-mtproxy-secret` | `TELDRIVE_TELEGRAM_MTPROXY_SECRET` | — | — | MTProto 代理密钥，十六进制格式 |
+| `telegram.proxy` | `--telegram-proxy` | `TELDRIVE_TELEGRAM_PROXY` | — | — | HTTP、HTTPS 或 SOCKS5 代理地址 |
+| `telegram.randomize-part-names` | `--telegram-randomize-part-names` | `TELDRIVE_TELEGRAM_RANDOMIZE_PART_NAMES` | `true` | — | 随机化 Telegram 文档名称 |
+| `telegram.rate-burst` | `--telegram-rate-burst` | `TELDRIVE_TELEGRAM_RATE_BURST` | `10` | `gt=0` | Telegram API 请求的突发额度 |
+| `telegram.rate-interval` | `--telegram-rate-interval` | `TELDRIVE_TELEGRAM_RATE_INTERVAL` | `50ms` | `gt=0` | 两次 Telegram API 请求之间的最小间隔 |
+| `telegram.rate-limit` | `--telegram-rate-limit` | `TELDRIVE_TELEGRAM_RATE_LIMIT` | `true` | — | 启用 Telegram API 请求速率限制 |
+| `telegram.reconnect-timeout` | `--telegram-reconnect-timeout` | `TELDRIVE_TELEGRAM_RECONNECT_TIMEOUT` | `5m0s` | `gt=0` | Telegram 重连退避的最长等待时间 |
+| `telegram.system-language-code` | `--telegram-system-language-code` | `TELDRIVE_TELEGRAM_SYSTEM_LANGUAGE_CODE` | `en-US` | `required` | Telegram 客户端的系统语言代码 |
+| `telegram.system-version` | `--telegram-system-version` | `TELDRIVE_TELEGRAM_SYSTEM_VERSION` | `Win32` | `required` | Telegram 客户端的系统版本 |
+| `telegram.upload-threads` | `--telegram-upload-threads` | `TELDRIVE_TELEGRAM_UPLOAD_THREADS` | `8` | `min=1,max=32` | 并发上传的 Telegram worker 数量 |
+## 上传
+
+| 配置项 | 命令行参数 | 环境变量 | 默认值 | 校验规则 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `uploads.default-part-size` | `--uploads-default-part-size` | `TELDRIVE_UPLOADS_DEFAULT_PART_SIZE` | `512MB` | `gt=0` | 会话未指定分片大小时使用的分片大小，可为字节数或 128MiB 这类带单位的写法 |
+| `uploads.hashing-enabled` | `--uploads-hashing-enabled` | `TELDRIVE_UPLOADS_HASHING_ENABLED` | `true` | — | 为上传的文件计算并保存 BLAKE3 哈希 |
+| `uploads.local-import-roots` | `--uploads-local-import-roots` | `TELDRIVE_UPLOADS_LOCAL_IMPORT_ROOTS` | — | — | 允许作为本地后台导入来源的服务端绝对路径目录；留空表示禁用本地导入 |
+| `uploads.max-concurrent-downloads` | `--uploads-max-concurrent-downloads` | `TELDRIVE_UPLOADS_MAX_CONCURRENT_DOWNLOADS` | `4` | `min=1,max=256` | 同时保持打开的下载流数量上限 |
+| `uploads.max-part-size` | `--uploads-max-part-size` | `TELDRIVE_UPLOADS_MAX_PART_SIZE` | `4GB` | `gt=0` | 会话可请求的最大分片大小，可为字节数或 4GiB 这类带单位的写法 |
+| `uploads.session-ttl` | `--uploads-session-ttl` | `TELDRIVE_UPLOADS_SESSION_TTL` | `168h0m0s` | `gt=0` | 可续传上传会话的有效期 |

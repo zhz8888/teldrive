@@ -1,0 +1,212 @@
+---
+title: 备份与恢复
+description: 用 pg_dumpall 把 PostgreSQL 备份到 restic 仓库，可通过任意 rclone 远程端存储。
+---
+
+除了 PostgreSQL 本身，还要备份解密受保护数据所需的 Teldrive 密钥。
+
+## 恢复集合
+
+需要保留：
+
+- PostgreSQL 备份
+- `security.data-key`
+- `security.signing-key`
+- 所有仍在使用的 `encryption.keys` 版本
+- 部署配置
+- restic 仓库密码和 rclone 凭据
+
+请把 Teldrive 的解密密钥与数据库备份分开保存。
+
+每一项都必须保留的原因：
+
+- `security.data-key` 封存 Telegram 登录会话、bot token、登录状态和 River 任务参数。在默认的 `telegram.backend: remote` 下，这些会话**保存在 PostgreSQL 中**，因此这个密钥加上转储文件就是全部的认证状态。
+- `security.signing-key` 用于签发和校验访问令牌。恢复它可以让故障前签发的会话继续有效；更换它则会把所有用户登出。
+- `encryption.keys` 用于解密存放在 Telegram 中的文件内容。已存储文件所引用的每一个版本都是必需的——参见[生产环境检查清单](/deployment/production)中的查询。
+
+落盘的 Telegram 状态仅在 `telegram.backend: filesystem`（测试中使用的本地模拟后端）下才会存在，位于 `telegram.local-root` 目录下。如果您使用该后端，这个目录**不在** PostgreSQL 转储的覆盖范围内，必须单独备份。
+
+## 恢复能找回什么、不能找回什么
+
+PostgreSQL 备份恢复的**只有元数据**：用户、目录、文件名和大小、Telegram 频道与消息坐标、哈希、分享、bots、会话以及任务状态。它**不包含任何文件字节**。
+
+所有文件内容仍然存放在拥有这些存储频道的 Telegram 账号中。因此恢复之后，Teldrive 依赖下面全部条件，而转储文件里并不包含其中任何一项：
+
+- 该 Telegram 账号仍然存在且未被封禁；
+- 该账号仍然可以访问数据库所引用的每一个存储频道；
+- 每个文件分片所引用的消息仍然存在；
+- `security.data-key` 与之前一致，这样已存储的会话和 bot token 才能被打开，Teldrive 也才能重新向 Telegram 完成认证。
+
+上述任何一条不满足，恢复后的数据库都会列出无法下载的文件。请在信任一次恢复**之前**重新验证 Telegram 的可达性。
+
+## 推荐的备份方式
+
+把 `pg_dumpall` 的输出直接通过管道交给 restic。Restic 可以把加密后的仓库存放到任意 rclone 远程端：
+
+```text
+rclone:<remote>:<path>
+```
+
+示例：
+
+```text
+rclone:backup:teldrive/postgres
+```
+
+`pg_dumpall` 包含所有数据库，以及角色、授权等集群级对象。
+
+## 配置 restic
+
+创建仅 root 可读的文件：
+
+```bash
+sudo install -d -m 0700 /etc/teldrive-backup
+sudo rclone config --config /etc/teldrive-backup/rclone.conf
+sudo chmod 0600 /etc/teldrive-backup/rclone.conf
+
+openssl rand -base64 32 | sudo tee /etc/teldrive-backup/restic-password >/dev/null
+sudo chmod 0600 /etc/teldrive-backup/restic-password
+```
+
+创建 `/etc/teldrive-backup/backup.env`：
+
+```ini
+RESTIC_REPOSITORY=rclone:backup:teldrive/postgres
+RESTIC_PASSWORD_FILE=/etc/teldrive-backup/restic-password
+RCLONE_CONFIG=/etc/teldrive-backup/rclone.conf
+RESTIC_CACHE_DIR=/var/cache/teldrive-backup
+```
+
+```bash
+sudo chmod 0600 /etc/teldrive-backup/backup.env
+sudo env \
+  RESTIC_REPOSITORY='rclone:backup:teldrive/postgres' \
+  RESTIC_PASSWORD_FILE=/etc/teldrive-backup/restic-password \
+  RCLONE_CONFIG=/etc/teldrive-backup/rclone.conf \
+  restic init
+```
+
+请单独备份 restic 密码。没有它，仓库就无法恢复。
+
+## systemd 服务
+
+对于快速开始（Quick Start）中的 Docker Compose 部署，请创建 `/etc/systemd/system/teldrive-backup.service`：
+
+```ini
+[Unit]
+Description=Back up Teldrive PostgreSQL
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/teldrive-backup/backup.env
+CacheDirectory=teldrive-backup
+CacheDirectoryMode=0700
+UMask=0077
+
+ExecStart=/usr/bin/restic backup --stdin-from-command --stdin-filename teldrive-postgres.sql --tag teldrive-postgres -- /usr/bin/docker compose -f /opt/teldrive/compose.yaml exec -T postgres pg_dumpall -U teldrive --clean --if-exists
+ExecStart=/usr/bin/restic forget --tag teldrive-postgres --keep-daily 7 --keep-weekly 5 --keep-monthly 12 --keep-yearly 3 --prune
+
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+```
+
+请把 `/opt/teldrive/compose.yaml` 改为您实际的 Compose 文件路径。
+
+对于 Podman，请把 Docker 命令替换为等价的 `podman compose` 命令。
+
+对于直接安装在主机上的 PostgreSQL，请直接使用 `pg_dumpall`，并使用受保护的 `PGPASSFILE`/`.pgpass` 进行认证，而不是把密码写进 unit 文件中。
+
+<Callout title="pg_dumpall 需要比应用角色更高的权限">
+  除了每一个数据库之外，`pg_dumpall` 还会转储集群级对象（角色、授权、表空间），因此它运行所使用的角色需要比应用角色更高的权限。`pg_dumpall -U teldrive` 在快速开始的 compose 中之所以能工作，只是因为官方的 `postgres` 镜像会把 `POSTGRES_USER` 创建为超级用户。
+
+  如果您遵循了[生产环境检查清单](/deployment/production)中的最小权限建议，并给 Teldrive 分配了非超级用户角色，那么请二选一：
+
+  - 使用一个专用的备份角色来执行转储，并授予它 `pg_read_all_data` 以及 `pg_dumpall` 所需的集群级读取权限；或者
+  - 把 `pg_dumpall` 替换为 `pg_dump -Fc -d teldrive`，用 `pg_restore` 进行恢复，并单独备份角色定义。
+
+  不要仅仅为了让这个 unit 正常工作，就让 Teldrive 自身以 PostgreSQL 超级用户身份运行。
+</Callout>
+
+## systemd 定时器
+
+创建 `/etc/systemd/system/teldrive-backup.timer`：
+
+```ini
+[Unit]
+Description=Run Teldrive PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
+```
+
+启用并测试：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now teldrive-backup.timer
+sudo systemctl start teldrive-backup.service
+sudo systemctl status teldrive-backup.service
+```
+
+日志：
+
+```bash
+sudo journalctl -u teldrive-backup.service
+```
+
+## 验证备份
+
+```bash
+restic snapshots --tag teldrive-postgres
+restic check
+```
+
+请定期在一个隔离的 PostgreSQL 实例中执行一次真实的恢复。
+
+## 恢复
+
+导出最新的 SQL 转储：
+
+```bash
+restic dump latest teldrive-postgres.sql > teldrive-postgres.sql
+```
+
+`pg_dumpall` 产出的是纯 SQL，因此要用 `psql` 而不是 `pg_restore` 来恢复：
+
+```bash
+docker compose -f /opt/teldrive/compose.yaml exec -T postgres \
+  psql -X -U teldrive -d postgres < teldrive-postgres.sql
+```
+
+然后在启动 Teldrive 之前，恢复相同的 `security.data-key`、签名密钥、内容加密密钥以及部署配置。
+
+验证：
+
+```bash
+docker compose run --rm teldrive check
+docker compose up -d
+```
+
+请验证登录、列表、上传、下载、频道、bots、分享，以及在使用加密文件时的相关功能。
+
+## 重要提示
+
+PostgreSQL 中保存的是 Teldrive 的元数据，而不是 Telegram 上的文件内容本身。数据库备份无法恢复那些已从 Telegram 单独删除的文件内容。
+
+对于需要时间点恢复的部署，请额外增加 PostgreSQL 的物理/WAL 备份；`pg_dumpall` 只是逻辑层面的灾难恢复手段。

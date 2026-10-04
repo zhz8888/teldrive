@@ -1,0 +1,72 @@
+---
+title: 升级
+description: 借助数据库备份、验证、冒烟测试和回滚方案来升级 Teldrive。
+---
+
+启动过程会在对外提供任何服务之前先应用迁移，并且每个实例都会应用这些迁移：先执行 TelDrive 的 schema 迁移，然后是 River 的迁移线，再然后是 RiverPro 的迁移线。三者都落在 `database.schema`（默认 `teldrive`）中，该 schema 同时还存放 River 的任务表。请在新版本初始化之前备份 PostgreSQL——对于多副本的滚动发布，请先运行一次 `teldrive check`，这样只有一个进程在执行迁移。
+
+## 升级前
+
+1. 阅读发布说明。
+2. 记录当前版本。
+3. 备份 PostgreSQL。
+4. 确认您仍然持有 `security.data-key` 和内容加密密钥。
+5. 让上一个版本的镜像/二进制保持可用。
+
+使用固定的发布标签：
+
+```yaml
+image: ghcr.io/tgdrive/teldrive:vX.Y.Z
+```
+
+## Compose
+
+```bash
+docker compose pull teldrive
+docker compose run --rm teldrive check
+docker compose up -d teldrive
+docker compose logs --tail=250 teldrive
+```
+
+`check` 会在退出前应用全部迁移，因此备份必须在它运行之前就已存在。
+
+**从 Teldrive v1 升级则另当别论。** `database.auto-migrate-legacy` 默认为 `true`，因此在一个仍然带着 v1 schema 的数据库上，第一次 `check`（或第一次 `run`）执行的是 v1→v2 转换，而不是常规迁移。它会获取一个咨询锁（advisory lock），构建一个过渡 schema（staging schema），把 v1 的各行**向前转换**写入其中，并在单个事务内重命名 schema；原有的 v1 schema 会被**额外保留**在 `teldrive_legacy_backup_<timestamp>` 下，作为回滚副本。在对 v1 数据库运行上述任一命令之前，请先阅读[从 Teldrive v1 迁移](/deployment/v1-migration)。
+
+## 二进制安装
+
+把新旧二进制文件并排保留：
+
+```text
+/usr/local/lib/teldrive/teldrive-vOLD
+/usr/local/lib/teldrive/teldrive-vX.Y.Z
+```
+
+切换之前先验证：
+
+```bash
+/usr/local/lib/teldrive/teldrive-vX.Y.Z check --config /etc/teldrive/config.toml
+```
+
+## 冒烟测试
+
+请验证：
+
+- `/health/ready` 用于负载均衡器路由（数据库 ping 失败时返回 503）；
+- `/health/live` 只用来确认进程本身已成功启动——它在 PostgreSQL 宕机期间仍会保持 `200`，因此绝不能把它当作就绪探针；
+- 登录/会话刷新；
+- 列表、上传、下载、重命名/移动/回收站/还原；
+- 任务；
+- 如果使用了分享和 bots，请一并验证。
+
+## 回滚
+
+较旧的二进制可能无法在迁移过的新 schema 上工作。完整回滚可能需要：
+
+1. 停止新版本；
+2. 恢复升级前的 PostgreSQL 备份；
+3. 恢复上一个版本的二进制/镜像以及与之匹配的配置文件；
+4. 在对外提供服务之前运行 `teldrive check`。
+
+对于多实例部署，请协调发布节奏，并避免不受支持的混合版本运行。
+
+参见[备份与恢复](/deployment/backup-and-restore)。

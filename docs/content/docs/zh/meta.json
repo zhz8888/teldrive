@@ -1,0 +1,23 @@
+{
+  "title": "Teldrive 文档",
+  "pages": [
+    "index",
+    "---入门---",
+    "getting-started",
+    "---安装---",
+    "installation",
+    "---使用 Teldrive---",
+    "using",
+    "rclone",
+    "---配置---",
+    "configuration",
+    "---部署---",
+    "deployment",
+    "---API---",
+    "[API 参考](/api/)",
+    "---运维---",
+    "operations",
+    "---进阶---",
+    "advanced"
+  ]
+}

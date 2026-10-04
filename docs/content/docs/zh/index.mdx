@@ -1,0 +1,40 @@
+---
+title: Teldrive
+description: 以 Telegram 为后端的自托管云存储，提供 Web 界面和 HTTP API。
+---
+
+Teldrive 把元数据存放在 PostgreSQL 中，把文件内容存放在 Telegram 中。
+
+<ButtonLink href="/getting-started/quick-start">快速开始 →</ButtonLink>
+
+<Cards>
+  <Card title="快速开始" href="/getting-started/quick-start">
+    使用 PostgreSQL 和官方容器镜像运行 Teldrive。
+  </Card>
+  <Card title="生产部署" href="/deployment/production">
+    HTTPS、访问控制、备份与升级。
+  </Card>
+  <Card title="配置" href="/configuration/overview">
+    配置文件、环境变量、命令行参数与各项设置。
+  </Card>
+  <Card title="使用 Teldrive" href="/using/files-and-folders">
+    文件、上传、分享、频道、机器人与任务。
+  </Card>
+  <Card title="Rclone" href="/rclone/setup">
+    后端现状，以及客户端可以调用的 HTTP API。
+  </Card>
+  <Card title="API 参考" href="/api/">
+    基于 OpenAPI 的 Scalar 参考文档。
+  </Card>
+</Cards>
+
+## 环境要求
+
+- 具备持久化存储的 PostgreSQL 18；`database.url` 中的角色必须能够在 `public` schema 中创建 `pgcrypto` 和 `pg_trgm` 扩展
+- Telegram 账号，以及可访问 Telegram 的出站网络
+- `security.signing-key` —— 至少 32 个字符
+- `security.data-key` —— 恰好 32 字节的 Base64 编码
+
+所有必填项及其设置方式请参阅[配置总览](/configuration/overview)。
+
+对于面向公网的部署，请使用 HTTPS，并确保 PostgreSQL 不暴露在公网。

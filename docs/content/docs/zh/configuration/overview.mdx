@@ -1,0 +1,86 @@
+---
+title: 配置概览
+description: 配置文件、环境变量与命令行参数。
+---
+
+## 优先级
+
+```text
+built-in defaults < config file < TELDRIVE_* environment < explicit CLI flags
+```
+
+## 配置文件
+
+不使用 `--config` 时，Teldrive 会依次检查：
+
+```text
+~/.teldrive/config.toml
+~/.teldrive/config.yaml
+~/.teldrive/config.yml
+./config.toml
+./config.yaml
+./config.yml
+```
+
+显式指定路径：
+
+```bash
+teldrive run --config /etc/teldrive/config.toml
+```
+
+支持的格式：TOML、YAML、YML。
+
+## 名称映射
+
+```text
+telegram.upload-threads
+TELDRIVE_TELEGRAM_UPLOAD_THREADS
+--telegram-upload-threads
+```
+
+环境变量名使用 `TELDRIVE_` 前缀加上大写字母和下划线。命令行参数用连字符把嵌套的键拍平。
+
+## 必填值
+
+```yaml
+database:
+  url: postgres://...
+
+security:
+  signing-key: YOUR_SIGNING_KEY
+  data-key: YOUR_DATA_KEY
+```
+
+`security.data-key` 必须能解码为恰好 32 字节。快速开始生成器会创建兼容的值。
+
+条件性要求：在默认的 `telegram.backend: remote` 下，`telegram.app-id` 和 `telegram.app-hash` 必须解析为非空值（随附的公开默认值已经满足这一点，因此只有在你把它们清空时才会产生影响）；在 `telegram.backend: filesystem` 下，则必须设置 `telegram.local-root`。
+
+`security.data-key` 的 32 字节规则是在服务端初始化时校验的，而不是在配置解码阶段，因此 `teldrive check` 是确认这一点的最快方式。它同时接受无填充的 URL 安全 Base64 和标准 Base64。
+
+## 字节大小
+
+`cache.memory.size`、`uploads.default-part-size` 和 `uploads.max-part-size` 既可以写纯字节数，也可以写便于阅读的大小。**所有单位都是二进制单位** —— `B`、`K`、`KB`、`KiB`、`M`、`MB`、`MiB`、`G`、`GB`、`GiB`、`T`、`TB`、`TiB`，大小写不敏感，单位可省略，单位前后允许有空格。`1MB`、`1MiB` 和 `1M` 都表示 1 048 576 字节；`512MB` 与 `512MiB` 是同一个值，因此参考页中的 `512MB` 与配置示例中的 `512MiB` 指的是同一个默认值。
+
+允许小数，并会向零截断（`1.5B` → `1`）。负数、空值、没有前导数字的值、未知后缀，以及会超出有符号 64 位整数范围的值都会被拒绝。
+
+## 校验
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+```
+
+Compose 方式：
+
+```bash
+docker compose run --rm teldrive check
+```
+
+## 相关指南
+
+<Cards>
+  <Card title="数据库" href="/configuration/database">PostgreSQL、schema、连接池、迁移。</Card>
+  <Card title="安全" href="/configuration/security">密钥、访问控制、令牌有效期。</Card>
+  <Card title="Telegram" href="/configuration/telegram">并发、频道、代理、客户端。</Card>
+  <Card title="上传与事件" href="/configuration/uploads-and-events">上传、哈希、SSE、worker。</Card>
+  <Card title="完整参考" href="/configuration/reference">全部配置键、环境变量、命令行参数与默认值。</Card>
+</Cards>

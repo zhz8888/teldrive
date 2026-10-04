@@ -1,0 +1,134 @@
+---
+title: 生产环境检查清单
+description: Teldrive 上线生产环境所需的最低限度加固措施。
+---
+
+## 固定镜像版本
+
+```yaml
+image: ghcr.io/tgdrive/teldrive:vX.Y.Z
+```
+
+## HTTPS 与反向代理
+
+让 Teldrive 保持私有状态，在反向代理处终结 TLS，并为该代理配置 `http.trusted-proxies`。
+
+参见[反向代理与 HTTPS](/deployment/reverse-proxy)。
+
+## 健康检查与优雅停机
+
+把负载均衡器指向就绪探针，把重启策略指向存活探针。两者都不需要认证：
+
+```text
+GET /health/live    # always 200 while the process can serve HTTP; never touches PostgreSQL
+GET /health/ready   # 200, or 503 when the database ping fails
+```
+
+`/health/live` 在 PostgreSQL 宕机期间会刻意保持绿灯，因为此时重启也解决不了问题；因此针对它告警所代表的含义应当是“进程本身已经损坏了”。
+
+收到 SIGTERM 或执行 `docker stop` 时，Teldrive 会停止 SSE 处理器、排空正在处理的 HTTP 请求、排空任务 worker，并在 `http.shutdown-timeout`（默认 `10s`）内关闭 PostgreSQL。容器的停止宽限期至少要覆盖这段时间；如果预期会有耗时较长的传输需要完成，还应留出更多时间。
+
+参见[健康检查](/operations/health-checks)。
+
+## 限制登录
+
+```yaml
+security:
+  allowed-users:
+    - your_telegram_username
+```
+
+空列表允许任何完成登录的 Telegram 用户。**第一个登录的账号会成为所有者**，并且所有者无法被降级或撤销——在把 Teldrive 暴露出去之前，请先用您希望其拥有该实例的账号登录。
+
+## 保护密钥
+
+需要备份：
+
+```text
+security.signing-key
+security.data-key
+encryption.keys
+```
+
+`encryption.keys` 是一个映射，包含您**曾经**用来写入文件的**每一个**内容加密密钥版本，而不只是当前启用的那一个。每个加密文件都会记录它写入时所使用的版本，而版本未出现在 `encryption.keys` 中的文件无法解密。可以用下面的查询找出实际被引用的版本：
+
+```sql
+SELECT DISTINCT encryption_key_version FROM teldrive.files WHERE encryption;
+```
+
+`security.data-key` 必须是 base64（URL-safe 或标准编码），解码后恰好为 32 字节；其他任何形式都会导致启动失败。它**无法原地轮换**——同一个密钥封存着所有 Telegram 登录会话、所有 bot token 以及进行中的登录状态，而这些数据全都存放在 PostgreSQL 中。生成新值会让所有已存储的会话和 bot token 都变得无法解密。请把它当作永久密钥来对待。
+
+请把恢复密钥与 PostgreSQL 备份分开保存。
+
+## 保护 PostgreSQL
+
+- 不要把 `5432` 端口暴露到公网；
+- 使用专用的数据库/用户；
+- 对远程数据库强制要求 TLS；
+- 限制网络访问；
+- 监控连接数上限。
+
+参见[备份与恢复](/deployment/backup-and-restore)。
+
+## Telegram 速率限制
+
+```yaml
+telegram:
+  rate-limit: true
+```
+
+只有在测出吞吐量和 Telegram 错误情况之后，再去调整并发度。
+
+## 分离 API 与 worker 角色
+
+每个进程默认都会运行后台 worker。在多副本部署中，这意味着 worker 会重复运行，因此除了专用 worker 实例之外，其余所有实例都应把它们关闭：
+
+```yaml
+jobs:
+  run-workers: false
+```
+
+至少要有一个实例保持 `jobs.run-workers: true`，否则上传、回收站清理和待删除文件清理任务永远不会执行。
+
+参见[多实例](/advanced/multi-instance)和[任务与队列](/operations/jobs-and-queues)。
+
+## 日志与监控
+
+```yaml
+logging:
+  log-level: info
+  log-format: json
+```
+
+监控 CPU、内存、PostgreSQL 连接数、传输吞吐量、Telegram 错误以及失败的任务。
+
+## 升级
+
+```bash
+docker compose pull teldrive
+docker compose run --rm teldrive check
+docker compose up -d teldrive
+docker compose logs --tail=200 teldrive
+```
+
+请先备份 PostgreSQL。升级完成后，请测试登录、列表、上传/下载、文件操作、分享和任务。
+
+不要想当然地认为较旧的二进制能够使用由较新版本迁移而来的 schema。
+
+## 拓扑结构
+
+```text
+Internet
+   │
+   ▼
+TLS reverse proxy
+   │
+   ▼
+Teldrive ───── Telegram
+   │
+   ▼
+PostgreSQL
+   │
+   ▼
+Backups
+```

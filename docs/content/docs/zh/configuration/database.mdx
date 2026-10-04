@@ -1,0 +1,75 @@
+---
+title: 数据库
+description: 配置 PostgreSQL 的 schema、连接池、迁移与连接。
+---
+
+## 配置
+
+```yaml
+database:
+  schema: teldrive
+  url: postgres://teldrive:password@127.0.0.1:5432/teldrive?sslmode=disable
+  application-name: teldrive-v2
+  max-connections: 25
+  min-connections: 2
+  max-connection-idle: 5m
+  max-connection-life: 30m
+  health-check-interval: 30s
+  connect-timeout: 10s
+  auto-migrate-legacy: true
+```
+
+`database.url` 是必填项。
+
+## 数据库 schema
+
+默认值：`teldrive`。
+
+Teldrive 把配置的 schema 同时用于应用表以及 River/RiverPro 表。只接受**小写且不加引号**的标识符——匹配模式为 `^[a-z_][a-z0-9_]*$`。像 `Teldrive`、`1app` 或 `"my schema"` 这样大小写混排、以数字开头或带引号的名称，会在连接池打开时被拒绝，并提示 `database schema must be a valid PostgreSQL identifier`。只有在你确实需要另一个 schema 时才修改它。
+
+## 迁移
+
+Teldrive 在初始化期间运行自己的应用迁移以及 River 和 RiverPro 的迁移——每次启动以及每次执行 `teldrive check` 时都会运行。请不要手动执行迁移 SQL。
+
+`auto-migrate-legacy: true`（默认值）会在启动时自动检测并迁移 v1。参见[从 Teldrive v1 迁移](/deployment/v1-migration)。
+
+把它设为 `false` 表示明确拒绝触碰 v1 数据；此时只要目标数据库中仍存在 v1 schema，Teldrive 就**无法启动**，并提示 `the v1 schema is still present and database.auto-migrate-legacy is disabled`。请改为把 `database.url` 指向一个干净的数据库。没有任何配置项能让 Teldrive 在 v1 schema 仍然存在的情况下启动。
+
+## 连接池
+
+| 配置项 | 默认值 |
+| --- | ---: |
+| `max-connections` | `25` |
+| `min-connections` | `2` |
+| `max-connection-idle` | `5m` |
+| `max-connection-life` | `30m` |
+| `health-check-interval` | `30s` |
+| `connect-timeout` | `10s` |
+
+`min-connections` 不得大于 `max-connections`；最小值更大会在启动时报错。`min-connections` 同时也是连接池预热的数量，因此 PostgreSQL 的最小预留应按 min-connections × 实例数 计算，而不是按 `max-connections` 计算。
+
+运行多个 Teldrive 进程时，请按照所有进程连接池的总和来规划 PostgreSQL 的连接上限。
+
+## TLS
+
+`sslmode=disable` 只适用于可信的本地/内网环境。对于远程或托管的 PostgreSQL，请使用其服务商要求的 TLS 设置。
+
+## 备份
+
+请使用[备份与恢复](/deployment/backup-and-restore)。文件内容存放在 Telegram 而不是 PostgreSQL 中，因此仅有 PostgreSQL 转储加上 `security.data-key` 并不构成完整备份——还需要能够继续访问同一个 Telegram 账户和频道。
+
+## 连接失败排查
+
+请检查：
+
+- Teldrive 网络命名空间中的主机名/端口；
+- 数据库、用户、密码以及 URL 转义；
+- TLS 模式；
+- 防火墙/容器网络；
+- PostgreSQL 的就绪状态与连接数上限。
+
+通过以下命令校验：
+
+```bash
+teldrive check
+```

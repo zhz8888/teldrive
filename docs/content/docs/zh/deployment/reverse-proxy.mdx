@@ -1,0 +1,129 @@
+---
+title: 反向代理与 HTTPS
+description: 把 Teldrive 放在 TLS 反向代理之后，同时不破坏 cookie、上传和 SSE。
+---
+
+让 Teldrive 保持私有状态，并在代理处终结 TLS：
+
+```text
+browser ──HTTPS──► proxy ──HTTP/private network──► Teldrive :8080
+```
+
+## 可信代理
+
+只信任直接与 Teldrive 相连的那个代理的地址/CIDR：
+
+```yaml
+http:
+  trusted-proxies:
+    - 127.0.0.1
+```
+
+Teldrive 只相信这里列出的对端发来的转发头；对于其他任何对端，这些头都会被忽略，转而使用连接的对端地址。不要使用 `0.0.0.0/0` 或 `::/0`。
+
+仅这一项设置就决定了三件事：
+
+- **Cookie 的 `Secure` 标志。** 来自可信对端的 `X-Forwarded-Proto: https` 会把请求标记为安全请求，这正是会话 cookie 带上 `Secure` 的原因。配置有误时，浏览器会通过 HTTPS 收到不带 `Secure` 的 cookie，或者登录看起来在反复循环。
+- **CSRF 来源检查。** 对于使用 cookie 认证且会改变状态的请求，只有当 `Origin` 同时匹配请求主机*和* Teldrive 解析出的协议时才会被接受。协议不对则返回 `403 csrf_rejected`。
+- **请求日志中的客户端地址。** 只有对于可信对端，才会记录 `X-Forwarded-For` 的最后一项，而不是套接字的对端地址。
+
+## 需要代理特别留意的路由
+
+| 路由 | 方法 | 原因 |
+| --- | --- | --- |
+| `GET /v1/events` | SSE | 长连接的 `text/event-stream`；需要 `proxy_buffering off`，且读取超时必须大于 `events.heartbeat`。 |
+| `PUT /v1/uploads/{uploadId}/parts/{partNo}` | 上传 | 会携带完整的文件分片；需要取消请求体大小限制，并支持流式请求体。 |
+| `GET /health/live`、`GET /health/ready` | 探针 | 无需认证；要保证代理可以访问它们，以便负载均衡器完成检查。 |
+
+## Caddy
+
+同一主机：
+
+```text
+drive.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+```yaml
+http:
+  address: 127.0.0.1:8080
+  trusted-proxies:
+    - 127.0.0.1
+```
+
+如果 Caddy 以容器方式运行，请改为信任容器网络中真实的源 CIDR。
+
+## nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name drive.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/drive.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/drive.example.com/privkey.pem;
+
+    client_max_body_size 0;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+事件流使用短时效的 `ticket` 查询参数来认证浏览器，因为 `EventSource` 无法发送 `Authorization` 头。nginx 默认的 `access_log` 会记录包含该参数的完整请求行。请把代理的访问日志当作机密来对待，或者在写入日志之前去掉该参数：
+
+```nginx
+# in the http block
+log_format teldrive '$remote_addr - $remote_user [$time_local] '
+                    '"$request_method $uri $server_protocol" $status $body_bytes_sent';
+
+access_log /var/log/nginx/teldrive.access.log teldrive;
+```
+
+`$uri` 不包含查询字符串，因此 ticket 不会进入日志。
+
+## 超时
+
+Teldrive 自身的默认值为 `http.read-header-timeout: 10s`、`http.read-timeout: 1h`、`http.write-timeout: 1h` 和 `http.idle-timeout: 2m`。上面的 `3600s` 与 1 小时的读写默认值一致；当您调高代理侧的值时，请把 `http.read-timeout` / `http.write-timeout` 一并调高。
+
+这些默认值隐含了两条规则：
+
+- `proxy_read_timeout` 必须始终大于 `events.heartbeat`（默认 `20s`）。Teldrive 会按该间隔写入保活注释，因此代理超时一旦等于或小于该值，就会切断空闲的事件流。
+- 把 `http.read-timeout: 0` 和 `http.write-timeout: 0` 设为该值，会彻底关闭服务端针对流式传输的限制。对于超大文件，请先做这个设置，然后再调高代理超时；否则服务端 1 小时的限制会截断本来已被代理放行的传输。
+
+在重启或部署期间，正在处理的请求最多只有 `http.shutdown-timeout`（默认 `10s`）的时间。如果您依赖长时间上传跨滚动发布完成，请把它设置得大于代理的排空窗口。
+
+## 容器端口绑定
+
+```yaml
+services:
+  teldrive:
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TELDRIVE_HTTP_ADDRESS: 0.0.0.0:8080
+      TELDRIVE_HTTP_TRUSTED_PROXIES: 172.18.0.0/16
+```
+
+请把示例中的 CIDR 替换成您的代理实际使用的网络。
+
+## 验证
+
+启用 HTTPS 后，请测试：
+
+- 登录与页面刷新；
+- 上传/下载；
+- 任务/进度的实时更新；
+- 没有反复的 SSE 重连或 cookie 错误。
+
+如果您的代理前面还有一层 CDN/负载均衡器，Teldrive 仍应只信任直接相连的代理对端；该代理必须清洗转发头。

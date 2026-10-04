@@ -1,0 +1,133 @@
+---
+title: 内容加密与密钥轮换
+description: 配置带版本、由服务端托管的文件加密，并安全地轮换密钥。
+---
+
+内容加密是与 `security.data-key` 相互独立、且可选的一种机制：
+
+| | `security.data-key` | `encryption.keys` |
+| --- | --- | --- |
+| 是否必填 | 是 —— 缺少它启动会失败 | 否 |
+| 保护对象 | 存放在 PostgreSQL 中的 Telegram/bot/登录凭据 | 文件内容在到达 Telegram 之前 |
+| 是否按对象记录 | 否 | 是，记录在文件行上 |
+| 是否支持原地轮换 | 否 —— 更换它会破坏所有已存储的值 | 是 —— 旧版本继续可用 |
+
+关于 `security.data-key`，参见[安全](/configuration/security)。
+
+## 启用
+
+服务端 —— 配置一个密钥版本。这只是让加密成为*可能*，它本身不会加密任何内容：
+
+```yaml
+encryption:
+  active-key-version: 1
+  keys:
+    1: "YOUR_RANDOM_SECRET"
+```
+
+生成一个 256 位密钥：
+
+```bash
+openssl rand -base64 32
+```
+
+环境变量形式：
+
+```bash
+TELDRIVE_ENCRYPTION_ACTIVE_KEY_VERSION=1
+TELDRIVE_ENCRYPTION_KEYS='1:YOUR_RANDOM_SECRET'
+```
+
+客户端 —— 按每次上传来请求加密。每个上传会话都携带一个 `encryption` 布尔值（默认 `false`），只有以 `encryption: true` 创建的会话才会以加密方式写入，并打上当前活动密钥版本的标记。在 Web UI 中，对应的是**设置 → 上传 → 加密上传的文件**，这是一项按浏览器保存的偏好设置。API 客户端则在创建上传的请求中设置 `encryption: true`。
+
+在活动版本为 `0` 的情况下，以 `encryption: true` 创建的会话会被拒绝，返回 **503 `service_unavailable`**。已有的明文文件永远不会被重新加密；启用该功能只影响之后的上传。
+
+Teldrive 把密钥版本记录在**文件行**上（`files.encryption_key_version`，由产生它的 `upload_sessions` 行镜像而来）；每个 `file_parts` 记录只携带用于密钥派生的分片级 `salt`。因此一个文件的所有分片共用同一个版本，而下载旧文件时需要的正是这个版本。轮换密钥不会重写任何文件，所以旧数据仍然依赖它被写入时所用的那个密钥版本。
+
+## 加密覆盖的范围
+
+只有**每个上传分片的字节**会被加密，其余一切都是明文：
+
+| 明文内容 | 存放位置 |
+| --- | --- |
+| 文件与文件夹名称、大小、MIME 类型、内容哈希、回收站状态 | PostgreSQL 中的 `files`、`upload_sessions` |
+| 每个分片用于密钥派生的 salt | PostgreSQL 中的 `file_parts.salt`、`upload_parts.salt` |
+| 每个分片的 Telegram `channel_id` / `message_id` | PostgreSQL 中的 `file_parts` |
+| 文档数量，以及每个文档的大小和（随机化的）名称 | Telegram 频道本身 |
+
+`telegram.randomize-part-names`（默认 `true`）会对 Telegram 存储的文档名称做混淆处理；这属于基本防护手段，而不是加密。
+
+不要指望 Teldrive 能够对任何能读取你 PostgreSQL 数据库或 Telegram 账号的人隐藏文件的*名称*或*存在性*。
+
+## 格式与可寻址性
+
+这里的加密方案采用分块设计，并支持随机访问：
+
+```text
+0   magic      10 bytes, "TELDRIVE" + two NUL bytes
+10  file nonce 24 bytes, the secretbox nonce of block 0
+34  block 0    16-byte auth tag + up to 64 KiB of plaintext
+    block N    same layout, sealed with the file nonce plus N
+```
+
+密钥材料由配置中的密钥加上每个分片新生成的 salt 经 scrypt 派生而来，各数据块则用 NaCl secretbox 封装。由于每个数据块都独立封装，按字节范围下载时只需解密它所需的块，无需读取此前的块。该布局与密钥派生流程与上游 Teldrive 字节兼容，因此任一实现写入的内容都能被另一方解密。
+
+## 轮换
+
+在修改活动版本之前，先加入新密钥：
+
+```yaml
+encryption:
+  active-key-version: 2
+  keys:
+    1: "OLD_KEY"
+    2: "NEW_KEY"
+```
+
+然后：
+
+1. 执行 `teldrive check`；
+2. 重启 Teldrive；
+3. 验证一次新的加密上传；
+4. 验证一次较早的加密文件下载。
+
+只要仍有文件引用旧的密钥版本，就不要删除它们。
+
+## 校验
+
+以下情况下配置会被拒绝：
+
+- 已配置密钥但 `active-key-version` 为 `0`（`active encryption key version is required when encryption keys are configured`）；
+- 活动版本没有对应的已配置密钥，或它映射到的密钥为空（`active encryption key version has no configured key`）；
+- 某个已配置的密钥版本不是正数，或其值为空（`encryption key version N is invalid`）。
+
+这三条一致性规则会被收集、排序，并用 `; ` 拼接成一条错误，因此一行启动日志就能列出全部问题。
+
+此外，`encryption.keys` 的**格式**错误会在更早的解码阶段失败：某个条目不是 `version:key` 形式（`encryption keys must use version:key entries`）、版本重复（`duplicate encryption key version N`）、或版本无法解析——这些会在遇到第一个坏条目时各自中断加载，不会与上述规则合并成同一条错误。
+
+## 缺失密钥版本时的失败表现
+
+删除一个仍被文件引用的版本，**不会**产生一个清晰的“文件缺失”错误。上传与下载路径都会报告缺少加密密钥，HTTP 层会将其映射为：
+
+```text
+HTTP/1.1 503 Service Unavailable
+{"error":{"code":"service_unavailable","message":"operation is not available"}}
+```
+
+上传失败的分片会记录错误码 `encryption_key_missing`，这是唯一一处点明真实原因的地方。仅凭该错误无法找回受影响的文件 —— 请从备份中恢复密钥并重启。
+
+## 备份
+
+备份每个加密对象的**两半**：
+
+- 密钥材料（`encryption.keys`），存放在数据库之外；
+- 引用这些密钥的 PostgreSQL 行，因为每个分片的 `salt` 存放在 `file_parts.salt` / `upload_parts.salt` 中，重新派生密钥时必须用到它；
+- 对存放密文的 Telegram 频道的持续访问权限。
+
+丢失某个密钥版本会让用该版本加密的文件永久无法读取。请在你真正需要恢复之前，先验证这两半都能成功还原。
+
+参见[备份与恢复](/deployment/backup-and-restore)。
+
+## 为后续上传停用加密
+
+只有在依赖这些密钥的数据已被删除或迁移之后，才能移除活动版本和密钥映射。已经引用了被删除版本的文件将无限期地返回 503。

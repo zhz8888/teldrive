@@ -1,0 +1,253 @@
+---
+title: 故障排查
+description: 解决常见的启动、数据库、登录、代理、上传、下载和 SSE 问题。
+---
+
+## 从这里开始
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+```
+
+Compose 部署：
+
+```bash
+docker compose run --rm teldrive check
+docker compose logs --tail=300 teldrive
+```
+
+临时开启调试日志：
+
+```yaml
+logging:
+  log-level: debug
+  log-format: text
+```
+
+## Teldrive 启动后立即退出
+
+配置问题会在任何监听端口绑定之前就报告出来。请查看 stderr 上的第一条错误：
+
+| 消息包含 | 原因 | 修复方法 |
+| --- | --- | --- |
+| `security.data-key is required` | `security.data-key` 未设置 | 设置它（`openssl rand -base64 32`） |
+| `must decode to 32 bytes` | 数据密钥不是恰好 32 字节的 Base64 | 重新生成；**不要**轮换生产环境的密钥 |
+| `failed min validation` | `security.signing-key` 短于 32 个字符 | 加长它 |
+| `telegram backend failed oneof validation` | `telegram.backend` 不是 `remote` 或 `filesystem` | 修正该值 |
+| `the v1 schema is still present` | 用 v2 二进制程序连接 v1 数据库启动 | 先备份，然后设置 `database.auto-migrate-legacy: true` |
+| `legacy database migration requires database.schema="teldrive"` | v1 数据位于非默认 schema 中 | 使用默认 schema 执行迁移 |
+| `Telegram proxy and MTProxy cannot be used together` | 同时配置了两种代理模式 | 只保留其中一种 |
+| `MTProxy address and secret must be configured together` | 两者中只设置了一项 | 两项都设置 |
+| `encryption keys must use version:key entries` | `encryption.keys` 格式错误 | 使用 `1:secret,2:secret` |
+| `duplicate encryption key version` | `encryption.keys` 中版本重复 | 删除重复项 |
+| `max-part-size must be a whole multiple of default-part-size` | 分片大小之间无法整除 | 选一对能整除的数值 |
+| `min connections cannot exceed max connections` | 连接池参数顺序颠倒 | 调低 `min-connections` |
+| PostgreSQL 缺失或不可达 | 主机、凭据、`sslmode` 或网络问题 | 见下文 |
+
+仅在全新安装时生成兼容的数据密钥：
+
+```bash
+openssl rand -base64 32
+```
+
+不要替换生产环境的数据密钥；每一个已存储的值都依赖它。
+
+大多数校验规则会被收集起来并用 `; ` 拼接，因此一行启动日志就能同时列出多个问题。
+
+## 容器无法访问
+
+在容器中运行时，需要监听容器内的所有网络接口：
+
+```bash
+TELDRIVE_HTTP_ADDRESS=0.0.0.0:8080
+```
+
+端口映射要显式指定，例如只暴露到宿主机的回环地址：
+
+```yaml
+ports:
+  - "127.0.0.1:8080:8080"
+```
+
+## PostgreSQL 连接失败
+
+```bash
+pg_isready -h postgres -p 5432 -U teldrive -d teldrive
+```
+
+请检查主机/服务名、端口、凭据、数据库、`sslmode`、网络连通性、就绪状态和连接数限制。在 Compose 中，请使用 PostgreSQL 的服务名，而不是 `localhost`。
+
+## 在 HTTPS 之后登录失败
+
+请确认：
+
+- 代理发送了 `X-Forwarded-Proto: https`；
+- 代理来源已列入 `http.trusted-proxies`；
+- 用户访问的是同一个规范的 HTTPS 源。
+
+参见[反向代理与 HTTPS](/deployment/reverse-proxy)。
+
+## 重启后登录状态丢失
+
+请检查下面这些值是否发生了变化：
+
+```text
+security.signing-key
+security.data-key
+```
+
+同时确认 PostgreSQL 的数据是持久化的。
+
+## 某个用户被登出且无法重新登录
+
+症状：某个特定的 Telegram 账号在每个请求（包括重新登录）时都会收到 `401 {"error":{"code":"unauthorized","message":"authentication is required"}}`，而其他所有用户都正常。
+
+这**不是**会话过期。请检查该账号是否已被停用 —— 停用会写入 `disabled_at`，并吊销它的全部会话和 API 密钥；被停用的账号在每次请求的角色解析阶段就会被拒绝，因此它表现为凭据未授权，而不是权限错误。请在**设置 → 用户与角色**中重新启用它。
+
+如果该账号并未被停用，那么剩下的原因只有两个：`security.allowed-users` 中不再包含该账号（同样返回 `401 unauthorized`），或者 `security.signing-key` 发生了变化，从而导致所有已签发的令牌失效。
+
+## 实时进度更新要刷新后才出现
+
+有三种不同的原因，可以通过浏览器的网络面板和访问日志区分：
+
+**1. 事件流被拒绝（`429 too_many_event_streams`）。** 事件流根本没有建立。`events.max-connections-per-user`（默认 `5`）按用户在每个 API 实例上分别执行，浏览器中一个从未被关闭的过期 `EventSource` 仍会占住它的槽位。请关闭该用户的其他标签页，或提高上限。该上限是**按实例**的，因此多实例部署下单个用户可使用 5 × 实例数 条事件流。
+
+**2. 事件流已连接但随后断开。** 在浏览器中查看是否有反复的重连，并检查代理的响应缓冲、读取/空闲超时，以及 CDN/负载均衡器的超时。请把代理的空闲超时保持在 `events.heartbeat`（默认 `20s`）之上。Teldrive 会在每次写入时刷新响应的写入截止时间，因此 `http.write-timeout` 不会切断健康的事件流。
+
+**3. 事件流健康，但更新从未送达。** 事件是从客户端游标（`Last-Event-ID` 或 `?after=`）重放的 PostgreSQL 持久化行，因此通知丢失只会造成延迟，不会造成数据丢失。这些行会在 48 小时后由用户事件清理任务清除；断线超过该时间的客户端会得到一条没有任何重放的新事件流，UI 将重新加载。
+
+浏览器的 `EventSource` 无法发送 `Authorization` 请求头，这正是 UI 会签发一张短期票据（`POST /v1/events/ticket`，有效期由 `events.ticket-ttl` 决定，默认 `2m`），并把它作为 `ticket` 查询参数传回的原因。对于非浏览器客户端，请使用同样的机制。
+
+## 上传在固定时长后失败
+
+请比较以下各处的超时限制：
+
+```text
+client → CDN/load balancer → reverse proxy → Teldrive
+```
+
+Teldrive 默认的 HTTP 读写超时为一小时。
+
+## 上传缓慢
+
+在调高之前，请先检查 CPU、网络、Telegram 重试/限流错误、代理开销以及 BLAKE3 哈希：
+
+```yaml
+telegram:
+  upload-threads: 8
+```
+
+请逐步调高。
+
+## 下载缓慢
+
+从默认值开始：
+
+```yaml
+telegram:
+  download-read-buffers: 32
+  download-read-parallel: 4
+  download-bots: 0
+```
+
+只有在排除了客户端/代理/主机方面的瓶颈之后，才去调整并发度。只有在普通下载工作正常之后，才添加 bot。
+
+## 代理/MTProxy 配置被拒绝
+
+只使用一种代理模式。
+
+标准代理：
+
+```yaml
+telegram:
+  proxy: socks5://proxy.example.com:1080
+```
+
+MTProxy：
+
+```yaml
+telegram:
+  mtproxy:
+    address: proxy.example.com:443
+    secret: YOUR_SECRET
+```
+
+MTProxy 的 address 与 secret 必须同时存在。
+
+## 轮换密钥后出现加密错误
+
+**症状：** 下载和加密上传失败，返回 `503 {"error":{"code":"service_unavailable","message":"operation is not available"}}`。该响应中没有任何内容提到加密 —— 缺失的密钥版本被归入了通用的“服务不可用”分支。上传失败的分片会记录错误码 `encryption_key_missing`，这是唯一一处点明真实原因的地方。
+
+**原因：** 某个文件引用了一个已不在 `encryption.keys` 中的密钥版本。
+
+**修复：** 把仍在使用的所有版本与新版本一并恢复，然后重启：
+
+```yaml
+encryption:
+  active-key-version: 2
+  keys:
+    1: OLD_KEY
+    2: NEW_KEY
+```
+
+在没有任何文件和上传会话引用某个版本之前，不要删除它。Teldrive 无法对已有内容重新加密，因此删除一个版本就意味着数据永久丢失。
+
+请同时测试一次新的加密上传（客户端必须请求 `encryption: true` —— 参见[内容加密](/advanced/encryption)）和一次按旧版本记录的文件下载。
+
+## 后台任务停止运行
+
+**症状：** 上传和下载都正常，但**任务**列表不再变化 —— 导入始终不启动，回收站文件永不过期，事件也从未被清理。
+
+请按顺序检查：
+
+1. **有 worker 在运行吗？** 至少要有一个实例的 `jobs.run-workers` 为 `true`。把它设为 `false` 的实例会构建任务运行时，但从不启动它，也从不注册周期调度。
+2. **有队列被暂停了吗？** 暂停会让队列停止分发工作；任务会留在队列中。队列列表位于任务页面，暂停操作需要管理员或所有者角色。
+3. **是否存在未知类型的失败？** 周期调度只会被插入一次，之后不会重新创建。被某个后来禁用的功能遗留的调度，可能每次运行都失败；请在**设置 → 周期任务**中暂停或删除它。
+4. **worker 是否被停机过程打断？** `http.shutdown-timeout`（默认 `10s`）限制了 River 的 30 秒软停止，因此重启会取消执行中的任务。请在 worker 实例上提高该值。
+
+## Telegram 错误与限流
+
+**症状：** 上传在一阵突发流量后失败，或者日志中的第一条错误里出现 `FLOOD_WAIT`。
+
+Teldrive 内置了客户端速率限制器和 flood-wait 中间件，两者默认都开启：
+
+```yaml
+telegram:
+  rate-limit: true
+  rate-interval: 50ms
+  rate-burst: 10
+  max-retries: 10
+  reconnect-timeout: 5m
+```
+
+- 保持 `rate-limit` 启用。关闭它会移除客户端抵御 Telegram 服务端限制的唯一一道防线。
+- 在链路质量较差时提高 `reconnect-timeout`；它决定了指数退避重连的上限。
+- `telegram.max-retries` 限制了每个请求的传输层重试次数。重试耗尽后会以操作错误的形式返回，并且未完成的上传会被清理掉，以便该分片能够重试。
+- **最多只能使用一种**代理模式。`proxy` 或 `mtproxy` 配置有误会产生连接错误，而不是限流错误 —— 请先修复传输层，再调整限流参数。
+- 排查问题时可以打开协议层的 Telegram 日志；它默认关闭，且非常嘈杂：
+
+```yaml
+telegram:
+  client-logging: true
+```
+
+**频道容量耗尽。** 当某个频道达到 `telegram.channel-part-limit`（默认 `500000`）时，或者当 `telegram.auto-channel-create` 为 `false` 且未选中任何频道时，上传会失败并返回 `409 conflict`。请在**设置 → 频道**中修复，或提高上限并创建一个频道。
+
+请记住 Telegram 是共享且受速率限制的资源：超出其限制所面临风险的是账号和频道，而不仅仅是当前请求。
+
+## 仅在多实例下出现的问题
+
+请确认每个进程都共享同一个数据库/schema 以及同一套安全和加密密钥。同时还要检查 PostgreSQL 总连接数、worker 角色、SSE 的负载均衡、bot 轮换后端以及版本偏差。
+
+有两种故障是这种架构特有的：以默认的 `http.shutdown-timeout: 10s` 重启纯 worker 实例时，执行中的任务会在 10 秒后被取消；以及在每个实例上都启用 `telegram.download-client-pool`，会让同一个账号的活跃 Telegram 会话数按实例数量成倍增加。
+
+## 报告有用的诊断信息
+
+请提供：
+
+- `teldrive version` 的输出；
+- 部署方式；
+- 已脱敏的相关配置；
+- 第一条有意义的日志错误；
+- `teldrive check` 的结果；
+- 精确的复现步骤。

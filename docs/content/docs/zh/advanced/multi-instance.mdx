@@ -1,0 +1,131 @@
+---
+title: 多实例部署
+description: 让多个 Teldrive API 与 worker 进程共用同一个 PostgreSQL 运行。
+---
+
+只有在可用性或容量需求经过实际测量之后，才使用多实例。
+
+## 共享配置
+
+每个实例都必须共享：
+
+- PostgreSQL 数据库与 schema（`database.schema` 存放所有 Teldrive **和** River 的表）；
+- `security.signing-key`；
+- `security.data-key`；
+- `encryption.keys` 及活动版本；
+- `database.auto-migrate-legacy`；
+- Telegram 应用身份标识。
+
+每个实例在启动时都会执行迁移，并且在默认的 `auto-migrate-legacy: true` 下，每个实例都会尝试执行暂存式 v1 → v2 schema 交换。它在并发下是安全的（由一个 PostgreSQL advisory lock 串行化），但无法通过配置回退：旧版 schema 会被重命名为一个带时间戳的备份。请先备份 PostgreSQL，并在你有意针对一份副本执行迁移之前，把所有实例都固定为 `auto-migrate-legacy: false`。
+
+## Worker 角色
+
+默认的 API + worker 进程：
+
+```yaml
+jobs:
+  run-workers: true
+```
+
+仅 API 的进程：
+
+```yaml
+jobs:
+  run-workers: false
+```
+
+必须至少有一个实例保持启用 worker。
+
+```text
+load balancer ──► API 1 (workers off)
+              ├► API 2 (workers off)
+              └► Worker (workers on)
+                      │
+                      ▼
+                PostgreSQL
+```
+
+## PostgreSQL 连接池
+
+每个进程各自拥有一个连接池。做容量规划时要按所有进程的最大值之和来计算，而不是只看单个实例：
+
+```yaml
+database:
+  max-connections: 10
+  min-connections: 1
+```
+
+## Bot 轮换
+
+`bot-rotation-backend` 决定按用户轮转的计数器存放在哪里：
+
+| | `memory`（默认） | `database` |
+| --- | --- | --- |
+| 计数器存储位置 | 进程内存 | PostgreSQL |
+| 多实例 | 各自独立分摊负载；重启后计数器归零 | 一条共享序列 |
+| 对正确性的影响 | 无 —— 两个实例可能选中同一个 bot | 无 |
+| 成本 | 无 | 每次 Telegram 操作多一次计数器 upsert |
+
+单实例：
+
+```yaml
+telegram:
+  bot-rotation-backend: memory
+```
+
+多个需要协调的实例：
+
+```yaml
+telegram:
+  bot-rotation-backend: database
+```
+
+`database` 带来的是协调而非正确性：保持 `memory` 不会损坏任何东西。但要注意写入成本 —— 每次上传和每次下载都会执行一次计数器 upsert，一旦启用 bot，这就会表现为额外的 PostgreSQL 活动。
+
+## 跨实例的 Telegram 客户端
+
+除非你已经通过测量确认需要它，否则请保持 `telegram.download-client-pool: false`（默认值）。在关闭连接池的情况下，每次 Telegram 操作都会从存储的会话行构建一个客户端，并在请求结束时将其销毁。
+
+确实要启用它时，请记住这是一个**按进程、按用户**维护的连接池，其中包含 `max(1, telegram.download-bots)` 个热客户端，每个客户端都会请求 `download-read-parallel` 条连接。因此，三个启用连接池的 API 实例为同一个账号保持的活跃 Telegram 会话数就是一个实例的三倍。Telegram 是这套架构中共享且受速率限制的资源；针对同一个账号成倍增加活跃会话，正是触发 `FLOOD_WAIT` 和账号受限的原因。
+
+与是否启用连接池无关，每个实例在构建客户端时都会读写同一用户的 `sessions.telegram_session` 列（由 `security.data-key` 封装）。该列确实是共享状态，因此请保持 `security.data-key` 为必填项，并在所有实例上保持一致。
+
+## 重启 worker 而不丢失工作
+
+River 配置了**30 秒软停止**：关闭时它停止分发新任务，并等待正在执行中的任务结束。这段等待时间受 `http.shutdown-timeout` 限制，该值默认为 **10 秒** —— 因此在出厂默认配置下，执行中的任务会在 10 秒后被取消。
+
+在 worker 实例上提高停机等待预算：
+
+```yaml
+http:
+  shutdown-timeout: 40s
+```
+
+同一份预算还限制了 SSE 排空、HTTP 排空以及 Telegram 热客户端连接池的关闭时间，因此它必须能够覆盖最慢的那个执行中的下载。请发送 `SIGTERM`/`SIGINT`，让进程自行排空。
+
+## SSE
+
+`events.max-connections-per-user` 是**按 API 实例**执行的；超出后返回 429 `too_many_event_streams`。负载均衡器和代理必须支持每个实例上的长连接 SSE，并且不得对响应进行缓冲。
+
+丢失一个实例不会丢失事件。每一次更新都是 PostgreSQL 中的持久化行，重连的客户端会从 `Last-Event-ID`（或 `?after=`）处续传，因此滚动重启会把客户端错过的事件重放一遍。这些行会在 48 小时后由用户事件清理任务清除；断线超过这个时间的客户端必须重新加载，而不能依赖重放。
+
+如果你的代理设置了空闲超时，请确保它大于 `events.heartbeat`（默认 `20s`）。
+
+## 加密密钥发布
+
+对于新的内容密钥：
+
+1. 将新的密钥版本分发到每个实例；
+2. 验证所有实例都能正常启动；
+3. 在所有实例上切换活动版本；
+4. 为旧文件保留旧的密钥版本。
+
+## 升级
+
+迁移前请备份 PostgreSQL。除非某个版本明确支持混合版本部署，否则应避免长时间保持版本混用。
+
+参见[升级](/deployment/upgrading)。
+
+## 扩展之前
+
+多实例并不能解决 Telegram 速率限制、代理缓冲、慢速客户端、PostgreSQL 服务器规格不足或单实例并发过高等问题。请先测量出真正的瓶颈。
