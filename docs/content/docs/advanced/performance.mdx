@@ -42,7 +42,7 @@ telegram:
   download-bots: 0
 ```
 
-`download-read-parallel` controls concurrent chunk fetches per stream. `download-read-buffers` controls prefetched chunks in memory. Both multiply across simultaneous downloads.
+`download-read-parallel` controls concurrent chunk fetches per range. `download-read-buffers` controls prefetched 1 MiB chunks held in memory per range. Both multiply across simultaneous open ranges — see [Download concurrency](/configuration/uploads-and-events).
 
 Use bots only after normal user-client downloads work correctly.
 
@@ -74,6 +74,18 @@ http:
   write-timeout: 1h
 ```
 
+`read-timeout` and `write-timeout` accept `0`, which **disables** them. That is the right setting when transfers legitimately exceed an hour:
+
+```yaml
+http:
+  read-timeout: 0
+  write-timeout: 0
+```
+
+Prefer raising the value over disabling it; disabling removes the backstop that keeps a stalled client from holding a slot forever.
+
+`shutdown-timeout` is a separate budget and matters on worker instances: it bounds the whole teardown, including River's 30-second soft stop, and defaults to `10s`. Raise it above 30s so in-flight jobs finish — see [Multi-instance deployments](/advanced/multi-instance).
+
 If transfers fail at a consistent duration, check the shortest timeout across the client, CDN/load balancer, reverse proxy, and Teldrive.
 
 ## Telegram rate limiting
@@ -91,7 +103,9 @@ telegram:
 
 A host with one core and a gigabyte of memory is enough to run the server, as long as the memory-hungry settings are not left at their defaults. The numbers below assume PostgreSQL runs elsewhere; if it shares the box, subtract its footprint from the budget as well.
 
-Memory is spent almost entirely on downloads. Each open range buffers `telegram.download-read-buffers` megabytes of prefetched Telegram chunks, so the memory ceiling is that number multiplied by `uploads.max-concurrent-downloads`. Uploads are streamed and encrypt in 64 KiB pooled blocks, so they cost little by comparison.
+Memory is spent almost entirely on downloads. Each open range buffers `telegram.download-read-buffers` × 1 MiB of prefetched Telegram chunks, so the download side of the process ceiling is that number multiplied by `uploads.max-concurrent-downloads` — 128 MiB with shipped defaults.
+
+Uploads are streamed and encrypt in pooled 64 KiB blocks, so the *content* costs nothing. The transport still buffers: each part is read in 512 KiB blocks and `telegram.upload-threads` of them run concurrently, so one in-flight upload holds roughly `upload-threads × 512 KiB` (≈4 MiB at the default 8). That is negligible beside one download range, but it scales with the number of *concurrent uploads*, not with file size — a host serving many parallel browser uploads should lower `upload-threads` before anything else.
 
 ```yaml
 telegram:
@@ -110,7 +124,7 @@ cache:
     size: 2MB
 ```
 
-That is 16 MiB of download buffers at the default limit, where the defaults would have allowed 128 MiB with no ceiling on the number of streams.
+That is 16 MiB of download buffers. The shipped defaults allow 128 MiB — `download-read-buffers: 32` × `max-concurrent-downloads: 4` — which is already a hard ceiling, not an unbounded stream count. Requests past the limit **queue** for a slot rather than being refused, so raising the ceiling converts memory pressure into latency instead of into failures.
 
 Give the Go runtime a memory ceiling so the collector reacts before the kernel does. Without one the collector waits until the heap has doubled, which on a small host is often after the kernel has started reclaiming:
 
@@ -122,13 +136,22 @@ The runtime reads this variable itself at startup, so no configuration key is ne
 
 Parts are streamed rather than buffered, so the shipped 512 MiB part size costs memory only in the sense of how much is in flight at once. Lower it anyway on a small host: a part that fails has to be transferred again, so a smaller part is cheaper to retry.
 
+Two rules are checked together at startup and reject the configuration outright:
+
+```text
+uploads default-part-size cannot exceed max-part-size
+uploads max-part-size must be a whole multiple of default-part-size
+```
+
+Pick a `default-part-size` that divides `max-part-size` exactly — 128 MiB and 512 MiB, or 256 MiB and 4 GiB, both satisfy it:
+
 ```yaml
 uploads:
   default-part-size: 128MiB
   max-part-size: 512MiB
 ```
 
-The ceiling applies to background imports too: a chunk the import worker picks is clamped to it rather than failing the job, so an operator who lowers it does not break server-side imports.
+The ceiling reaches background imports only **partially**. An import that does *not* request a chunk size gets the 512 MiB default clamped down to `max-part-size` and still succeeds. An import that *does* request a chunk size above `max-part-size` (or below 64 MiB) **fails**, with `chunk size must be between 64 MiB and <N> MiB`, where N is the smaller of 2000 MiB and `max-part-size` — `2000` with the shipped defaults. Check whether your import clients send an explicit `chunkSize` before you lower the ceiling.
 
 Hashing is the first thing to give up when a single core cannot keep up, at the cost of storing parts with no checksum:
 

@@ -15,11 +15,52 @@ Browser / API client
 
 The React UI is embedded in the Go binary; no separate frontend service is required.
 
+## Code layout
+
+```text
+cmd/teldrive            CLI entrypoint: run (alias serve) / check / version
+internal/app            composition root — migrations, services, HTTP routing,
+                        workers, startup and shutdown order
+internal/api            adapts the generated contract; domain behavior lives
+                        in the packages below, not in handlers
+internal/catalog        files, folders, listing and search
+internal/uploads        resumable upload sessions, parts and leases
+internal/transfer       upload pipeline and downloader
+internal/fileops        copy/move/trash/purge over catalog + channels + storage
+internal/shares         public shares and per-file grants
+internal/channels       Telegram channel allocation and health
+internal/bots           bot registry, verification and provisioning
+internal/botgateway     bot rotation selector, upload-aware runner, bot sessions
+internal/logingateway   Telegram login gateway (QR and phone-number flows)
+internal/telegramstore  external storage boundary (gotd in production);
+                        transfer, fileops, channels and jobs are its callers
+internal/localtelegram  filesystem backend behind telegramstore's interface
+internal/jobs           River/RiverPro runtime, workers and job management
+internal/events         SSE hub, PostgreSQL LISTEN/NOTIFY listener, tickets
+internal/contentcrypto  chunked seekable content cipher
+internal/secureblob     XChaCha20-Poly1305 for stored Telegram credentials
+internal/authn          JWTs, sessions, API keys, Telegram login flow
+internal/cache          single process-local Ristretto cache
+internal/database       pool + migration runner (app + River + RiverPro)
+internal/legacymigrate  staged v1 → v2 schema swap with a retained backup
+ui/                     Vite/React app; ui/ui.go embeds ui/dist into the binary
+```
+
+## Startup is a migration
+
+Every start **and every `teldrive check`** performs, in order: optional v1 legacy upgrade, schema configuration, application migrations, River and RiverPro migrations, then the long-lived pool opens. Migrations use their own short-lived connection before the pool exists, so a schema upgrade never serves traffic against a half-migrated database.
+
+`database.auto-migrate-legacy` defaults to `true`. When the target database still contains the legacy schema, Teldrive upgrades it **in place** under a PostgreSQL advisory lock: rows are copied into a staging schema, the legacy schema is renamed to a timestamped backup, and the staging schema takes its place. Set it to `false` before pointing a new binary at a v1 database you have not backed up — startup then fails instead of migrating.
+
+See [Migrate from Teldrive v1](/deployment/v1-migration).
+
 ## PostgreSQL
 
 Stores users/auth state, encrypted Telegram credentials, file/folder metadata, Telegram part references, channels, bots, shares, uploads, jobs, and events.
 
-Recovery requires PostgreSQL plus the matching encryption keys.
+Recovery requires three things together: a PostgreSQL backup (metadata, part references, credentials), the matching `security.data-key` and `encryption.keys` material, and continued access to the **same Telegram account and channels** that hold the payloads. The bytes themselves are never in PostgreSQL — a restore whose Telegram side is gone produces a readable catalog of unreadable files.
+
+See [Backup and restore](/deployment/backup-and-restore).
 
 ## Telegram
 
@@ -31,12 +72,21 @@ With `telegram.backend=remote`, Telegram stores file payloads. Teldrive manages 
 Browser ⇄ Teldrive ⇄ Telegram
 ```
 
-- `security.signing-key`: signs Teldrive tokens.
-- `security.data-key`: encrypts stored Telegram credentials.
+- `security.signing-key`: signs Teldrive access tokens (min 32 characters).
+- `security.data-key`: seals every stored Telegram credential in PostgreSQL — the user session blob, bot tokens, bot Telethon sessions, and the in-flight login flow's phone number and MTProto state. Each value is sealed under a distinct authenticated purpose, so a ciphertext moved between columns fails to open instead of decrypting.
+
+The first Telegram account that completes login becomes the **owner**; later accounts sign in as `user`. See [First login](/getting-started/first-login).
 
 ## Background jobs
 
-River/RiverPro stores job state in PostgreSQL. Workers run in the API process by default:
+River/RiverPro stores job state in PostgreSQL (tables `river_job`, `river_queue`, `river_job_errors`, `river_periodic_job`). Two queues exist, and each process runs at most **2 jobs concurrently per queue** regardless of how many worker-enabled instances you add:
+
+| Queue | Concurrency per worker process | Job kinds |
+| --- | --- | --- |
+| `maintenance` | 2 | upload/session cleanup, user-event cleanup, trash cleanup, pending-file purge, orphaned Telegram part cleanup, bot provisioning |
+| `uploads` | 2 | background import batches, per-file background imports |
+
+River distributes each job to exactly one worker, so total job concurrency is `2 × (worker-enabled processes)` per queue. Workers run in the API process by default:
 
 ```yaml
 jobs:
@@ -47,13 +97,19 @@ See [Multi-instance deployments](/advanced/multi-instance) to split API and work
 
 ## Live events
 
-The UI uses Server-Sent Events (SSE). Reverse proxies must allow long-lived, unbuffered responses.
+The UI subscribes to `GET /v1/events` (also mounted at `/api/v1/events`). Because a browser `EventSource` cannot send an `Authorization` header, the UI first calls `POST /v1/events/ticket` and passes the returned short-lived ticket as a `ticket` query parameter (`events.ticket-ttl`, default `2m`).
+
+Events are durable rows in PostgreSQL, not in-memory broadcasts: a client resumes from `Last-Event-ID` (or `?after=`), so an instance restart or a dropped notification delays an update but never loses it. Rows are pruned after 48 hours by the user-event cleanup sweep.
+
+Each API instance admits at most `events.max-connections-per-user` streams per user (default `5`) and answers **429 `too_many_event_streams`** beyond that.
+
+Reverse proxies must allow long-lived, unbuffered responses. Teldrive refreshes the response write deadline on every SSE write, so `http.write-timeout` does not cut a healthy stream.
 
 ## Encryption
 
 ```text
-security.data-key  → sensitive database values
-encryption.keys    → optional file-content encryption
+security.data-key  → XChaCha20-Poly1305 over Telegram/bot/login values in PostgreSQL
+encryption.keys    → per-part scrypt + chunked secretbox applied before Telegram stores the bytes
 ```
 
 See [Content encryption](/advanced/encryption).

@@ -6,8 +6,16 @@ description: Run Teldrive with Docker or Podman.
 Official images:
 
 ```text
-ghcr.io/tgdrive/teldrive:<tag>
+ghcr.io/tgdrive/teldrive:v2
 ```
+
+`:v2` is a rolling tag: every push to the repository's `v2` branch rebuilds and republishes it for `linux/amd64` and `linux/arm64`. Pull it to pick up fixes:
+
+```bash
+docker compose pull teldrive
+```
+
+Version-tagged images (`ghcr.io/tgdrive/teldrive:vX.Y.Z`) are published when a `v*` release tag is pushed. No v2 release has been published yet, so `:v2` is currently the only tag that resolves.
 
 Use [Quick start](/getting-started/quick-start) for PostgreSQL + Teldrive Compose.
 
@@ -27,13 +35,27 @@ docker run --rm \
 
 Podman uses the same settings with `podman run`.
 
-## Pin releases
+Images are published for `linux/amd64` and `linux/arm64`; there is no 32-bit ARM image. The container needs no volume — all state lives in PostgreSQL and Telegram.
 
-```yaml
-image: ghcr.io/tgdrive/teldrive:vX.Y.Z
+Readiness probe (returns `200` once migrations and dependencies are up; before migrations finish the port is not yet accepting connections, so the probe gets a connection refusal rather than `503`):
+
+```bash
+curl -fsS http://127.0.0.1:8080/health/ready
 ```
 
-Avoid `latest` for controlled upgrades/rollbacks.
+## Pin a specific build
+
+```yaml
+image: ghcr.io/tgdrive/teldrive:v2@sha256:<manifest-digest>
+```
+
+A digest pins the exact build. Get one with:
+
+```bash
+docker buildx imagetools inspect ghcr.io/tgdrive/teldrive:v2
+```
+
+Once a `v*` release is published, `ghcr.io/tgdrive/teldrive:vX.Y.Z` pins a release instead, and `latest` tracks the newest release. Prefer a digest over either for a controlled rollback.
 
 ## Local imports
 
@@ -46,7 +68,7 @@ services:
       TELDRIVE_UPLOADS_LOCAL_IMPORT_ROOTS: /imports
 ```
 
-Import roots must be absolute paths.
+Import roots must be absolute paths. Starting a local-import job requires an `admin` or `owner` account; a `user` account receives `local imports require administrator access`.
 
 ## Validate
 

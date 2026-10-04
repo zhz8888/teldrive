@@ -5,15 +5,24 @@ description: Verify login, persistence, uploads, and downloads before production
 
 ## 1. Sign in
 
-Open the UI and complete Telegram login.
+Open the UI and sign in with Telegram. The login screen offers two methods:
 
-Keep `security.data-key` stable; it encrypts the stored Telegram session.
+- **QR code** — pick the QR tab, scan with Telegram on a signed-in device, and approve. No phone number and no SMS on the server host.
+- **Phone number** — enter an E.164 number, receive the code **by SMS to that number**, and supply a two-step-verification password if your account has one. Teldrive requests no delivery method; it does not ask Telegram to send the code into an already signed-in app session.
 
-## 2. Test storage
+Either method stores the Telegram session encrypted with `security.data-key`, so keep that value stable and backed up. Changing it makes the stored session undecryptable.
+
+## 2. Confirm your role
+
+The **first** Telegram account that completes login becomes the **owner**. Every later account signs in as `user`. The owner cannot be demoted or have its access revoked, so sign in with the account you want to own the installation first.
+
+Promote other accounts from **Settings → Users & roles**. Before exposing Teldrive publicly, restrict who may sign in at all with `security.allowed-users` — see [Restrict login](/deployment/production).
+
+## 3. Test storage
 
 Create a folder, upload a small file, then download it again. This verifies the API, Telegram storage path, and PostgreSQL metadata.
 
-## 3. Restart Teldrive
+## 4. Restart Teldrive
 
 ```bash
 docker compose restart teldrive
@@ -21,7 +30,7 @@ docker compose restart teldrive
 
 Reload the UI and verify the account, file listing, and download still work.
 
-## 4. Restart PostgreSQL
+## 5. Restart PostgreSQL
 
 ```bash
 docker compose restart postgres
@@ -29,7 +38,7 @@ docker compose restart postgres
 
 After PostgreSQL is healthy, verify the same data again. Failure here usually means database storage was not persisted or secrets changed.
 
-## 5. Check logs
+## 6. Check logs
 
 ```bash
 docker compose logs --tail=200 teldrive

@@ -4,9 +4,11 @@ description: Use Teldrive liveness and readiness endpoints.
 ---
 
 ```text
-GET /health/live
-GET /health/ready
+GET /health/live        # also served as GET /api/health/live
+GET /health/ready       # also served as GET /api/health/ready
 ```
+
+Both are unauthenticated, so a probe never needs a token. If your proxy rewrites or strips an `/api` prefix, make sure it lets `/health` through untouched; an auth rule in front of `/health` will make every probe return 401.
 
 ## Liveness
 
@@ -23,9 +25,47 @@ Use it for process restart decisions.
 
 ## Readiness
 
-`/health/ready` returns `200` when Teldrive is ready for application traffic and `503` when required runtime/database state is unavailable.
+`/health/ready` returns `200` with the same body when Teldrive is ready for application traffic. When the readiness dependency fails it returns `503` with one of two codes:
+
+```json
+{"error":{"code":"not_ready","message":"service is not ready"}}
+```
+
+```json
+{"error":{"code":"not_configured","message":"a required dependency is not configured"}}
+```
+
+`not_ready` means the probe ran and PostgreSQL did not answer — a database outage. `not_configured` means the probe found no dependency wired up at all — a deployment bug. Alert on the two separately; they have different causes.
+
+Note that the `status` field is `"ok"` on every successful response. The `"degraded"` state is internal and never reaches the wire, because failure paths return an error envelope instead. Alert on the HTTP status code, not on a `"degraded"` body.
 
 Use it for load-balancer routing.
+
+## What the probes do not cover
+
+Both probes are deliberately narrow. `/health/live` touches nothing at all, and `/health/ready` performs exactly one check: a ping on the PostgreSQL pool. A process reports `200 ok` even when:
+
+- Telegram sessions cannot be decrypted or the account is rate-limited;
+- `jobs.run-workers` is `false` everywhere and no queue will ever drain;
+- the job runtime failed to start its workers;
+- `encryption.keys` no longer matches the files that reference them;
+- storage channels are full or unhealthy.
+
+`/health/ready` answers "is this process wired to its database", not "can this process serve files". Watch the access log and the **Tasks** page for those.
+
+## `teldrive check`
+
+`teldrive check` is the pre-flight companion to these probes. It loads the configuration, runs migrations, opens the pool, builds the cipher and the Telegram components, then exits without serving traffic:
+
+```bash
+teldrive check --config /etc/teldrive/config.toml
+```
+
+Success logs `application.check.succeeded` and exits `0`; any failure prints one error to stderr and exits `1`.
+
+**It is not read-only.** `check` applies application, River and RiverPro migrations, and with `database.auto-migrate-legacy: true` (the default) it will perform a staged v1 → v2 schema swap, converting the rows into a staging schema and renaming the old schema to a timestamped backup. Run it against a production database only after a backup.
+
+`check` covers strictly more than `/health/ready`: it fails on a bad data key, a missing local Telegram root, an unsupported backend, and a schema that cannot be migrated, none of which the HTTP probes inspect.
 
 ## Test
 

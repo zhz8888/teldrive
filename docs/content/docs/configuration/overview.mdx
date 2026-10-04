@@ -53,6 +53,16 @@ security:
 
 `security.data-key` must decode to exactly 32 bytes. The Quick Start generator creates compatible values.
 
+Conditional requirements: with the default `telegram.backend: remote`, `telegram.app-id` and `telegram.app-hash` must resolve to non-empty values (the shipped public defaults satisfy this, so they only matter if you blank them); with `telegram.backend: filesystem`, `telegram.local-root` is required.
+
+The `security.data-key` 32-byte rule is enforced when the server initializes rather than during configuration decoding, so `teldrive check` is the fastest way to confirm it. It accepts unpadded URL-safe Base64 as well as standard Base64.
+
+## Byte sizes
+
+`cache.memory.size`, `uploads.default-part-size`, and `uploads.max-part-size` take either a bare byte count or a human-readable size. **Every unit is binary** — `B`, `K`, `KB`, `KiB`, `M`, `MB`, `MiB`, `G`, `GB`, `GiB`, `T`, `TB`, `TiB`, case-insensitive, with an optional unit and optional surrounding spaces. `1MB`, `1MiB`, and `1M` all mean 1 048 576 bytes; `512MB` and `512MiB` are the same value, so the reference page's `512MB` and the config samples' `512MiB` denote the same default.
+
+Fractional values are accepted and truncated toward zero (`1.5B` → `1`). Negative values, empty values, a value with no leading number, an unknown suffix, and a value that would overflow a signed 64-bit integer are rejected.
+
 ## Validate
 
 ```bash

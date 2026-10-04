@@ -16,11 +16,11 @@ cd ~/teldrive
 
 ## 2. Generate `compose.yaml`
 
-Teldrive includes public Telegram application credentials; no `api_id` or `api_hash` is required.
+Teldrive includes public Telegram application credentials; no `api_id` or `api_hash` is required. To use your own instead, see [Custom Telegram application](/getting-started/telegram-application).
 
 <SetupGenerator client:load />
 
-Copy the **Compose** output to `compose.yaml`.
+Copy the **Compose** output to `compose.yaml`. The generator also emits **.env**, **YAML**, and **CLI** variants of the same values — use the **.env** output when a `just` recipe should pick the configuration up automatically, and the **CLI** output for a binary installation.
 
 Back up `security.data-key` and every content-encryption key. Losing them can make protected data unrecoverable.
 
@@ -40,7 +40,7 @@ podman compose up -d
 podman compose logs -f teldrive
 ```
 
-Teldrive applies required database migrations during startup.
+Teldrive applies required database migrations during startup. The generated Compose file uses `postgres:18-alpine` and keeps the database in `./postgres-data`; Teldrive is developed and tested against PostgreSQL 18. When you point it at your own PostgreSQL, the role in `database.url` must be able to create the `pgcrypto` and `pg_trgm` extensions in the `public` schema.
 
 ## 4. Open the UI
 
@@ -58,7 +58,7 @@ Sign in with Telegram, then upload and download a small test file.
 docker compose run --rm teldrive check
 ```
 
-`check` validates configuration, database access, and required initialization without keeping the server running.
+`check` builds the whole application — configuration, migrations, the Telegram client, and the database pool — then exits without serving traffic. It is **not** read-only: it applies migrations, and with the default `database.auto-migrate-legacy: true` it will perform an in-place upgrade of a legacy v1 database.
 
 ## Next
 

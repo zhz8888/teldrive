@@ -9,11 +9,14 @@ Use multiple instances only for a measured availability or capacity requirement.
 
 Every instance must share:
 
-- PostgreSQL database and schema;
+- PostgreSQL database and schema (`database.schema` holds all Teldrive **and** River tables);
 - `security.signing-key`;
 - `security.data-key`;
 - `encryption.keys` and active version;
+- `database.auto-migrate-legacy`;
 - Telegram application identity.
+
+Every instance runs migrations at startup, and with the default `auto-migrate-legacy: true` every instance will attempt the staged v1 → v2 schema swap. It is safe against concurrency (a PostgreSQL advisory lock serialises it) but it is not reversible from configuration: the legacy schema is renamed to a timestamped backup. Back up PostgreSQL and pin `auto-migrate-legacy: false` on every instance until you have deliberately run the migration against a copy.
 
 ## Worker roles
 
@@ -54,6 +57,15 @@ database:
 
 ## Bot rotation
 
+`bot-rotation-backend` chooses where the per-user round-robin counter lives:
+
+| | `memory` (default) | `database` |
+| --- | --- | --- |
+| Counter storage | process memory | PostgreSQL |
+| Multiple instances | each spreads load independently; counters reset on restart | one shared sequence |
+| Correctness impact | none — two instances may pick the same bot | none |
+| Cost | none | one counter upsert per Telegram operation |
+
 Single instance:
 
 ```yaml
@@ -68,9 +80,36 @@ telegram:
   bot-rotation-backend: database
 ```
 
+`database` is coordination, not correctness: leaving it at `memory` cannot corrupt anything. Note the write cost — every upload and every download performs one counter upsert, which shows up as extra PostgreSQL activity once bots are enabled.
+
+## Telegram clients across instances
+
+Keep `telegram.download-client-pool: false` (the default) unless you have measured why you need it. With pooling disabled, each Telegram operation builds a client from the stored session row and tears it down when the request ends.
+
+When you do enable it, remember it is a **per-process, per-user** pool of `max(1, telegram.download-bots)` warm clients, each requesting `download-read-parallel` connections. Three API instances with the pool enabled therefore hold three times as many live Telegram sessions for the same account as one instance does. Telegram is the shared, rate-limited resource in this architecture; multiplying live sessions against one account is how you get `FLOOD_WAIT` and account restrictions.
+
+Independently of pooling, every instance reads and writes the same user's `sessions.telegram_session` column (sealed with `security.data-key`) when it builds a client. That row is genuinely shared state, so keep `security.data-key` mandatory and identical across instances.
+
+## Restarting workers without losing work
+
+River is configured with a **30 second soft stop**: on shutdown it stops handing out jobs and waits for in-flight ones. That wait is bounded by `http.shutdown-timeout`, which defaults to **10 seconds** — so with shipped defaults in-flight jobs are cancelled after 10s.
+
+Raise the shutdown budget on worker instances:
+
+```yaml
+http:
+  shutdown-timeout: 40s
+```
+
+The same budget bounds SSE drain, HTTP drain, and the warm Telegram client pool, so it also has to cover the slowest in-flight download. Send `SIGTERM`/`SIGINT` and let the process drain.
+
 ## SSE
 
-`events.max-connections-per-user` is per API instance. The load balancer and proxy must support long-lived SSE connections on every instance.
+`events.max-connections-per-user` is enforced **per API instance**; exceeding it returns 429 `too_many_event_streams`. The load balancer and proxy must support long-lived SSE connections on every instance, and must not buffer the response.
+
+Losing an instance does not lose events. Every update is a durable row in PostgreSQL, and a reconnecting client resumes from `Last-Event-ID` (or `?after=`), so a rolling restart replays what the client missed. Rows are pruned after 48 hours by the user-event cleanup sweep; a client disconnected longer than that must reload rather than rely on replay.
+
+If your proxy uses idle timeouts, keep them above `events.heartbeat` (default `20s`).
 
 ## Encryption-key rollout
 

@@ -1,19 +1,24 @@
 ---
 title: Mounting and performance
-description: Mount Teldrive with rclone and tune VFS/chunk concurrency.
+description: Mount a Teldrive server and tune VFS and server-side concurrency.
 ---
+
+The tuning advice here applies to whatever mounts Teldrive — an rclone backend, an HTTP/WebDAV bridge, or a purpose-built client. The limits that matter are enforced by the **server**, not by the client.
 
 ## Mount
 
+A `teldrive:` remote only exists once you have a backend in your rclone build; this repository
+ships none, so substitute whatever remote name your client actually provides:
+
 ```bash
 mkdir -p ~/mnt/teldrive
-rclone mount teldrive: ~/mnt/teldrive
+rclone mount <remote>: ~/mnt/teldrive
 ```
 
 For applications that need seek-heavy writes, use VFS caching:
 
 ```bash
-rclone mount teldrive: ~/mnt/teldrive \
+rclone mount <remote>: ~/mnt/teldrive \
   --vfs-cache-mode full \
   --vfs-cache-max-size 20Gi \
   --vfs-cache-max-age 24h
@@ -21,39 +26,34 @@ rclone mount teldrive: ~/mnt/teldrive \
 
 Size the cache to available local disk.
 
-## Chunk size
+## Server part size
 
-Default:
+Teldrive, not the client, owns part sizing. A session that does not request a part size gets `uploads.default-part-size` (default `512MiB`); a session that requests one is **rejected** if it exceeds `uploads.max-part-size` (default `4GiB`). `max-part-size` must be at least `default-part-size` and a whole multiple of it.
 
-```text
-chunk_size = 512Mi
-```
+Background imports additionally accept a `chunkSize` between 64 MiB and the effective ceiling, which is the smaller of 2000 MiB and `max-part-size`. A `chunkSize` outside that range is **rejected**, not clamped: the job fails with
+`chunk size must be between 64 MiB and <ceiling> MiB`. Values inside the range are rounded to
+the nearest 16 MiB.
 
-Accepted range: 64 MiB–2000 MiB. Larger chunks reduce API calls but use more memory per concurrent upload.
+See [Uploads and events](/configuration/uploads-and-events).
 
-Example:
+## Download memory is the real mount constraint
 
-```ini
-[teldrive]
-type = teldrive
-api_host = https://drive.example.com
-api_key = YOUR_API_KEY
-chunk_size = 256Mi
-upload_concurrency = 2
-```
+A mount reads far more than it writes. Every open byte range buffers `telegram.download-read-buffers` × 1 MiB of prefetched Telegram chunks, and `uploads.max-concurrent-downloads` bounds how many ranges may be open at once. Their product is the process download ceiling — 128 MiB with the shipped defaults (`4 × 32`).
 
-## Concurrency
+Requests past the limit **queue** for a slot rather than being refused, so raising the ceiling converts memory pressure into latency instead of into failures. Raise the client-side `--transfers` before the server ceiling; if you must raise the server values, raise `download-read-buffers` before `max-concurrent-downloads`, and re-check the product.
 
-These controls multiply:
+## Upload concurrency
 
-- rclone `--transfers`;
-- backend `upload_concurrency`;
+Uploads multiply these three factors:
+
+- client `--transfers`;
+- per-transfer part concurrency, if the client exposes one;
 - Teldrive `telegram.upload-threads`.
 
 Start conservatively:
 
 ```bash
-rclone copy /srv/data teldrive:/archive \
+rclone copy /srv/data <remote>:/archive \
   --transfers 2 \
   --checkers 4 \
   --progress
@@ -63,28 +63,12 @@ Raise one setting at a time while monitoring memory, CPU, Telegram errors, and P
 
 ## Hashing
 
-```text
-hash_enabled = true
-```
+Teldrive computes BLAKE3 hashes by default (`uploads.hashing-enabled`). Keep it on unless you have a measured reason to disable it — disabling it skips server-side hashing only, and a checksum the client sends is always verified.
 
-Keep BLAKE3 hashing enabled unless you have a measured reason to disable it.
+## Encryption
 
-## Upload host
+Encrypted uploads require the *client* to request it per session (`encryption: true` on the upload-creation request), and the server must have `encryption.keys` configured. A mount cannot turn it on by itself.
 
-Optional dedicated upload endpoint:
+See [Content encryption](/advanced/encryption).
 
-```ini
-upload_host = https://uploads.example.com
-```
-
-It must expose the same compatible Teldrive API/authentication.
-
-## Teldrive encryption
-
-```ini
-encrypt_files = true
-```
-
-Requires server-side content-encryption keys. See [Content encryption](/advanced/encryption).
-
-If `rclone lsf teldrive:` fails, fix authentication/connectivity before debugging mount settings.
+If a mount cannot list the remote, fix authentication and connectivity before debugging client-side settings. See [Rclone setup](/rclone/setup).

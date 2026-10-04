@@ -5,6 +5,10 @@ description: Manage Telegram channels used for Teldrive file parts.
 
 Teldrive stores file payload parts in Telegram channels and keeps their mapping in PostgreSQL.
 
+These are **real Telegram channels**, and they belong to the Telegram account you signed in to Teldrive with. Teldrive uploads and downloads as that account, and bots must be administrators in the channels they serve. **Discover and sync** lists only the channels where your account can add administrators, so a channel created by a different Telegram account will not appear.
+
+Channel names are advisory: Telegram may pick the final title.
+
 ## Automatic channels
 
 ```yaml
@@ -16,19 +20,21 @@ telegram:
 
 Teldrive creates another channel when the active channel reaches the configured part limit.
 
+Rollover only happens while `auto-channel-create` is enabled. With it disabled, an upload that needs capacity beyond the active channel — or that has no selected channel — **fails** instead of creating one, and uploads start erroring with `409 conflict`. Keep it on unless you provision channels yourself and watch the part limit.
+
 ## UI
 
-Open **Settings → Storage channels** to:
+Open **Settings → Telegram storage → Channels** to:
 
 - create a channel;
 - discover/sync channels;
 - select the active channel;
-- remove an unused channel.
+- delete an unused channel, after selecting a different active channel.
 
-A channel cannot be removed while files still reference it.
+Two rules block deletion: a channel that still holds referenced file or upload parts cannot be removed, and **the currently selected channel cannot be removed at all** — select another active channel first, even if the selected one is empty.
 
 Changing the active channel affects new parts only; existing files stay mapped to their current channels.
 
-`channel-part-limit` counts parts, not logical files.
+`channel-part-limit` counts the Telegram messages stored in one channel, not logical files — one file part consumes one message.
 
 Bots are added to storage channels through background jobs. See [Telegram bots](/using/bots).

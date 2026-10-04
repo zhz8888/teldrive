@@ -10,7 +10,19 @@ Teldrive v2 detects v1 by the legacy `public.goose_db_version` table.
 1. stop v1 writes;
 2. back up PostgreSQL;
 3. keep the old binary/image and configuration;
-4. configure a stable v2 `security.data-key`.
+4. configure a stable v2 `security.data-key` — it must stay the same for the life of the installation, because it re-seals the migrated bot tokens;
+5. if your v1 installation used encrypted files, configure **content key version 1** in v2:
+
+```yaml
+encryption:
+  active-key-version: 1
+  keys:
+    1: "<the content key your v1 server used>"
+```
+
+The migrator stamps every migrated encrypted file with key version 1, and a file whose version is absent from `encryption.keys` cannot be decrypted. Add key version 1 **before** migrating, not after: the version stamped on existing rows is fixed at migration time and cannot be changed later.
+
+6. decide what happens to everything sitting in your v1 trash **before** migrating. The migrator maps every v1 entry whose status is not exactly `active` to `deletion_pending`, not `trashed`. The pending-file purge job then deletes the underlying Telegram messages for those entries. Recover anything you still want from the v1 UI first.
 
 ## Enable migration
 
@@ -25,8 +37,8 @@ Both `teldrive run` and `teldrive check` can trigger migration during initializa
 
 Requirements:
 
-- v1 and v2 use the same PostgreSQL database;
-- final v2 schema is `teldrive`;
+- v1 and v2 use the same PostgreSQL database — the migrator connects once and refuses otherwise;
+- `database.schema` is left at its default `teldrive`. This is not cosmetic: the v1 schema is *also* named `teldrive`, and the migrator swaps that name. Any other value aborts startup with `legacy database migration requires database.schema="teldrive"` rather than migrating;
 - `security.data-key` is configured;
 - the database user can create/rename schemas and migrate data.
 
@@ -62,7 +74,11 @@ Check logs for `database.legacy_migration.completed` and the reported row counts
 
 ## Verify
 
-After starting v2, verify users, channels, bots, folder structure, files, and known downloads. Keep the legacy backup schema until you also have a separate tested PostgreSQL backup.
+After starting v2, verify users, channels, bots, folder structure, files, and known downloads.
+
+Files that were in the v1 trash are now `deletion_pending` and are queued for permanent deletion of their Telegram messages. Check the trash immediately after the migration if any of it still mattered.
+
+Keep the legacy backup schema until you also have a separate tested PostgreSQL backup.
 
 ## Disable automatic migration
 

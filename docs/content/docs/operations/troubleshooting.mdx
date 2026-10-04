@@ -26,13 +26,23 @@ logging:
 
 ## Teldrive exits immediately
 
-Check the first error. Common causes:
+Configuration problems are reported before any listener is bound. Check the first error on stderr:
 
-- missing/unreachable PostgreSQL;
-- signing key shorter than 32 characters;
-- invalid `security.data-key`;
-- invalid proxy/MTProxy combination;
-- invalid encryption key/version configuration.
+| Message contains | Cause | Fix |
+| --- | --- | --- |
+| `security.data-key is required` | `security.data-key` is unset | set it (`openssl rand -base64 32`) |
+| `must decode to 32 bytes` | data key is not Base64 of exactly 32 bytes | regenerate; do **not** rotate a production key |
+| `failed min validation` | `security.signing-key` shorter than 32 characters | lengthen it |
+| `telegram backend failed oneof validation` | `telegram.backend` is not `remote` or `filesystem` | correct the value |
+| `the v1 schema is still present` | starting a v2 binary against a v1 database | back up, then set `database.auto-migrate-legacy: true` |
+| `legacy database migration requires database.schema="teldrive"` | v1 data in a non-default schema | migrate with the default schema |
+| `Telegram proxy and MTProxy cannot be used together` | both proxy modes configured | keep one |
+| `MTProxy address and secret must be configured together` | only one of the two set | set both |
+| `encryption keys must use version:key entries` | malformed `encryption.keys` | use `1:secret,2:secret` |
+| `duplicate encryption key version` | repeated version in `encryption.keys` | remove the duplicate |
+| `max-part-size must be a whole multiple of default-part-size` | part sizes do not divide | pick a dividing pair |
+| `min connections cannot exceed max connections` | pool ordering | lower `min-connections` |
+| missing/unreachable PostgreSQL | host, credentials, `sslmode`, or networking | see below |
 
 Generate a compatible data key only for a new installation:
 
@@ -40,7 +50,9 @@ Generate a compatible data key only for a new installation:
 openssl rand -base64 32
 ```
 
-Do not replace a production data key; existing encrypted values depend on it.
+Do not replace a production data key; every stored value depends on it.
+
+Most rules are collected and joined with `; `, so a single startup line can list several problems at once.
 
 ## Container is unreachable
 
@@ -86,9 +98,25 @@ security.data-key
 
 Also verify PostgreSQL data is persistent.
 
+## A user is signed out and cannot sign back in
+
+Symptom: a specific Telegram account gets `401 {"error":{"code":"unauthorized","message":"authentication is required"}}` on every request, including a fresh login, while every other user is fine.
+
+This is **not** an expired session. Check whether the account is disabled — disabling writes `disabled_at` and revokes every one of its sessions and API keys, and a disabled account is rejected during role resolution on each request, so it reports as an unauthorized credential rather than a permission error. Re-enable it in **Settings → Users & roles**.
+
+If the account is not disabled, the remaining causes are `security.allowed-users` no longer containing the account (also `401 unauthorized`), or `security.signing-key` having changed, which invalidates every issued token.
+
 ## Live progress updates only after refresh
 
-SSE is being interrupted or buffered. Check proxy response buffering, read/idle timeouts, CDN/load-balancer timeouts, and repeated EventSource reconnects in browser developer tools.
+Three distinct causes, distinguishable in the browser network tab and in the access log:
+
+**1. The stream was refused (`429 too_many_event_streams`).** No stream is ever opened. `events.max-connections-per-user` (default `5`) is enforced per user per API instance, and a stale `EventSource` that the browser never closed still holds its slot. Close other tabs for that user, or raise the limit. The limit is **per instance**, so a multi-instance deployment allows `5 × instances` streams for one user.
+
+**2. The stream connected and then dropped.** Look for repeated reconnects in the browser and check proxy response buffering, read/idle timeouts, and CDN/load-balancer timeouts. Keep proxy idle timeouts above `events.heartbeat` (default `20s`). Teldrive refreshes the response write deadline on every write, so `http.write-timeout` does not cut a healthy stream.
+
+**3. The stream is healthy but the update was never delivered.** Events are durable rows replayed from the client's cursor (`Last-Event-ID` or `?after=`), so a dropped notification is a delay, not a loss. Rows are pruned after 48 hours by the user-event cleanup sweep; a client disconnected longer than that gets a fresh stream with no replay and the UI reloads.
+
+A browser `EventSource` cannot send an `Authorization` header, which is why the UI mints a short-lived ticket (`POST /v1/events/ticket`, TTL `events.ticket-ttl`, default `2m`) and passes it as a `ticket` query parameter. Use the same mechanism for a non-browser client.
 
 ## Upload fails at a fixed duration
 
@@ -148,7 +176,11 @@ MTProxy address and secret must both be present.
 
 ## Encryption errors after rotation
 
-Keep old key versions referenced by existing files:
+**Symptom:** downloads and encrypted uploads fail with `503 {"error":{"code":"service_unavailable","message":"operation is not available"}}`. Nothing in that response mentions encryption — a missing key version is folded into the generic unavailable branch. Failed upload parts record the code `encryption_key_missing`, which is the only place the real cause is named.
+
+**Cause:** a file references a key version that is no longer in `encryption.keys`.
+
+**Fix:** restore every version still in use alongside the new one, then restart:
 
 ```yaml
 encryption:
@@ -158,11 +190,56 @@ encryption:
     2: NEW_KEY
 ```
 
-Test both a new upload and an old download.
+Do not delete a version until no file and no upload session references it. Teldrive cannot re-encrypt existing content, so a removed version is permanently lost data.
+
+Test both a new encrypted upload (the client must request `encryption: true` — see [Content encryption](/advanced/encryption)) and a download of a file recorded against the old version.
+
+## Background jobs stop running
+
+**Symptom:** uploads and downloads work, but the **Tasks** list stops changing — imports never start, trashed files never expire, events never get pruned.
+
+Check in order:
+
+1. **Is any worker running?** `jobs.run-workers` must be `true` on at least one instance. Instances with it `false` build the job runtime but never start it, and never register the periodic schedules.
+2. **Is a queue paused?** Pausing stops a queue handing out work; jobs stay queued. The queue list is on the Tasks page, and pausing requires the admin or owner role.
+3. **Are there unknown-kind failures?** Periodic schedules are inserted once and never recreated. A schedule left behind by a feature that was later disabled can fail on every run; pause or delete it in **Settings → Periodic jobs**.
+4. **Are workers being cut off by shutdown?** `http.shutdown-timeout` (default `10s`) bounds River's 30-second soft stop, so restarts cancel in-flight jobs. Raise it on worker instances.
+
+## Telegram errors and rate limits
+
+**Symptom:** uploads fail after a burst, or with `FLOOD_WAIT` in the first error in the log.
+
+Teldrive ships a client-side rate limiter and a flood-wait middleware; both are on by default:
+
+```yaml
+telegram:
+  rate-limit: true
+  rate-interval: 50ms
+  rate-burst: 10
+  max-retries: 10
+  reconnect-timeout: 5m
+```
+
+- Keep `rate-limit` enabled. Disabling it removes the only client-side guard against Telegram's server-side limits.
+- Raise `reconnect-timeout` on a lossy link; it caps the exponential reconnect backoff.
+- `telegram.max-retries` bounds transport retries per request. Exhausted retries surface as the operation error, and a partial upload is cleaned up so the part can be retried.
+- Use **at most one** proxy mode. A bad `proxy` or `mtproxy` produces dial errors, not rate-limit errors — fix the transport before tuning limits.
+- Turn on protocol-level Telegram logging while diagnosing; it is off by default and very noisy:
+
+```yaml
+telegram:
+  client-logging: true
+```
+
+**Channel exhaustion.** Uploads fail with `409 conflict` when a channel reaches `telegram.channel-part-limit` (default `500000`), or when `telegram.auto-channel-create` is `false` and no channel is selected. Fix it in **Settings → Channels**, or raise the limit and create a channel.
+
+Remember Telegram is a shared, rate-limited resource: exceeding its limits risks the account and the channels, not just the request.
 
 ## Problems only with multiple instances
 
 Verify every process shares the same database/schema and security/encryption keys. Also check aggregate PostgreSQL connections, worker roles, SSE load-balancing, bot rotation backend, and version skew.
+
+Two failures are specific to this setup: a worker-only instance restarted with the default `http.shutdown-timeout: 10s` cancels in-flight jobs after 10 seconds, and enabling `telegram.download-client-pool` on every instance multiplies the number of live Telegram sessions for one account by the instance count.
 
 ## Report useful diagnostics
 

@@ -25,13 +25,15 @@ database:
 
 Default: `teldrive`.
 
-Teldrive uses the configured schema for application and River/RiverPro tables. Use a different valid PostgreSQL identifier only when you intentionally need another schema.
+Teldrive uses the configured schema for application and River/RiverPro tables. Only **lower-case unquoted** identifiers are accepted — the pattern is `^[a-z_][a-z0-9_]*$`. A mixed-case, digit-leading, or quoted name such as `Teldrive`, `1app`, or `"my schema"` is rejected when the pool opens with `database schema must be a valid PostgreSQL identifier`. Change the schema only when you intentionally need another one.
 
 ## Migrations
 
-Teldrive runs its application, River, and RiverPro migrations during initialization. Do not run migration SQL manually.
+Teldrive runs its application, River, and RiverPro migrations during initialization — on every start and on every `teldrive check`. Do not run migration SQL manually.
 
-`auto-migrate-legacy: true` enables automatic v1 detection/migration. See [Migrate from Teldrive v1](/deployment/v1-migration).
+`auto-migrate-legacy: true` (the default) enables automatic v1 detection/migration at startup. See [Migrate from Teldrive v1](/deployment/v1-migration).
+
+Setting it to `false` is a deliberate refusal to touch v1 data, and Teldrive then **fails to start** against any database where the v1 schema is still present, with `the v1 schema is still present and database.auto-migrate-legacy is disabled`. Point `database.url` at a clean database instead. There is no configuration key that lets Teldrive start alongside a v1 schema.
 
 ## Pool
 
@@ -44,6 +46,8 @@ Teldrive runs its application, River, and RiverPro migrations during initializat
 | `health-check-interval` | `30s` |
 | `connect-timeout` | `10s` |
 
+`min-connections` must not exceed `max-connections`; a larger minimum is a startup error. `min-connections` is also what the pool pre-warms, so the minimum PostgreSQL budget is `min-connections × number of Teldrive instances`, not `max-connections`.
+
 For multiple Teldrive processes, budget the sum of all process pools against PostgreSQL's connection limit.
 
 ## TLS
@@ -52,7 +56,7 @@ For multiple Teldrive processes, budget the sum of all process pools against Pos
 
 ## Backup
 
-Use [Backup and restore](/deployment/backup-and-restore). PostgreSQL backups and `security.data-key` are both required for full recovery.
+Use [Backup and restore](/deployment/backup-and-restore). File payloads live in Telegram, not PostgreSQL, so a PostgreSQL dump plus `security.data-key` is not a complete backup — continued access to the same Telegram account and channels is required too.
 
 ## Connection failures
 

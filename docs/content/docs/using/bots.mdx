@@ -8,11 +8,23 @@ Bots are optional. Use them only when you need additional Telegram clients for t
 ## Add bots
 
 1. Create bots with **@BotFather**.
-2. Open **Settings → Telegram bots**.
+2. Open **Settings → Telegram storage → Bots**.
 3. Paste one token per line.
 4. Choose **Add bots**.
 
-Verification/channel updates run as background jobs. Check **Tasks** if a bot stays disabled.
+## What adding a bot does
+
+Tokens are stored immediately, then a `teldrive_provision_bots` job invites each new bot into **every one of your storage channels**, at most three at a time. The job retries up to three times and only re-attempts the channels that failed.
+
+A bot that is **Disabled** in the list has not been promoted, or has hit an error. Open the job in **Tasks** — it names the channels it could not invite. A bot must be an administrator in a channel to upload there.
+
+## How bots are used
+
+| Operation | Client used |
+| --- | --- |
+| Upload | Any enabled bot that is not in failure backoff; falls back to your user session if none qualifies |
+| Download | All enabled bots, capped by `telegram.download-bots`; falls back to your user session if none qualifies |
+| Everything else | Your authenticated user session |
 
 ## Download rotation
 
@@ -21,7 +33,7 @@ telegram:
   download-bots: 0
 ```
 
-`0` uses the authenticated user. Increase only after bots are healthy.
+`0` sends every download through the authenticated user account. It is a **cap on downloads only** — adding a bot puts it on the upload path whether or not you raise this value. Raise it only after bots are healthy, and remember the real maximum is the number of enabled bots you have.
 
 Single instance:
 
@@ -37,14 +49,14 @@ telegram:
   bot-rotation-backend: database
 ```
 
-Optional warm clients:
+Optional warm clients — default `false`:
 
 ```yaml
 telegram:
   download-client-pool: true
 ```
 
-This trades memory/connections for less client setup overhead.
+This holds `max(1, download-bots)` Telegram clients open for the lifetime of the process, trading memory and connections for less client setup overhead. Leave it `false` — the shipped default — unless you have measured the per-request setup cost.
 
 ## Security
 

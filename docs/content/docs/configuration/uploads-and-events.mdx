@@ -13,7 +13,7 @@ uploads:
 ```
 
 - `session-ttl`: resumable upload lifetime; default seven days.
-- `hashing-enabled`: computes BLAKE3 hashes during uploads.
+- `hashing-enabled`: computes BLAKE3 hashes during uploads. Disabling it skips server-side hashing only; a client-supplied checksum is still verified.
 - `local-import-roots`: absolute server paths allowed for background imports; empty disables imports.
 
 Container example:
@@ -26,7 +26,38 @@ environment:
   TELDRIVE_UPLOADS_LOCAL_IMPORT_ROOTS: /srv/imports
 ```
 
-Only expose directories Teldrive is allowed to read.
+Only expose directories Teldrive is allowed to read. Starting a local-import job requires an `admin` or `owner` account.
+
+### Part sizes
+
+```yaml
+uploads:
+  default-part-size: 512MiB
+  max-part-size: 4GiB
+```
+
+- `default-part-size`: part size a session receives when it requests none. A larger part means fewer Telegram documents and less request overhead; a smaller one makes a failed part cheaper to retry and holds less memory per concurrent upload. Lower this first on a small host.
+- `max-part-size`: the largest part size a session may request, and the ceiling a background local import is clamped to. A session that requests more is rejected.
+
+Two rules are checked together at startup and reject the configuration outright:
+
+```text
+uploads default-part-size cannot exceed max-part-size
+uploads max-part-size must be a whole multiple of default-part-size
+```
+
+Pick a `default-part-size` that divides `max-part-size` exactly. The shipped `512MiB` / `4GiB` pair satisfies this (4 GiB = 8 × 512 MiB); `128MiB` / `512MiB` does too.
+
+### Download concurrency
+
+```yaml
+uploads:
+  max-concurrent-downloads: 4
+```
+
+Range `1`–`256`, default `4`. This bounds the number of byte ranges open at once; a request waits for a free slot rather than being refused.
+
+This is the process download-memory ceiling together with [`telegram.download-read-buffers`](/configuration/telegram): each open range buffers up to that many 1 MiB Telegram chunks, so `max-concurrent-downloads × download-read-buffers` megabytes is the download buffer budget. The default pair is 4 × 32 = 128 MB. See [Performance tuning](/advanced/performance) before raising either value.
 
 ## Workers
 
@@ -35,7 +66,7 @@ jobs:
   run-workers: true
 ```
 
-Set `false` only when another Teldrive process sharing the database runs workers. See [Multi-instance deployments](/advanced/multi-instance).
+Default `true`. Set `false` only on instances that must not run jobs, and make sure exactly one instance in the deployment still has it enabled: the built-in periodic schedules are registered by an instance that runs workers, so an all-`false` deployment runs no maintenance at all. See [Multi-instance deployments](/advanced/multi-instance) and [Jobs and queues](/operations/jobs-and-queues).
 
 ## Live events
 
@@ -46,7 +77,6 @@ events:
   heartbeat: 20s
   write-timeout: 10s
   ticket-ttl: 2m
-  retention: 168h
   cleanup-interval: 1h
   connect-timeout: 10s
   ping-interval: 5s
@@ -56,7 +86,12 @@ events:
 
 The UI uses Server-Sent Events. Reverse proxies must allow long-lived, unbuffered responses.
 
-`max-connections-per-user` is per API instance. `retention` controls how long replayable events remain in PostgreSQL.
+- `max-connections-per-user` is enforced per API instance; exceeding it returns `429 too_many_event_streams`.
+- `ticket-ttl`: how long a one-time browser event-stream ticket stays valid, default `2m`. Browsers cannot send an `Authorization` header on an `EventSource`, so the UI mints a ticket first and passes it as a `ticket` query parameter.
+- `cleanup-interval`: how often expired tickets are swept, default `1h`. It is **not** how long replayable events live.
+- `reconnect-min` / `reconnect-max` bound the PostgreSQL listener's reconnect backoff; `reconnect-max` must be at least `reconnect-min`.
+
+Replayable events are kept for **48 hours**, which is a fixed default rather than a configuration key: it is the `retention` argument of the built-in *User event cleanup* periodic job. Change it through the periodic-jobs API (`args.retention`), not through `events.retention` — an `events.retention` key is silently ignored.
 
 ## Transfer timeouts
 

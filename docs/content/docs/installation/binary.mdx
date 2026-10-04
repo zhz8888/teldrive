@@ -3,7 +3,7 @@ title: Release binary
 description: Install a Teldrive release archive without containers.
 ---
 
-Release builds are standalone binaries for Linux, macOS, and Windows. Linux releases use `CGO_ENABLED=0`.
+Release builds are standalone, statically linked binaries for Linux, macOS, and Windows; every target is built with `CGO_ENABLED=0`.
 
 ## Install
 
@@ -15,7 +15,11 @@ sudo install -m 0755 teldrive /usr/local/bin/teldrive
 teldrive version
 ```
 
-Release targets include Linux `amd64`/`arm`/`arm64`, macOS `amd64`/`arm64`, and Windows `amd64`/`arm64`.
+Release targets include Linux `amd64`/`arm`/`arm64`, macOS `amd64`/`arm64`, and Windows `amd64`/`arm64`. The archive contains the `teldrive` binary plus both `README.md` and `README.zh-CN.md`. Windows archives are `.zip`, not `.tar.gz`.
+
+No v2 release archive has been published yet: release archives are produced when a `v*` tag is pushed, and the repository currently has none. Until then build from source (see [Build from source](/installation/from-source)) or use the container image.
+
+Before `teldrive run` will start, Teldrive needs a database URL and both `security` keys — start from `config.sample.toml` or generate them with the [Quick start generator](/getting-started/quick-start). With no configuration at all, startup fails with `security.data-key is required`.
 
 ## Configure
 

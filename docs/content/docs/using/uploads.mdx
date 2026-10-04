@@ -5,7 +5,7 @@ description: Use browser uploads, resumable sessions, and server-side imports.
 
 ## Browser uploads
 
-On **Files → Upload** choose files, a folder, or drag files into the browser.
+On the **Files** page use **Upload files**, **Upload folder**, or drop files anywhere in the browser window. Use **Background upload** to hand the work to a server-side worker instead — see [Background upload](#background-upload).
 
 ## Resumable uploads
 
@@ -14,7 +14,17 @@ uploads:
   session-ttl: 168h
 ```
 
-Interrupted uploads can resume while the session remains valid.
+An interrupted upload resumes while its session is still valid; a session's parts stay claimable for `session-ttl` after creation.
+
+## Part size
+
+The server decides part size, not the client:
+
+- a session that requests no part size gets `uploads.default-part-size` (default `512MiB`);
+- a session that requests one is **rejected** if it exceeds `uploads.max-part-size` (default `4GiB`);
+- `max-part-size` must be at least `default-part-size` and a whole multiple of it.
+
+Browser users set a *preferred* part size under **Settings → Uploads**; the server may still choose a different value. Lower `default-part-size` first on a small host: a smaller part is cheaper to retry and holds less memory per concurrent upload.
 
 ## Hashing
 
@@ -23,17 +33,38 @@ uploads:
   hashing-enabled: true
 ```
 
-Teldrive computes BLAKE3 hashes by default. Disable only for a measured performance reason.
+Teldrive computes BLAKE3 hashes by default. Disable only for a measured performance reason — and note that disabling this skips **server-side** hashing only. A checksum the client sends is always verified, so a corrupted transfer is still caught.
 
-## Background imports
+## Per-part retries
 
-Allow explicit server paths:
+`(uploadId, partNo)` is the idempotency key for a part. Re-sending a byte-identical part returns the already-stored part with `200` instead of writing it again; a part that differs in size or checksum is refused with `409`. Retrying a failed part is therefore always safe — clients should retry rather than restart.
+
+Send the part's checksum as `X-Part-Checksum` (lowercase hex). It is the BLAKE3 **tree hash** of the part — the same scheme as the file hash, computed over 16 MiB blocks — **not** a flat BLAKE3 of the part bytes. The two agree only when the part is at most 16 MiB; with the shipped `512MiB` default part size a flat BLAKE3 is refused with `422 hash_mismatch` on every part.
+
+Part upload is `PUT /api/v1/uploads/{uploadId}/parts/{partNo}` with `Content-Type: application/octet-stream` and an accurate `Content-Length`.
+
+## Background upload
+
+**Files → Background upload** queues work for a worker instead of your browser. Add one or more sources and press **Queue upload**; progress appears in **Tasks**.
+
+Each source is either:
+
+- **HTTP URL** — fetched over HTTP(S) by the server, with optional custom request headers. **No configuration is required**, but the target host must resolve to a **public** IP address: private, loopback, link-local and other non-public targets are refused with `HTTP target has no public address`, and a redirect that crosses hosts drops `Authorization`, `Cookie` and `Proxy-Authorization`.
+- **Local path** — an absolute path on the server, read recursively. Requires the **admin or owner role** *and* at least one `uploads.local-import-roots` entry (below). A non-admin is refused with `403` when the job is queued, not when the worker runs.
+
+Per source you can set a destination sub-path and exclude patterns; for the batch you can set min/max size, concurrent parts, chunk size, and encryption.
+
+## Background imports from local paths
+
+Local sources are disabled unless at least one root is configured:
 
 ```yaml
 uploads:
   local-import-roots:
     - /srv/imports
 ```
+
+**An empty list disables local imports entirely** — a job with a local source fails with `local imports are disabled`. Only HTTP sources work out of the box.
 
 Container mount:
 
@@ -42,7 +73,7 @@ volumes:
   - /srv/imports:/srv/imports:ro
 ```
 
-Import roots are a security boundary; expose only directories Teldrive should read.
+Import roots are a security boundary; expose only directories Teldrive should read. Paths must be absolute, and both the source and every root are resolved through symlinks before comparison, so a link planted inside a root cannot reach outside it.
 
 ## Telegram concurrency
 

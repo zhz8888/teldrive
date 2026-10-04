@@ -18,6 +18,27 @@ Keep:
 
 Keep Teldrive decryption keys separate from the database backup.
 
+Why each item is required:
+
+- `security.data-key` seals the Telegram login sessions, bot tokens, login state, and River job arguments. With the default `telegram.backend: remote` those sessions live **in PostgreSQL**, so this key plus the dump is the whole authentication state.
+- `security.signing-key` signs and verifies access tokens. Restoring it keeps sessions issued before the outage valid; changing it logs everyone out.
+- `encryption.keys` decrypts file content stored in Telegram. Every version referenced by a stored file is required — see the query in [Production](/deployment/production).
+
+On-disk Telegram state exists only for `telegram.backend: filesystem` (the local emulator used in tests), under `telegram.local-root`. If you run that backend, that directory is **not** covered by the PostgreSQL dump and must be backed up separately.
+
+## What a restore does and does not recover
+
+A PostgreSQL backup restores **metadata only**: users, folders, file names and sizes, Telegram channel and message coordinates, hashes, shares, bots, sessions, and job state. It contains **no file bytes**.
+
+Every payload still lives in the Telegram account that owns the storage channels. After a restore Teldrive therefore depends on all of the following, none of which the dump contains:
+
+- the Telegram account still exists and is not banned;
+- that account still has access to every storage channel referenced by the database;
+- the messages referenced by each file part are still present;
+- `security.data-key` is the same, so stored sessions and bot tokens can be opened and Teldrive can re-authenticate against Telegram.
+
+If any of those fails, the restored database lists files that cannot be downloaded. Re-verify Telegram reachability **before** trusting a restore.
+
 ## Recommended backup
 
 Use `pg_dumpall` piped directly into restic. Restic can store the encrypted repository through any rclone remote:
@@ -105,6 +126,23 @@ Change `/opt/teldrive/compose.yaml` to your actual Compose path.
 For Podman, replace the Docker command with the equivalent `podman compose` command.
 
 For host PostgreSQL, use `pg_dumpall` directly and authenticate with a protected `PGPASSFILE`/`.pgpass` instead of embedding the password in the unit.
+
+<Callout title="pg_dumpall needs more privilege than the application role">
+  `pg_dumpall` dumps cluster-wide objects (roles, grants, tablespaces) in addition to
+  every database, so the role it runs as needs more than the application role.
+  `pg_dumpall -U teldrive` works in the Quick Start compose only because the official
+  `postgres` image creates `POSTGRES_USER` as a superuser.
+
+  If you follow the least-privilege advice in [Production](/deployment/production) and
+  give Teldrive a non-superuser role, either:
+
+  - run the dump as a dedicated backup role granted `pg_read_all_data` plus the
+    cluster-level reads `pg_dumpall` needs, or
+  - replace `pg_dumpall` with `pg_dump -Fc -d teldrive` and restore with
+    `pg_restore`, and back up the role definitions separately.
+
+  Do not run Teldrive itself as a PostgreSQL superuser just to keep this unit working.
+</Callout>
 
 ## systemd timer
 

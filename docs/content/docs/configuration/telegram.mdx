@@ -39,12 +39,12 @@ telegram:
   download-read-parallel: 4
 ```
 
-- `download-bots`: `0` uses the authenticated user; up to `32` enables configured bots for rotation.
-- `download-client-pool`: keeps authenticated download clients warm when enabled.
-- `download-read-buffers`: prefetched chunks per stream, range `1`–`256`.
-- `download-read-parallel`: concurrent chunk fetches per stream, range `1`–`32`.
+- `download-bots`: `0` sends every download through the authenticated user account; `1`–`32` caps how many of the user's **already enabled** bots take part in download rotation. It does not enable bots — add and enable them first (see [Bots](/using/bots)) — and it does not limit uploads, which always rotate across every eligible enabled bot.
+- `download-client-pool`: keeps authenticated download clients warm between HTTP requests instead of building one per request. It holds `max(1, download-bots)` Telegram clients open for the lifetime of the process, so it trades persistent Telegram sessions for lower per-request latency. Leave it `false` (the shipped default and what both config samples recommend) unless you have measured the per-request client setup cost.
+- `download-read-buffers`: prefetched 1 MiB chunks held in memory per open range, range `1`–`256`.
+- `download-read-parallel`: concurrent chunk fetches per range (and the number of Telegram connections requested per range), range `1`–`32`.
 
-Increasing buffering/parallelism raises memory and Telegram request pressure across simultaneous downloads.
+Memory and connections both scale with these settings. Each open download range buffers up to `download-read-buffers` 1 MiB Telegram chunks, and up to `download-read-parallel` of them are fetched concurrently. Multiplied by [`uploads.max-concurrent-downloads`](/configuration/uploads-and-events), the buffer count is the process download-memory ceiling: the defaults are 4 × 32 = 128 MB. Change one without the other only trades throughput for memory. See [Performance tuning](/advanced/performance).
 
 ## Storage channels
 
@@ -106,4 +106,4 @@ telegram:
   local-root: ./var/local-telegram
 ```
 
-This stores payloads locally instead of in Telegram.
+This stores payloads locally instead of in Telegram, and none of the gotd settings above it — `upload-threads`, `download-bots`, `download-read-*`, `proxy`, `mtproxy`, `client-logging`, `channel-part-limit`, `bot-rotation-backend`, and the device-identity keys — are applied in this mode.

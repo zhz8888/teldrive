@@ -3,7 +3,7 @@ title: Files and folders
 description: Manage files and folders in the Teldrive web UI.
 ---
 
-The **Files** page supports list/grid views, multi-selection, uploads, copy/move, rename, sharing, downloads, and Trash.
+The **Files** page supports list/grid views, split view, multi-selection, uploads, background uploads, copy/move, duplicate, rename, sharing and un-sharing, downloads, search and sort, and Trash.
 
 ## Selection
 
@@ -11,9 +11,13 @@ Single-click selects. Open folders explicitly or by double-clicking so selection
 
 Bulk actions support copy, move, and trash. Rename/share are single-item actions.
 
-## Copy, move, rename
+## Find files
 
-Use the selection action bar or clipboard-style copy/cut/paste controls. Renaming changes catalog metadata; file payloads are not re-uploaded.
+**Search files** matches names (substring by default, regular expressions on request) and can be narrowed to a category — archive, audio, document, image, video, other — and sorted by name, updated time, size, or ID in either direction. Filters survive navigation, so a search behaves like a virtual folder you can move and copy into.
+
+## Copy, move, rename, duplicate
+
+Use the selection action bar or clipboard-style copy/cut/paste controls. **Duplicate** is a one-click copy in place and is the fastest way to version a file. Renaming changes catalog metadata; file payloads are not re-uploaded.
 
 ## Download
 
@@ -21,9 +25,9 @@ Download selected files or copy authenticated download links. Large files suppor
 
 ## Trash
 
-Delete moves items to **Trash**. From Trash, restore or permanently purge them.
+Delete moves items to **Trash**, where you can **Restore** them or **Delete forever**. **Clean trash** empties the whole Trash for your account at once.
 
-Purge is destructive.
+Deleting forever cannot be undone. Cleanup then runs asynchronously in the background — the Telegram messages are reclaimed by a maintenance job, so removal from Trash is not instantaneous.
 
 ## Related
 

@@ -7,17 +7,40 @@ The **Tasks** page shows River/RiverPro background jobs such as server-side impo
 
 ## States
 
-Jobs may be queued, running, completed, failed, cancelled, or scheduled for retry.
+A job is in exactly one of eight states: **Pending**, **Available**, **Scheduled**, **Running**, **Retryable**, **Cancelled**, **Discarded**, or **Completed**.
 
-Open a failed task before retrying. Retry transient failures only after fixing permanent causes such as invalid paths, revoked credentials, missing permissions, or bad configuration.
+There is no "failed" state. **Retryable** means River will try again on its own backoff; **Discarded** means it used up its attempts and stopped — that is the state to look for when something is permanently broken.
+
+Filter by state in the web UI — the jobs API also accepts `type` and `queue` filters, but the Tasks page only sends `status`. The search box matches a job's ID, type, queue, message, or output. Open a discarded or retryable task before retrying — the detail view shows every attempt with its error and timestamp. Retry transient failures only after fixing permanent causes such as invalid paths, revoked credentials, missing permissions, or bad configuration.
+
+## Create and clean
+
+**New Task** enqueues the maintenance cleanup sweeps: upload-session cleanup, event cleanup, trash cleanup, pending-file purge, and orphaned-Telegram-part cleanup. Upload batches and bot provisioning are not offered — they are created by their own flows, and the jobs API rejects them with `422`. The queue and priority fields are free text. **Clean** purges finished jobs for a chosen state. Both are on the Tasks toolbar and require the admin or owner role. Purging removes the task records, never the work they did — deleting an import task does not delete the files it imported.
 
 ## Cancel
 
-Cancellation stops future processing where supported; it does not undo external side effects already completed.
+Cancellation stops future processing where supported; it does not undo external side effects already completed. On a job's detail page it is offered while the job is Pending, Scheduled, Available, Running, or Retryable; in the list, the cancel control is shown for Running jobs and other active states get a delete control that also cancels the job.
+
+## Pause a queue
+
+Open **Queues** on the Tasks page and pause a queue while you drain a pipeline or run Telegram maintenance. A paused queue stops handing out new work; queued jobs stay queued and resume where they left off, and a job already running is not interrupted.
+
+Teldrive registers workers for exactly two queues:
+
+| Queue | Work |
+| --- | --- |
+| `uploads` | background import batches and per-file imports |
+| `maintenance` | bot provisioning, trash/session/orphan cleanup, event cleanup, pending-file purge |
+
+The queue name is not validated on the way in: **New Task** lets an administrator type any other queue name, and such a queue appears in the Queues panel but never has a worker, so jobs placed there are never picked up.
+
+Pausing `maintenance` does not pause uploads, and vice versa. Pausing requires the admin or owner role.
+
+See [Jobs and queues](/operations/jobs-and-queues).
 
 ## Periodic jobs
 
-Use **Settings → Periodic jobs** to manage scheduled jobs.
+**Settings → Periodic Jobs** holds the durable schedules (the cleanup and purge sweeps). The section is only shown to users with the `system.maintenance` capability — administrators and owners. Other users do not see it at all, and cannot call the periodic-job API directly either.
 
 ## Worker configuration
 

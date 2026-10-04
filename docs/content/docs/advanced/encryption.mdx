@@ -3,9 +3,20 @@ title: Content encryption and key rotation
 description: Configure versioned server-managed file encryption and rotate keys safely.
 ---
 
-Content encryption is separate from `security.data-key`.
+Content encryption is a separate, optional mechanism from `security.data-key`:
+
+| | `security.data-key` | `encryption.keys` |
+| --- | --- | --- |
+| Required | yes — startup fails without it | no |
+| Protects | Telegram/bot/login credentials stored in PostgreSQL | file content before it reaches Telegram |
+| Recorded per object | no | yes, on the file row |
+| Rotatable in place | no — changing it breaks every stored value | yes — old versions keep working |
+
+See [Security](/configuration/security) for `security.data-key`.
 
 ## Enable
+
+Server side — configure a key version. This makes encryption *possible*; it does not by itself encrypt anything:
 
 ```yaml
 encryption:
@@ -27,7 +38,39 @@ TELDRIVE_ENCRYPTION_ACTIVE_KEY_VERSION=1
 TELDRIVE_ENCRYPTION_KEYS='1:YOUR_RANDOM_SECRET'
 ```
 
-Teldrive records the key version with encrypted file parts, so old data continues to depend on the key version used when it was written.
+Client side — request it per upload. Every upload session carries an `encryption` boolean (default `false`), and only a session created with `encryption: true` is written encrypted, stamped with the active key version. In the web UI this is **Settings → Uploads → Encrypt uploaded files**, a per-browser preference. API clients set `encryption: true` on the upload-creation request.
+
+A session created with `encryption: true` against an active version of `0` is rejected with **503 `service_unavailable`**. Existing plaintext files are never re-encrypted; enabling this only affects new uploads.
+
+Teldrive records the key version on the **file row** (`files.encryption_key_version`, mirrored from the `upload_sessions` row that produced it); individual `file_parts` carry only the per-part `salt` used for key derivation. A file's parts therefore all share one version, and that version is what an old download needs. Nothing rewrites a file when you rotate, so old data keeps depending on the key version it was written with.
+
+## What encryption covers
+
+Only the **bytes of each uploaded part** are encrypted. Everything else is plaintext:
+
+| Plaintext | Where |
+| --- | --- |
+| File and folder names, sizes, MIME types, content hashes, trash state | `files`, `upload_sessions` in PostgreSQL |
+| Per-part key-derivation salt | `file_parts.salt`, `upload_parts.salt` in PostgreSQL |
+| Telegram `channel_id` / `message_id` per part | `file_parts` in PostgreSQL |
+| Number of documents, each document's size and (randomized) name | the Telegram channel itself |
+
+`telegram.randomize-part-names` (default `true`) obfuscates the document name Telegram stores; it is hygiene, not encryption.
+
+Do not treat Teldrive as protecting file *names* or *existence* from anyone who can read your PostgreSQL database or your Telegram account.
+
+## Format and seekability
+
+The cipher is chunked and seekable:
+
+```text
+0   magic      10 bytes, "TELDRIVE" + two NUL bytes
+10  file nonce 24 bytes, the secretbox nonce of block 0
+34  block 0    16-byte auth tag + up to 64 KiB of plaintext
+    block N    same layout, sealed with the file nonce plus N
+```
+
+Key material is derived with scrypt from the configured key and a fresh per-part salt, and blocks are sealed with NaCl secretbox. Because each block is independently sealed, a byte-range download decrypts only the blocks it needs without reading the preceding ones. The layout and key schedule are byte-compatible with upstream Teldrive, so content written by either implementation decrypts in the other.
 
 ## Rotate
 
@@ -54,17 +97,41 @@ Do not remove old key versions while files still reference them.
 
 Configuration is rejected when:
 
-- keys exist but `active-key-version` is `0`;
-- the active version is missing;
-- a key version is non-positive;
-- a key value is empty.
+- keys are configured but `active-key-version` is `0` (`active encryption key version is required when encryption keys are configured`);
+- the active version has no configured key, or maps to a blank one (`active encryption key version has no configured key`);
+- a configured key version is non-positive, or its value is blank (`encryption key version N is invalid`).
+
+Those three consistency rules are collected, sorted and joined with `; ` into a single error, so one
+startup line lists all of them.
+
+Separately, a malformed `encryption.keys` value fails **earlier**, while the value is being decoded:
+an entry that is not in `version:key` form (`encryption keys must use version:key entries`), a
+duplicate version (`duplicate encryption key version N`), or an unparsable version aborts the load at
+the first bad entry with its own message, and is never combined with the rules above.
+
+## Failure mode of a missing key version
+
+Removing a version that files still reference does **not** produce a clean "file missing" error. Both upload and download paths report a missing encryption key, which the HTTP layer maps to:
+
+```text
+HTTP/1.1 503 Service Unavailable
+{"error":{"code":"service_unavailable","message":"operation is not available"}}
+```
+
+Failed upload parts record the code `encryption_key_missing`, which is the only place the real cause is named. There is no way to recover the affected files from the error alone — restore the key from your backup and restart.
 
 ## Backup
 
-Back up every key version still in use. Losing one makes files encrypted with that version unreadable.
+Back up **both** halves of every encrypted object:
+
+- the key material (`encryption.keys`), stored outside the database;
+- the PostgreSQL rows that reference it, because each part's `salt` lives in `file_parts.salt` / `upload_parts.salt` and is required to re-derive the key;
+- continued access to the Telegram channels holding the ciphertext.
+
+Losing a key version makes the files encrypted with it permanently unreadable. Verify a restore of both halves before you need it.
 
 See [Backup and restore](/deployment/backup-and-restore).
 
 ## Disable for future uploads
 
-Remove the active version and key map only after data that depends on those keys has been removed or migrated.
+Remove the active version and key map only after data that depends on those keys has been removed or migrated. Files that already reference a removed version will keep answering 503 indefinitely.

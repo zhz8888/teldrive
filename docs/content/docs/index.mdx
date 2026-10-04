@@ -1,6 +1,6 @@
 ---
 title: Teldrive
-description: Self-hosted Telegram-backed cloud storage with a web UI, API, and rclone support.
+description: Self-hosted Telegram-backed cloud storage with a web UI and an HTTP API.
 ---
 
 Teldrive stores metadata in PostgreSQL and file payloads in Telegram.
@@ -30,9 +30,11 @@ Teldrive stores metadata in PostgreSQL and file payloads in Telegram.
 
 ## Requirements
 
-- PostgreSQL with persistent storage
+- PostgreSQL 18 with persistent storage; the role in `database.url` must be able to create the `pgcrypto` and `pg_trgm` extensions in the `public` schema
 - Telegram account and outbound Telegram access
-- `security.signing-key`
-- `security.data-key`
+- `security.signing-key` — at least 32 characters
+- `security.data-key` — Base64 of exactly 32 bytes
+
+See [Configuration overview](/configuration/overview) for every required value and how to set it.
 
 For internet-facing deployments, use HTTPS and keep PostgreSQL private.

@@ -3,7 +3,7 @@ title: Upgrading
 description: Upgrade Teldrive with a database backup, validation, smoke tests, and rollback path.
 ---
 
-Startup can run Teldrive, River, and RiverPro migrations. Back up PostgreSQL before the new version initializes.
+Startup applies migrations before it serves anything, and every instance applies them: the TelDrive schema migrations, then the River migration line, then the RiverPro line. All three land in `database.schema` (default `teldrive`), which also holds the River job tables. Back up PostgreSQL before the new version initializes — for a multi-replica rollout, run one `teldrive check` first so only one process is migrating.
 
 ## Before upgrading
 
@@ -28,7 +28,9 @@ docker compose up -d teldrive
 docker compose logs --tail=250 teldrive
 ```
 
-`check` can run migrations, so the backup must exist before it.
+`check` applies every migration before it exits, so the backup must exist before it runs.
+
+**Upgrading from Teldrive v1 is different.** `database.auto-migrate-legacy` defaults to `true`, so on a database still carrying the v1 schema the first `check` — or the first `run` — performs the v1→v2 conversion, not a routine migration. It takes an advisory lock, builds a staging schema, converts the v1 rows forward into it, and renames schemas inside a single transaction; the original v1 schema is **additionally retained** under `teldrive_legacy_backup_<timestamp>` as a rollback copy. Read [Migrate from Teldrive v1](/deployment/v1-migration) before running either command against a v1 database.
 
 ## Binary install
 
@@ -49,11 +51,12 @@ Validate before switching:
 
 Verify:
 
-- `/health/live` and `/health/ready`;
+- `/health/ready` for load-balancer routing (503 when the database ping fails);
+- `/health/live` only to confirm the process itself came up — it stays `200` while PostgreSQL is down, so it must not be the readiness probe;
 - login/session refresh;
 - listing, upload, download, rename/move/trash/restore;
 - tasks;
-- shares, rclone, and bots if used.
+- shares and bots if used.
 
 ## Rollback
 

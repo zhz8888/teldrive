@@ -15,6 +15,21 @@ Keep Teldrive private, terminate TLS at a reverse proxy, and configure `http.tru
 
 See [Reverse proxy & HTTPS](/deployment/reverse-proxy).
 
+## Health checks and shutdown
+
+Point the load balancer at readiness and the restart policy at liveness. Both are unauthenticated:
+
+```text
+GET /health/live    # always 200 while the process can serve HTTP; never touches PostgreSQL
+GET /health/ready   # 200, or 503 when the database ping fails
+```
+
+`/health/live` deliberately stays green while PostgreSQL is down, so a restart will not help; alerting on it should mean "the process itself is broken".
+
+On SIGTERM or `docker stop`, Teldrive stops SSE handlers, drains in-flight HTTP requests, drains job workers and closes PostgreSQL within `http.shutdown-timeout` (default `10s`). Give the container stop grace period at least that long, and more if you expect long transfers to finish.
+
+See [Health checks](/operations/health-checks).
+
 ## Restrict login
 
 ```yaml
@@ -23,7 +38,7 @@ security:
     - your_telegram_username
 ```
 
-An empty list allows any Telegram user who completes login.
+An empty list allows any Telegram user who completes login. **The first account that signs in becomes the owner**, and the owner cannot be demoted or revoked — sign in with the account you want to own the installation before exposing Teldrive.
 
 ## Protect keys
 
@@ -34,6 +49,14 @@ security.signing-key
 security.data-key
 encryption.keys
 ```
+
+`encryption.keys` is a map of **every** content-encryption key version you have ever written files with, not just the active one. Each encrypted file records the version it was written under, and a file whose version is missing from `encryption.keys` cannot be decrypted. Find the versions actually referenced by:
+
+```sql
+SELECT DISTINCT encryption_key_version FROM teldrive.files WHERE encryption;
+```
+
+`security.data-key` must be base64 (URL-safe or standard) decoding to exactly 32 bytes; anything else fails startup. It is **not rotatable in place** — the same key seals every Telegram login session, every bot token, and in-flight login state, all of which live in PostgreSQL. Generating a new value makes every stored session and bot token undecryptable. Treat it as permanent.
 
 Keep recovery keys separate from PostgreSQL backups.
 
@@ -55,6 +78,19 @@ telegram:
 ```
 
 Tune concurrency only after measuring throughput and Telegram errors.
+
+## Separate API and worker roles
+
+Every process runs background workers by default. On a multi-replica deployment that means duplicate workers, so turn them off everywhere except a dedicated worker instance:
+
+```yaml
+jobs:
+  run-workers: false
+```
+
+At least one instance must keep `jobs.run-workers: true` or uploads, trash cleanup and pending-file purges never run.
+
+See [Multi-instance](/advanced/multi-instance) and [Jobs and queues](/operations/jobs-and-queues).
 
 ## Logs and monitoring
 

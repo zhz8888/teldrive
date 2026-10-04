@@ -1,76 +1,62 @@
 ---
 title: Rclone setup
-description: Configure rclone's native Teldrive backend with an API key.
+description: Connect rclone to a Teldrive server over its HTTP API.
 ---
+
+## Status of the native backend
+
+Teldrive's README advertises a native `teldrive` rclone backend, but **this repository ships no rclone backend**: there is no rclone module in `go.mod`, no backend source under `internal/`, and no rclone binary or plugin in the release archives. `rclone config` will not offer a `teldrive` type unless you obtained the backend separately.
+
+Treat every backend option as unverified until you can read `rclone help backend teldrive` for the build you actually have. What follows is the surface that *is* real and versioned by this project: the HTTP API.
 
 ## 1. Create an API key
 
-In Teldrive, open **Settings → API keys**, create a key, and copy the secret. It is shown once.
+In Teldrive, open **Settings → API keys**, create a key, and copy the secret. It is shown once — the server stores only a hash.
 
-## 2. Configure rclone
+## 2. Drive the API directly
 
-```bash
-rclone config
-```
+Teldrive serves its API under `/api` (also reachable as `/v1`). Authenticate with
+`Authorization: Bearer <API key>`.
 
-Choose the `teldrive` backend and set `api_host` and `api_key`.
+There is no configuration snippet to paste here: a remote definition needs a backend that
+exists in your rclone build, and this repository ships none. Until one is available, drive the
+API directly with `curl` or any HTTP client — the table below is the whole surface.
 
-Minimal config:
+## What the API offers
 
-```ini
-[teldrive]
-type = teldrive
-api_host = https://drive.example.com
-api_key = YOUR_TELDRIVE_API_KEY
-```
+The generated contract in the [API Reference](/api/) is authoritative. The operations an rclone-style backend needs:
 
-Non-interactive:
+| Operation | Request |
+| --- | --- |
+| List / search | `GET /api/v1/files?parentId=&path=&search=&searchType=&category=&sort=&order=` |
+| Create folder | `POST /api/v1/folders` |
+| Resumable upload | `POST /api/v1/uploads` → `PUT /api/v1/uploads/{uploadId}/parts/{partNo}` → `POST /api/v1/uploads/{uploadId}/complete` |
+| Download | `GET /api/v1/files/{fileId}/content/{fileName}` with `Range` |
+| Copy / move | `POST /api/v1/files/{fileId}/copy`, `POST /api/v1/files/{fileId}/move` |
+| Trash / restore / delete forever | `DELETE /api/v1/files/{fileId}`, `POST /api/v1/files/{fileId}/restore`, `DELETE /api/v1/files/{fileId}/purge` |
 
-```bash
-rclone config create teldrive teldrive \
-  api_host=https://drive.example.com \
-  api_key=YOUR_TELDRIVE_API_KEY
-```
+Use `If-Match` / `If-None-Match` for optimistic concurrency control, and the `ETag` and `Location` headers returned by create/complete operations.
 
-## 3. Test
+## Trash operations
 
-```bash
-rclone lsf teldrive:
-rclone mkdir teldrive:/rclone-test
-rclone copy ./example.txt teldrive:/rclone-test/
-rclone copy teldrive:/rclone-test/example.txt ./download-test/
-```
+Trash lives behind ordinary REST calls, not backend commands:
 
-Revoke exposed/retired keys from **Settings → API keys**.
+| Action | Request |
+| --- | --- |
+| Move to trash | `DELETE /api/v1/files/{fileId}` |
+| Restore | `POST /api/v1/files/{fileId}/restore` |
+| Delete permanently | `DELETE /api/v1/files/{fileId}/purge` |
+| Empty the whole Trash | `DELETE /api/v1/files/trash` |
 
-## Backend options
+Permanent deletion cannot be undone, and emptied Trash is reclaimed asynchronously by the pending-file purge maintenance job.
 
-| Option | Config key | Environment variable | Default |
-| --- | --- | --- | --- |
-| API key | `api_key` | `RCLONE_TELDRIVE_API_KEY` | — |
-| API server | `api_host` | `RCLONE_TELDRIVE_API_HOST` | — |
-| Upload host | `upload_host` | `RCLONE_TELDRIVE_UPLOAD_HOST` | — |
-| Chunk size | `chunk_size` | `RCLONE_TELDRIVE_CHUNK_SIZE` | `512Mi` |
-| Upload concurrency | `upload_concurrency` | `RCLONE_TELDRIVE_UPLOAD_CONCURRENCY` | `4` |
-| Teldrive encryption | `encrypt_files` | `RCLONE_TELDRIVE_ENCRYPT_FILES` | `false` |
-| BLAKE3 hashing | `hash_enabled` | `RCLONE_TELDRIVE_HASH_ENABLED` | `true` |
-| Page size | `page_size` | `RCLONE_TELDRIVE_PAGE_SIZE` | `200` |
-| Public-link password | `link_password` | `RCLONE_TELDRIVE_LINK_PASSWORD` | — |
-
-Check your installed version:
+## Test
 
 ```bash
-rclone help backend teldrive
+curl -fsS -H "Authorization: Bearer $TELDRIVE_API_KEY" \
+  https://drive.example.com/api/v1/files
 ```
 
-## Trash commands
-
-```bash
-rclone backend trash-list teldrive:
-rclone backend restore teldrive: FILE_ID
-rclone backend purge teldrive: FILE_ID
-```
-
-`purge` is permanent.
+Revoke exposed or retired keys from **Settings → API keys**.
 
 See [Mounting and performance](/rclone/mounting-and-performance).

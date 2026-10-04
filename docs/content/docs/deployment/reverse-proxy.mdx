@@ -19,7 +19,21 @@ http:
     - 127.0.0.1
 ```
 
-Teldrive accepts `X-Forwarded-Proto: https` only from trusted peers. Do not use `0.0.0.0/0` or `::/0`.
+Teldrive believes forwarding headers only from a peer listed here; for every other peer the headers are ignored and the connection peer is used instead. Do not use `0.0.0.0/0` or `::/0`.
+
+This one setting decides three things:
+
+- **Cookie `Secure` flag.** `X-Forwarded-Proto: https` from a trusted peer marks the request secure, which is what makes session cookies `Secure`. Misconfigure it and the browser gets non-`Secure` cookies over HTTPS, or login appears to loop.
+- **CSRF origin check.** State-changing cookie-authenticated requests are accepted only when `Origin` matches the request host *and* the scheme Teldrive resolved. A wrong scheme yields `403 csrf_rejected`.
+- **Request-log client address.** Only for trusted peers is the last `X-Forwarded-For` entry recorded instead of the socket peer.
+
+## Routes that need proxy care
+
+| Route | Method | Why |
+| --- | --- | --- |
+| `GET /v1/events` | SSE | Long-lived `text/event-stream`; needs `proxy_buffering off` and a read timeout above `events.heartbeat`. |
+| `PUT /v1/uploads/{uploadId}/parts/{partNo}` | Upload | Carries a full file part; needs no body-size limit and streamed request bodies. |
+| `GET /health/live`, `GET /health/ready` | Probe | Unauthenticated; keep them reachable from the proxy for load-balancer checks. |
 
 ## Caddy
 
@@ -66,7 +80,28 @@ server {
 }
 ```
 
-Adjust timeouts for your deployment; file transfers and SSE require long-lived requests.
+The event stream authenticates browsers with a short-lived `ticket` query parameter, because `EventSource` cannot send an `Authorization` header. The default nginx `access_log` records the full request line including that parameter. Treat proxy access logs as secrets, or strip the parameter before logging:
+
+```nginx
+# in the http block
+log_format teldrive '$remote_addr - $remote_user [$time_local] '
+                    '"$request_method $uri $server_protocol" $status $body_bytes_sent';
+
+access_log /var/log/nginx/teldrive.access.log teldrive;
+```
+
+`$uri` excludes the query string, so the ticket never reaches the log.
+
+## Timeouts
+
+Teldrive's own defaults are `http.read-header-timeout: 10s`, `http.read-timeout: 1h`, `http.write-timeout: 1h` and `http.idle-timeout: 2m`. The `3600s` values above match the 1h read/write defaults; raise them together with `http.read-timeout` / `http.write-timeout` when you raise the proxy values.
+
+Two rules the defaults imply:
+
+- `proxy_read_timeout` must stay above `events.heartbeat` (default `20s`). Teldrive writes a keep-alive comment on that interval, so a proxy timeout at or below it tears down an idle event stream.
+- Setting `http.read-timeout: 0` and `http.write-timeout: 0` disables the server-side limits entirely for streaming transfers. Do that before raising the proxy timeouts for very large files; otherwise the 1h server limit truncates a transfer the proxy was configured to allow.
+
+During a restart or deploy, in-flight requests get at most `http.shutdown-timeout` (default `10s`). Set it above your proxy's drain window if you rely on long uploads completing across a rollout.
 
 ## Container binding
 

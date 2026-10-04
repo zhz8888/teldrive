@@ -28,13 +28,13 @@ Changing it invalidates existing signed sessions.
 
 ### `data-key`
 
-Encrypts sensitive PostgreSQL values such as Telegram credentials. It must be Base64 that decodes to exactly 32 bytes.
+Encrypts sensitive PostgreSQL values such as Telegram credentials, bot tokens, bot sessions, and the in-flight login flow's phone number and MTProto state. It must be Base64 that decodes to exactly 32 bytes.
 
 ```bash
 openssl rand -base64 32
 ```
 
-Back it up. Data encrypted with an old key cannot be decrypted with a replacement.
+Back it up. There is no rotation path: every stored value uses the same key, so replacing it makes all of them undecryptable.
 
 ## Allowed users
 
@@ -81,7 +81,15 @@ encryption:
     1: "YOUR_CONTENT_KEY"
 ```
 
-See [Content encryption and key rotation](/advanced/encryption).
+Three rules are checked at startup, all of them failures rather than corrections:
+
+- if any keys are configured, `active-key-version` must be greater than `0`;
+- `active-key-version` must name a version that is present in `keys` with a non-blank key — it supplies the version used for new uploads;
+- every key version must be a positive integer with a non-blank key, and versions may not repeat.
+
+`keys` also accepts the `version:key` form as a comma-separated string, which is what the flag and the environment variable use: `--encryption-keys 1:KEY1,2:KEY2` / `TELDRIVE_ENCRYPTION_KEYS=1:KEY1,2:KEY2`. A repeated or malformed version is rejected there too.
+
+Configuring keys makes encryption *possible*; it does not by itself encrypt anything. Each upload session carries its own `encryption` flag — see [Content encryption and key rotation](/advanced/encryption).
 
 ## Secret handling
 
