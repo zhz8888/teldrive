@@ -44,6 +44,9 @@ func seedLocalTree(t *testing.T, names ...string) string {
 	return root
 }
 
+// batchJob builds the River job value the batch worker is invoked with. The batch
+// worker reads only Args, but the embedded row keeps the literal shaped like the
+// one River supplies in production.
 func batchJob(ctx context.Context, runtime *Runtime, args UploadBatchArgs) *river.Job[UploadBatchArgs] {
 	return &river.Job[UploadBatchArgs]{
 		JobRow: &rivertype.JobRow{ID: 1},

@@ -76,6 +76,8 @@ func TestJobHandlersScopeUsersAndGiveAdminsGlobalAccess(t *testing.T) {
 	}
 }
 
+// listJobsPage calls the handler's ListJobs and fails the test unless it answers
+// with a job page.
 func listJobsPage(t *testing.T, handler *Handler, ctx context.Context) *gen.JobPage {
 	t.Helper()
 	response, err := handler.ListJobs(ctx, gen.ListJobsParams{})
@@ -89,6 +91,8 @@ func listJobsPage(t *testing.T, handler *Handler, ctx context.Context) *gen.JobP
 	return page
 }
 
+// jobStatistics calls the handler's GetJobStatistics and fails the test unless it
+// answers with statistics.
 func jobStatistics(t *testing.T, handler *Handler, ctx context.Context) *gen.JobStatistics {
 	t.Helper()
 	response, err := handler.GetJobStatistics(ctx)
@@ -102,32 +106,43 @@ func jobStatistics(t *testing.T, handler *Handler, ctx context.Context) *gen.Job
 	return stats
 }
 
+// formatJobID renders a River job ID in the decimal form the API path and the
+// generated job model use, so the test can compare the two without a cast.
 func formatJobID(id int64) string {
 	return strconv.FormatInt(id, 10)
 }
 
+// jobHandlerStorage is the Storage a jobs runtime needs in order to be
+// constructible. The handler tests only list and inspect job rows, so every method
+// fails loudly if one is ever asked to move bytes.
 type jobHandlerStorage struct{}
 
+// Upload is unused by these tests and reports it.
 func (jobHandlerStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
 
+// OpenRange is unused by these tests and reports it.
 func (jobHandlerStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not used")
 }
 
+// DeleteMessages is unused by these tests and reports it.
 func (jobHandlerStorage) DeleteMessages(context.Context, int64, int64, []int64) error {
 	return errors.New("not used")
 }
 
+// CopyPart is unused by these tests and reports it.
 func (jobHandlerStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
 
+// CreateChannel is unused by these tests and reports it.
 func (jobHandlerStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
 
+// DeleteChannel is unused by these tests and reports it.
 func (jobHandlerStorage) DeleteChannel(context.Context, int64, int64) error {
 	return errors.New("not used")
 }

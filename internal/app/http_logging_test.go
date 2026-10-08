@@ -11,20 +11,35 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// recordHandler is an slog.Handler that keeps every record it handles, so the
+// HTTP logging tests can assert on the level, message and attributes the
+// middleware emitted.
 type recordHandler struct {
-	mu      sync.Mutex
+	// mu guards records against concurrent writes from the handler's caller.
+	mu sync.Mutex
+	// records holds cloned records in arrival order, oldest first.
 	records []slog.Record
 }
 
+// Enabled accepts every level so no record is filtered out before it is captured.
 func (h *recordHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+// Handle appends a clone of the record under the mutex; cloning detaches it from
+// the attribute buffer the caller may reuse after the handler returns.
 func (h *recordHandler) Handle(_ context.Context, record slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.records = append(h.records, record.Clone())
 	return nil
 }
+
+// WithAttrs returns the handler unchanged: the logger under test never derives a
+// child logger, so attributes added that way are not recorded.
 func (h *recordHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *recordHandler) WithGroup(string) slog.Handler      { return h }
+
+// WithGroup returns the handler unchanged for the same reason as WithAttrs, so
+// the captured records keep their attributes at the top level.
+func (h *recordHandler) WithGroup(string) slog.Handler { return h }
 
 func TestHTTPRequestLoggerLevelsAndAttributes(t *testing.T) {
 	t.Parallel()

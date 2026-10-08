@@ -41,7 +41,11 @@ var transientTelegramMessages = []string{
 // invocation runs at most max+1 times. Retries happen immediately, because
 // flood waits are handled by the separate flood-wait middleware that wraps this
 // one.
-type retryMiddleware struct{ max int }
+type retryMiddleware struct {
+	// max is the number of extra attempts after the first, so one invocation
+	// runs at most max+1 times. Zero disables retrying.
+	max int
+}
 
 // Handle wraps next so that a call failing with a transient Telegram error is
 // retried while attempts remain, reusing the same input and output, so the

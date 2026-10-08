@@ -214,6 +214,9 @@ func TestUploadPipelineRejectsLongBodyAndCompensates(t *testing.T) {
 	}
 }
 
+// seedTransferOwner inserts the user and the selected storage channel a transfer
+// test uploads into, so the catalog's ownership and rollover checks have real
+// rows to resolve.
 func seedTransferOwner(t testing.TB, pool *pgxpool.Pool, userID, channelID int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -225,17 +228,26 @@ func seedTransferOwner(t testing.TB, pool *pgxpool.Pool, userID, channelID int64
 	}
 }
 
+// checksumFor returns the hex tree hash of data, the checksum the pipeline is
+// expected to compute for a part holding it.
 func checksumFor(data []byte) string {
 	hasher := treehash.NewBlockHasher()
 	_, _ = hasher.Write(data)
 	return treehash.SumToHex(treehash.ComputeTreeHash(hasher.Sum()))
 }
 
+// fixedResolver is the integration ChannelResolver: it honours an explicitly
+// requested channel and otherwise answers with its configured one.
 type fixedResolver struct {
+	// channelID is the channel returned when the request asks for none.
 	channelID int64
-	calls     int
+	// calls counts Resolve calls, so a test can prove a retry reused the stored
+	// part instead of resolving a channel again.
+	calls int
 }
 
+// Resolve returns requested when it is non-zero, otherwise the configured
+// channel, counting the call either way.
 func (r *fixedResolver) Resolve(_ context.Context, _ int64, requested int64) (int64, error) {
 	r.calls++
 	if requested != 0 {
@@ -244,17 +256,37 @@ func (r *fixedResolver) Resolve(_ context.Context, _ int64, requested int64) (in
 	return r.channelID, nil
 }
 
+// memoryStorage is the in-memory Storage the integration tests run against: it
+// keeps every uploaded payload, serves them back as ranges and metadata, and
+// records deletes and session usage so the pipeline's behaviour can be asserted
+// without Telegram.
 type memoryStorage struct {
-	mu            sync.Mutex
-	uploads       [][]byte
-	messages      map[int64][]byte
-	deleted       []int64
+	// mu guards every other field, because the pipeline reads and writes them
+	// from its own goroutines.
+	mu sync.Mutex
+	// uploads holds each uploaded payload in publish order, one entry per
+	// Upload call.
+	uploads [][]byte
+	// messages maps a message ID to the payload it holds, which is what
+	// metadata and range reads resolve against.
+	messages map[int64][]byte
+	// deleted collects the message IDs passed to DeleteMessages.
+	deleted []int64
+	// rangeRequests records every range read, so a test can assert how reads
+	// were batched.
 	rangeRequests []telegramstore.RangeRequest
-	nextID        int64
-	sessionOpens  int
+	// nextID is the message ID handed to the next upload; it only ever grows, so
+	// IDs are never reused after a delete.
+	nextID int64
+	// sessionOpens counts download sessions opened by the pipeline.
+	sessionOpens int
+	// sessionCloses counts their closes, which must balance the opens for a
+	// download that releases what it took.
 	sessionCloses int
 }
 
+// OpenDownloadSession counts the open and returns a session bound to this
+// storage, so every range of one download shares it.
 func (s *memoryStorage) OpenDownloadSession(context.Context, int64) (telegramstore.DownloadSession, error) {
 	s.mu.Lock()
 	s.sessionOpens++
@@ -262,11 +294,17 @@ func (s *memoryStorage) OpenDownloadSession(context.Context, int64) (telegramsto
 	return &memoryDownloadSession{storage: s}, nil
 }
 
+// memoryDownloadSession is the single session one download holds for all of its
+// metadata and range reads.
 type memoryDownloadSession struct {
+	// storage is the fake the session resolves payloads in.
 	storage *memoryStorage
-	closed  bool
+	// closed records that Close already ran, so a double close is counted once.
+	closed bool
 }
 
+// Metadata looks the message up in the fake and reports its stored size, or
+// ErrMessageNotFound for an unknown message.
 func (s *memoryDownloadSession) Metadata(_ context.Context, request telegramstore.MetadataRequest) (telegramstore.StoredPart, error) {
 	s.storage.mu.Lock()
 	defer s.storage.mu.Unlock()
@@ -277,10 +315,13 @@ func (s *memoryDownloadSession) Metadata(_ context.Context, request telegramstor
 	return telegramstore.StoredPart{ChannelID: request.ChannelID, MessageID: request.MessageID, Size: int64(len(payload))}, nil
 }
 
+// OpenRange serves the range through the storage, which records it.
 func (s *memoryDownloadSession) OpenRange(ctx context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return s.storage.OpenRange(ctx, request)
 }
 
+// Close counts the first close and ignores later ones, so session accounting
+// stays balanced for a caller that closes twice.
 func (s *memoryDownloadSession) Close() error {
 	s.storage.mu.Lock()
 	defer s.storage.mu.Unlock()
@@ -291,6 +332,8 @@ func (s *memoryDownloadSession) Close() error {
 	return nil
 }
 
+// Upload reads the body, stores a private copy under a fresh message ID, and
+// reports it back as the published part.
 func (s *memoryStorage) Upload(_ context.Context, request telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	payload, err := io.ReadAll(request.Reader)
 	if err != nil {
@@ -308,6 +351,9 @@ func (s *memoryStorage) Upload(_ context.Context, request telegramstore.UploadRe
 	return telegramstore.StoredPart{ChannelID: request.ChannelID, MessageID: s.nextID, Size: int64(len(payload))}, nil
 }
 
+// OpenRange returns a reader over the requested window of a stored payload,
+// rejecting a negative offset or length like the storage contract, and records
+// the request.
 func (s *memoryStorage) OpenRange(_ context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -326,6 +372,8 @@ func (s *memoryStorage) OpenRange(_ context.Context, request telegramstore.Range
 	return io.NopCloser(bytes.NewReader(append([]byte(nil), payload[request.Offset:end]...))), nil
 }
 
+// DeleteMessages records the IDs and removes the messages, so a later read of a
+// deleted part fails like production would.
 func (s *memoryStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -336,27 +384,37 @@ func (s *memoryStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids 
 	return nil
 }
 
+// CopyPart is unused by these tests and reports an error.
 func (s *memoryStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not implemented")
 }
+
+// CreateChannel is unused by these tests and reports an error.
 func (s *memoryStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not implemented")
 }
 
+// DeleteChannel is a no-op; these tests never delete a channel.
 func (s *memoryStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
 
+// payload returns a copy of the index-th uploaded payload, so a caller cannot
+// mutate what the fake stored.
 func (s *memoryStorage) payload(index int) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]byte(nil), s.uploads[index]...)
 }
 
+// uploadCount returns how many uploads the fake has accepted.
 func (s *memoryStorage) uploadCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.uploads)
 }
 
+// panicReader is a body that must never be read: a retried part is already
+// stored, so reading it would mean the pipeline uploaded the bytes twice.
 type panicReader struct{}
 
+// Read panics, turning an unwanted body read into an immediate test failure.
 func (panicReader) Read([]byte) (int, error) { panic("retry body was read") }

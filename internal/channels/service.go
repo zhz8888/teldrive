@@ -113,7 +113,8 @@ type Service struct {
 	// occupy the whole pool. It is built on first use so a service assembled by
 	// a test literal behaves like a constructed one.
 	allocationSlots chan struct{}
-	allocationOnce  sync.Once
+	// allocationOnce guards the one-time construction of allocationSlots.
+	allocationOnce sync.Once
 }
 
 const (

@@ -20,6 +20,8 @@ import (
 	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
+// provisionBotID is the bot ID the stub verifier reports, the ID the tests put in
+// the job arguments, and the ID they look the bots row up by.
 const provisionBotID = 777
 
 // provisionJob builds the job River would hand the worker. The row is embedded
@@ -156,6 +158,7 @@ func TestBotProvisionWorkerRejectsANonPositiveUserID(t *testing.T) {
 	}
 }
 
+// seedProvisionUser inserts the single account every provisioning test acts as.
 func seedProvisionUser(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), "INSERT INTO users (user_id) VALUES (1001)"); err != nil {
@@ -184,6 +187,8 @@ func newProvisionBotsService(t *testing.T, db *testpostgres.Database, acceptsBot
 	return service, verifier
 }
 
+// seedPendingBot stores the pending bot row the worker is expected to promote and
+// mark; the service seals the token with its cipher before the row is written.
 func seedPendingBot(t *testing.T, service *bots.Service) {
 	t.Helper()
 	if _, err := service.InsertPending(context.Background(), 1001, []string{"777:super-secret-token"}); err != nil {
@@ -220,11 +225,16 @@ func assertBotMarkedFailed(t *testing.T, db *testpostgres.Database, botID int64)
 // stubVerifier answers every token with the same identity, or fails outright
 // when err is set.
 type stubVerifier struct {
+	// identity is the bot identity returned when err is nil.
 	identity bots.Identity
-	err      error
-	calls    int
+	// err, when set, is returned instead of the identity, standing in for Telegram
+	// refusing the credential.
+	err error
+	// calls counts how often the worker asked Telegram to verify a token.
+	calls int
 }
 
+// Verify counts the call and returns the canned identity or error.
 func (s *stubVerifier) Verify(context.Context, string) (bots.Identity, error) {
 	s.calls++
 	if s.err != nil {
@@ -235,13 +245,19 @@ func (s *stubVerifier) Verify(context.Context, string) (bots.Identity, error) {
 
 // countingInviter records every promotion and can fail exactly one channel.
 type countingInviter struct {
+	// failChannel is the channel whose promotion fails; zero fails none of them.
 	failChannel int64
 
-	mu        sync.Mutex
-	attempts  int
+	// mu guards the counters below, which the worker writes from several
+	// goroutines.
+	mu sync.Mutex
+	// attempts is the number of promotions seen.
+	attempts int
+	// usernames holds the username of every promotion in call order.
 	usernames []string
 }
 
+// InviteBot records the attempt and fails it when the channel is failChannel.
 func (c *countingInviter) InviteBot(_ context.Context, _ int64, channelID int64, username string) error {
 	c.mu.Lock()
 	c.attempts++
@@ -253,12 +269,16 @@ func (c *countingInviter) InviteBot(_ context.Context, _ int64, channelID int64,
 	return nil
 }
 
+// total returns how many promotions were attempted.
 func (c *countingInviter) total() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.attempts
 }
 
+// wrongUsername returns how many promotions used a username other than the one
+// the stub verifier reports, so a worker that promotes under the wrong account
+// name is caught.
 func (c *countingInviter) wrongUsername() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

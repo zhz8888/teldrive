@@ -13,21 +13,31 @@ import (
 // it is closed and holds the first close open until the test releases it, so a second
 // Shutdown can be observed while the release is still running.
 type blockingCache struct {
+	// started is closed by Close so the test knows the release has begun.
 	started chan struct{}
+	// release is closed by the test to let the blocked Close return.
 	release chan struct{}
-	closes  atomic.Int32
+	// closes counts Close invocations, which lets the tests assert the cache is
+	// released exactly once across repeated Shutdown calls.
+	closes atomic.Int32
 }
 
+// Close counts the call, signals started and then blocks until the test closes
+// release, keeping the caller inside the release for as long as the test needs.
 func (c *blockingCache) Close() {
 	c.closes.Add(1)
 	close(c.started)
 	<-c.release
 }
 
+// Get always reports a miss: the shutdown tests exercise the release path, never
+// a cache read.
 func (*blockingCache) Get(context.Context, string, any) error { return cache.ErrNotFound }
 
+// Set discards the value, so storing it can never fail a shutdown test.
 func (*blockingCache) Set(context.Context, string, any, time.Duration) error { return nil }
 
+// Delete discards the keys, so invalidating them can never fail a shutdown test.
 func (*blockingCache) Delete(context.Context, ...string) error { return nil }
 
 // TestShutdownWaitsForAnInFlightRelease pins the reentrancy contract: a second

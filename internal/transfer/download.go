@@ -355,7 +355,11 @@ func (d *Downloader) openDownloadSession(ctx context.Context, userID int64) (tel
 
 // storageDownloadSession adapts a plain Storage to DownloadSession for storages
 // that cannot pool clients. It holds no state between calls.
-type storageDownloadSession struct{ storage telegramstore.Storage }
+type storageDownloadSession struct {
+	// storage is the backend every call is forwarded to; the adapter adds no
+	// client lease of its own.
+	storage telegramstore.Storage
+}
 
 // Metadata resolves a document's stored size through the storage's optional
 // MetadataReader; a storage without that capability reports

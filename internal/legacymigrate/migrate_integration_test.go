@@ -245,8 +245,12 @@ VALUES ($1,101,decode('01020304','hex'))`, rootFileID); err != nil {
 	}
 }
 
+// verifierFunc adapts a plain function to the bot-token verifier the migration
+// takes, so the test can resolve legacy bot tokens without Telegram.
 type verifierFunc func(context.Context, string) (bots.Identity, error)
 
+// Verify runs the adapted function, which returns the identity the migration
+// stores for a migrated bot.
 func (f verifierFunc) Verify(ctx context.Context, token string) (bots.Identity, error) {
 	return f(ctx, token)
 }

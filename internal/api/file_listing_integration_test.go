@@ -243,8 +243,12 @@ INSERT INTO files (id,user_id,parent_id,name,kind,mime_type,size,status,mod_time
 	}
 }
 
+// listingAuthenticator maps the two literal tokens the listing test uses onto the
+// two seeded user IDs, so a single server can act as the file owner and as the
+// grantee; any other token is rejected.
 type listingAuthenticator struct{}
 
+// AuthenticateBearer resolves one of the seeded tokens to its user.
 func (listingAuthenticator) AuthenticateBearer(_ context.Context, token string) (api.Identity, error) {
 	switch token {
 	case "user-2001":
@@ -255,8 +259,13 @@ func (listingAuthenticator) AuthenticateBearer(_ context.Context, token string) 
 		return api.Identity{}, api.ErrUnauthenticated
 	}
 }
+
+// AuthenticateAPIKey reuses the bearer mapping: the listing test only exercises
+// the Authorization header.
 func (a listingAuthenticator) AuthenticateAPIKey(ctx context.Context, key string) (api.Identity, error) {
 	return a.AuthenticateBearer(ctx, key)
 }
 
+// contains abbreviates strings.Contains so the ancestor-disclosure assertions in
+// the test read as one expression.
 func contains(value, substr string) bool { return strings.Contains(value, substr) }

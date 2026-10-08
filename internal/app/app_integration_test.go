@@ -135,28 +135,51 @@ func TestNewRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+// lifecycleAuthenticator is the credential resolver the lifecycle tests inject:
+// it accepts any bearer token or API key and always resolves it to user 1, so the
+// HTTP surface can serve requests without a real authn service.
 type lifecycleAuthenticator struct{}
 
+// AuthenticateBearer resolves every bearer token to user 1; the lifecycle tests
+// never exercise token validation itself.
 func (lifecycleAuthenticator) AuthenticateBearer(context.Context, string) (appapi.Identity, error) {
 	return appapi.Identity{UserID: 1}, nil
 }
+
+// AuthenticateAPIKey resolves every API key to user 1, matching AuthenticateBearer.
 func (lifecycleAuthenticator) AuthenticateAPIKey(context.Context, string) (appapi.Identity, error) {
 	return appapi.Identity{UserID: 1}, nil
 }
 
+// lifecycleStorage is a minimal telegramstore.Storage for the lifecycle tests:
+// reads succeed with an empty body and the mutating methods are inert or fail as
+// unused, so App can start and serve health probes without reaching Telegram.
 type lifecycleStorage struct{}
 
+// Upload reports that the fake cannot publish; the lifecycle tests never upload a
+// part.
 func (lifecycleStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// OpenRange returns an empty reader, so a range read that reaches the fake ends
+// immediately with io.EOF.
 func (lifecycleStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
+
+// DeleteMessages accepts every request and deletes nothing.
 func (lifecycleStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
+
+// CopyPart reports that the fake cannot republish a document.
 func (lifecycleStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not implemented")
 }
+
+// CreateChannel reports that the fake cannot create a channel.
 func (lifecycleStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
+
+// DeleteChannel accepts every request and deletes nothing.
 func (lifecycleStorage) DeleteChannel(context.Context, int64, int64) error { return nil }

@@ -34,6 +34,8 @@ func TestLoginRefreshAPIKeyAndLogoutAgainstRealPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Fixed entropy and a frozen clock keep the minted flow IDs and token secrets
+	// reproducible across runs.
 	service.random = bytes.NewReader(bytes.Join([][]byte{
 		bytes.Repeat([]byte{7}, 32), bytes.Repeat([]byte{8}, 32), bytes.Repeat([]byte{9}, 32),
 		bytes.Repeat([]byte{10}, 32), bytes.Repeat([]byte{11}, 32), bytes.Repeat([]byte{12}, 32),
@@ -476,14 +478,24 @@ FROM telegram_login_flows WHERE id=$1`, flow.ID).Scan(&requiredAfterPolls, &stat
 	}
 }
 
+// fakeTelegramLogin walks the phone-code plus two-step-password path without
+// contacting Telegram, and counts the gateway calls so a test can assert how often
+// the service asked for each step.
 type fakeTelegramLogin struct {
-	mu            sync.Mutex
-	startCalls    int
-	codeCalls     int
+	// mu guards the counters: the gateway contract allows concurrent calls.
+	mu sync.Mutex
+	// startCalls counts Start calls, i.e. login codes the service requested.
+	startCalls int
+	// codeCalls counts VerifyCode calls.
+	codeCalls int
+	// passwordCalls counts VerifyPassword calls.
 	passwordCalls int
-	active        int
+	// active counts gateway calls that have not returned yet; a non-zero value once
+	// the service is idle means it left a call running in the background.
+	active int
 }
 
+// Start records the call and reports the state VerifyCode resumes from.
 func (f *fakeTelegramLogin) Start(context.Context, string) (LoginStep, error) {
 	f.mu.Lock()
 	f.startCalls++
@@ -493,13 +505,19 @@ func (f *fakeTelegramLogin) Start(context.Context, string) (LoginStep, error) {
 	return LoginStep{State: []byte("code-state")}, nil
 }
 
+// StartQR rejects the call: this fake only implements the phone login, so a QR
+// request means the test wired up the wrong gateway.
 func (f *fakeTelegramLogin) StartQR(context.Context) (LoginStep, error) {
 	return LoginStep{}, ErrLoginStateInvalid
 }
 
+// PollQR rejects the call: this fake only implements the phone login.
 func (f *fakeTelegramLogin) PollQR(context.Context, []byte) (LoginStep, error) {
 	return LoginStep{}, ErrLoginStateInvalid
 }
+
+// VerifyCode records the call and reports the password prompt, which is what makes
+// the login a two-step one.
 func (f *fakeTelegramLogin) VerifyCode(context.Context, string, []byte, string) (LoginStep, error) {
 	f.mu.Lock()
 	f.codeCalls++
@@ -509,6 +527,8 @@ func (f *fakeTelegramLogin) VerifyCode(context.Context, string, []byte, string) 
 	return LoginStep{State: []byte("password-state"), PasswordRequired: true}, nil
 }
 
+// VerifyPassword records the call and completes the login for Telegram user 1001,
+// reporting a premium account and an authorized session.
 func (f *fakeTelegramLogin) VerifyPassword(context.Context, []byte, string) (LoginStep, error) {
 	f.mu.Lock()
 	f.passwordCalls++
@@ -521,10 +541,20 @@ func (f *fakeTelegramLogin) VerifyPassword(context.Context, []byte, string) (Log
 	}, nil
 }
 
+// fakeQRLogin drives the QR login from the gateway side, scripted by poll number:
+// it can hand back a freshly minted QR token, report the two-step password prompt
+// or complete the login, so the service's resumption and allowlist rules can be
+// tested without Telegram.
 type fakeQRLogin struct {
-	mu                  sync.Mutex
-	polls               int
-	username            string
+	// mu guards polls, which PollQR increments and pollCount reads.
+	mu sync.Mutex
+	// polls counts PollQR calls made so far.
+	polls int
+	// username is the handle the completed step reports; "blockeduser" completes as
+	// user 2002 so the allowlist can reject it.
+	username string
+	// completeOnFirstPoll completes the login on the very first poll instead of
+	// reporting a pending QR link first.
 	completeOnFirstPoll bool
 	// passwordOnFirstPoll makes the first poll report that Telegram accepted the
 	// scanned token but the account still needs its two-step password.
@@ -533,20 +563,26 @@ type fakeQRLogin struct {
 	verifyPasswordUnlocks bool
 }
 
+// pollCount returns how many times PollQR ran, so a test can prove the service
+// stopped polling Telegram once the password prompt was reached.
 func (f *fakeQRLogin) pollCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.polls
 }
 
+// Start rejects the call: this fake only implements the QR login.
 func (f *fakeQRLogin) Start(context.Context, string) (LoginStep, error) {
 	return LoginStep{}, ErrLoginStateInvalid
 }
 
+// VerifyCode rejects the call: this fake only implements the QR login.
 func (f *fakeQRLogin) VerifyCode(context.Context, string, []byte, string) (LoginStep, error) {
 	return LoginStep{}, ErrLoginStateInvalid
 }
 
+// VerifyPassword completes the two-step QR login when verifyPasswordUnlocks is set,
+// and otherwise reports that the state cannot be resumed.
 func (f *fakeQRLogin) VerifyPassword(context.Context, []byte, string) (LoginStep, error) {
 	if !f.verifyPasswordUnlocks {
 		return LoginStep{}, ErrLoginStateInvalid
@@ -561,6 +597,7 @@ func (f *fakeQRLogin) VerifyPassword(context.Context, []byte, string) (LoginStep
 	}, nil
 }
 
+// StartQR returns the first QR step, which the phone has not scanned yet.
 func (f *fakeQRLogin) StartQR(context.Context) (LoginStep, error) {
 	return LoginStep{
 		State: []byte("qr-state-first"), QRURL: "tg://login?token=first",
@@ -568,6 +605,10 @@ func (f *fakeQRLogin) StartQR(context.Context) (LoginStep, error) {
 	}, nil
 }
 
+// PollQR advances the scripted QR login by poll number, mirroring the real gateway:
+// a poll that finds the QR unscanned hands back a freshly minted token, while
+// passwordOnFirstPoll makes the first poll report the password prompt and every
+// later poll export a new token without a user.
 func (f *fakeQRLogin) PollQR(context.Context, []byte) (LoginStep, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -605,6 +646,8 @@ func (f *fakeQRLogin) PollQR(context.Context, []byte) (LoginStep, error) {
 	}, nil
 }
 
+// containsRole reports whether roles carries target, so identity assertions do not
+// depend on the order roles arrive in.
 func containsRole(roles []string, target string) bool {
 	return slices.Contains(roles, target)
 }

@@ -117,14 +117,23 @@ func TestPromoteBotWithNoChannelsSucceedsWithoutCallingTelegram(t *testing.T) {
 // records how many promotions overlapped, so a test can assert both that every
 // channel was attempted and that the three-slot limit held.
 type probeInviter struct {
+	// byChannel names the channels whose promotion must fail; a channel missing
+	// from the map succeeds.
 	byChannel map[int64]error
 
-	mu       sync.Mutex
+	// mu guards the counters below, because promoteBot calls InviteBot from several
+	// goroutines at once.
+	mu sync.Mutex
+	// inFlight is the number of promotions currently inside InviteBot.
 	inFlight int
-	peak     int
+	// peak is the largest inFlight ever observed, i.e. the real concurrency.
+	peak int
+	// attempts counts invocations per channel; it is created on first use.
 	attempts map[int64]int
 }
 
+// InviteBot records the attempt, holds the slot briefly so concurrent callers
+// really overlap, and returns the failure configured for the channel.
 func (p *probeInviter) InviteBot(_ context.Context, _ int64, channelID int64, _ string) error {
 	p.mu.Lock()
 	if p.attempts == nil {
@@ -147,6 +156,7 @@ func (p *probeInviter) InviteBot(_ context.Context, _ int64, channelID int64, _ 
 	return p.byChannel[channelID]
 }
 
+// calls returns how many promotions were attempted in total.
 func (p *probeInviter) calls() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -157,6 +167,8 @@ func (p *probeInviter) calls() int {
 	return total
 }
 
+// peakConcurrency returns the largest number of promotions that were ever inside
+// InviteBot at the same time.
 func (p *probeInviter) peakConcurrency() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

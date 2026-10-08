@@ -34,6 +34,9 @@ func newAdminService(t *testing.T, db *testpostgres.Database) *Service {
 	return service
 }
 
+// seedAccounts inserts the directory the administrator listings page through: three
+// enabled accounts and one disabled account, which stays visible to administrators
+// and is only hidden from share recipients.
 func seedAccounts(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()

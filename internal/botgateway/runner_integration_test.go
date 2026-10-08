@@ -148,11 +148,18 @@ func TestUploadAwareRunnerValidation(t *testing.T) {
 	}
 }
 
+// recordingRunner stands in for the runner UploadAwareRunner delegates to when no
+// usable bot is selected: it records every call and the operation it carried, so
+// the fallback path can be asserted.
 type recordingRunner struct {
-	calls      int
+	// calls is the number of Run invocations.
+	calls int
+	// operations holds the operation of each call, in call order.
 	operations []telegramstore.Operation
 }
 
+// Run records the call and its operation and reports success without reaching
+// Telegram.
 func (r *recordingRunner) Run(_ context.Context, _ int64, operation telegramstore.Operation, _ func(context.Context, *tg.Client) error) error {
 	r.calls++
 	r.operations = append(r.operations, operation)

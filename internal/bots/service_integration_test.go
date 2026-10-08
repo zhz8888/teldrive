@@ -159,12 +159,19 @@ func TestMarkProvisionFailureReportsMissingBot(t *testing.T) {
 	}
 }
 
+// fakeVerifier stands in for the Telegram token check the service performs when a
+// bot is created: it returns a fixed identity and counts calls.
 type fakeVerifier struct {
+	// identity is the bot resolved for an accepted token.
 	identity Identity
-	err      error
-	calls    int
+	// err, when set, is returned instead of identity so a rejected token can be
+	// exercised.
+	err error
+	// calls counts Verify invocations; one Create is expected to verify once.
+	calls int
 }
 
+// Verify records the call and returns the configured identity and error.
 func (f *fakeVerifier) Verify(context.Context, string) (Identity, error) {
 	f.calls++
 	return f.identity, f.err

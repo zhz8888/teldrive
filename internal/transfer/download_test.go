@@ -299,57 +299,92 @@ func TestDownloadReaderRejectsPrematurePartEOF(t *testing.T) {
 	}
 }
 
+// downloadCatalog is the in-memory FileCatalog the reader tests plan against: it
+// returns fixed rows and records the size backfills a download performs.
 type downloadCatalog struct {
-	file      *sqlcgen.File
-	parts     []*sqlcgen.FilePart
+	// file is the row Get returns for any user and ID.
+	file *sqlcgen.File
+	// parts is the part list Parts returns.
+	parts []*sqlcgen.FilePart
+	// backfills is every UpdatePartSizes call in order, so a test can prove
+	// legacy sizes resolved from the storage were persisted.
 	backfills []partSizeBackfill
 }
 
+// partSizeBackfill is one recorded UpdatePartSizes call, in bytes.
 type partSizeBackfill struct {
-	partNo                int32
+	// partNo is the 1-based part number the sizes belong to.
+	partNo int32
+	// plainSize and storedSize are the plaintext and stored sizes recorded for it.
 	plainSize, storedSize int64
 }
 
+// Get returns the seeded file row without checking the owner.
 func (c *downloadCatalog) Get(context.Context, int64, uuid.UUID) (*sqlcgen.File, error) {
 	return c.file, nil
 }
 
+// Parts returns the seeded part list without checking the owner.
 func (c *downloadCatalog) Parts(context.Context, int64, uuid.UUID) ([]*sqlcgen.FilePart, error) {
 	return c.parts, nil
 }
 
+// UpdatePartSizes records the resolved legacy sizes instead of writing them to a
+// database.
 func (c *downloadCatalog) UpdatePartSizes(_ context.Context, _ uuid.UUID, partNo int32, plainSize, storedSize int64) error {
 	c.backfills = append(c.backfills, partSizeBackfill{partNo: partNo, plainSize: plainSize, storedSize: storedSize})
 	return nil
 }
 
+// downloadStorage serves ranges out of an in-memory payload map and counts the
+// calls the reader makes, so a test can assert that reads are batched and the
+// session is opened and closed once.
 type downloadStorage struct {
-	data          map[int64][]byte
+	// data holds the stored bytes of each part keyed by message ID; a message
+	// that is absent answers ErrMessageNotFound.
+	data map[int64][]byte
+	// metadataCalls counts Metadata lookups, which resolve legacy part sizes.
 	metadataCalls int
-	sessionOpens  atomic.Int32
+	// sessionOpens counts download sessions opened, which must be exactly one
+	// for a whole download.
+	sessionOpens atomic.Int32
+	// sessionCloses counts the closes of those sessions, which must match the
+	// opens so no session is leaked.
 	sessionCloses atomic.Int32
-	rangeCalls    atomic.Int32
+	// rangeCalls counts OpenRange calls; it is atomic because ReadAt may be
+	// racing several reads at once.
+	rangeCalls atomic.Int32
 }
 
+// OpenDownloadSession counts the open and returns a session bound to this
+// storage, so range reads share the caller's one session.
 func (s *downloadStorage) OpenDownloadSession(context.Context, int64) (telegramstore.DownloadSession, error) {
 	s.sessionOpens.Add(1)
 	return &downloadStorageSession{storage: s}, nil
 }
 
+// downloadStorageSession is the one session a download holds for all its parts.
 type downloadStorageSession struct {
+	// storage is the fake the session forwards metadata and range reads to.
 	storage *downloadStorage
-	closed  bool
+	// closed records that Close already released the session, so a double close
+	// is not counted twice.
+	closed bool
 }
 
+// Metadata forwards the lookup so the storage's counter sees it.
 func (s *downloadStorageSession) Metadata(ctx context.Context, request telegramstore.MetadataRequest) (telegramstore.StoredPart, error) {
 	return s.storage.Metadata(ctx, request)
 }
 
+// OpenRange counts the range read and forwards it to the storage.
 func (s *downloadStorageSession) OpenRange(ctx context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	s.storage.rangeCalls.Add(1)
 	return s.storage.OpenRange(ctx, request)
 }
 
+// Close counts the first close and ignores later ones, matching the storage
+// contract's idempotent release.
 func (s *downloadStorageSession) Close() error {
 	if !s.closed {
 		s.closed = true
@@ -358,10 +393,13 @@ func (s *downloadStorageSession) Close() error {
 	return nil
 }
 
+// Upload is unused by the download tests and returns an empty part.
 func (s *downloadStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, nil
 }
 
+// Metadata counts the lookup and reports the stored size of the message's
+// payload, or ErrMessageNotFound when the message is unknown.
 func (s *downloadStorage) Metadata(_ context.Context, request telegramstore.MetadataRequest) (telegramstore.StoredPart, error) {
 	s.metadataCalls++
 	payload, ok := s.data[request.MessageID]
@@ -371,6 +409,8 @@ func (s *downloadStorage) Metadata(_ context.Context, request telegramstore.Meta
 	return telegramstore.StoredPart{ChannelID: request.ChannelID, MessageID: request.MessageID, Size: int64(len(payload))}, nil
 }
 
+// OpenRange returns a reader over the requested window of the message's payload,
+// clamping an over-long length the way the storage contract does.
 func (s *downloadStorage) OpenRange(_ context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	payload := s.data[request.MessageID]
 	end := int64(len(payload))
@@ -380,14 +420,18 @@ func (s *downloadStorage) OpenRange(_ context.Context, request telegramstore.Ran
 	return io.NopCloser(bytes.NewReader(payload[request.Offset:end])), nil
 }
 
+// DeleteMessages is a no-op; the download tests never delete.
 func (s *downloadStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
 
+// CopyPart is unused by the download tests and returns an empty part.
 func (s *downloadStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, nil
 }
 
+// CreateChannel is unused by the download tests and returns an empty channel.
 func (s *downloadStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, nil
 }
 
+// DeleteChannel is a no-op, like DeleteMessages.
 func (s *downloadStorage) DeleteChannel(context.Context, int64, int64) error { return nil }

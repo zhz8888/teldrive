@@ -12,8 +12,14 @@ import (
 // countingManageRunner serves management operations without Telegram calls and
 // counts how often it was asked to run, so a test can assert that validation
 // rejected a request before any work started.
-type countingManageRunner struct{ runs atomic.Int32 }
+type countingManageRunner struct {
+	// runs counts Run invocations that reached the callback, so a test can assert
+	// validation rejected a request before any work started.
+	runs atomic.Int32
+}
 
+// Run rejects anything but a management operation, counts only the calls that got
+// past validation and runs fn against a fresh client.
 func (r *countingManageRunner) Run(ctx context.Context, _ int64, operation Operation, fn func(context.Context, *tg.Client) error) error {
 	if operation != OperationManage {
 		return ErrInvalidRequest

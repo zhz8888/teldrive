@@ -11,17 +11,23 @@ import (
 	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
-// stubMetadataStorage implements Storage without the optional MetadataReader, so
+// stubPlainStorage implements Storage without the optional MetadataReader, so
 // the adapter has to report that the capability is missing rather than reporting a
 // download that cannot work.
 type stubPlainStorage struct {
+	// opener produces the reader OpenRange hands back; nil makes OpenRange fail
+	// so a test that reaches it by mistake is visible.
 	opener func() (io.ReadCloser, error)
 }
 
+// Upload is unused by the metadata tests and always fails, so a pipeline that
+// starts an upload against this stub is reported rather than silently served.
 func (s stubPlainStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
 
+// OpenRange returns a reader built by opener, which is how the plain-storage
+// path is given a known body.
 func (s stubPlainStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	if s.opener == nil {
 		return nil, errors.New("no opener")
@@ -29,25 +35,36 @@ func (s stubPlainStorage) OpenRange(context.Context, telegramstore.RangeRequest)
 	return s.opener()
 }
 
+// DeleteMessages is a no-op; the tests here never delete anything.
 func (s stubPlainStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
 
+// CopyPart is unused by these tests and reports an error for the same reason as
+// Upload.
 func (s stubPlainStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
 
+// CreateChannel is unused by these tests and reports an error for the same
+// reason as Upload.
 func (s stubPlainStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
 
+// DeleteChannel is a no-op, like DeleteMessages.
 func (s stubPlainStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
 
 // metadataCapableStorage adds the optional reader on top of the plain storage.
 type metadataCapableStorage struct {
+	// stubPlainStorage supplies the Storage methods this type does not override.
 	stubPlainStorage
+	// part is the positive answer returned by Metadata when err is nil.
 	part telegramstore.StoredPart
-	err  error
+	// err is the storage failure Metadata reports instead of part.
+	err error
 }
 
+// Metadata returns the canned part and error, letting a test show that the
+// adapter forwards both without interpreting them.
 func (s metadataCapableStorage) Metadata(context.Context, telegramstore.MetadataRequest) (telegramstore.StoredPart, error) {
 	return s.part, s.err
 }

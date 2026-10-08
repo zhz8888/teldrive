@@ -15,6 +15,8 @@ import (
 	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
+// newManagementRuntime builds a Runtime over the test database; the management
+// tests only read the River tables, so the storage never moves a byte.
 func newManagementRuntime(t *testing.T, db *testpostgres.Database) *Runtime {
 	t.Helper()
 	runtime, err := NewRuntime(db.Pool, defaultsStorage{})
@@ -301,6 +303,9 @@ func insertUserJob(t *testing.T, runtime *Runtime, userID int64, state string) {
 	insertManagementJobForUser(t, runtime, state, userID)
 }
 
+// insertManagementJobForUser inserts one job and forces it into state, storing the
+// user_id argument that the per-user listing and the per-user purge read ownership
+// from when userID is positive; a zero userID leaves the job global.
 func insertManagementJobForUser(t *testing.T, runtime *Runtime, state string, userID int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -344,6 +349,10 @@ func finalizedAt(state string) *time.Time {
 	}
 }
 
+// dbExecState forces a job into state and returns the number of rows touched, so a
+// caller can tell a real update from a mistyped ID. It writes finalized_at in the
+// same statement because the table's check constraint requires a completion
+// timestamp for a finalized state.
 func dbExecState(ctx context.Context, runtime *Runtime, id int64, state string) (int64, error) {
 	tag, err := runtime.pool.Exec(ctx,
 		"UPDATE river_job SET state = $2, finalized_at = $3 WHERE id = $1", id, state, finalizedAt(state))
@@ -353,6 +362,8 @@ func dbExecState(ctx context.Context, runtime *Runtime, id int64, state string) 
 	return tag.RowsAffected(), nil
 }
 
+// dbExecStateAndUser additionally tags the job with a user_id argument, which is
+// the only field the per-user listing and the per-user purge treat as ownership.
 func dbExecStateAndUser(ctx context.Context, runtime *Runtime, id int64, state string, userID int64) (int64, error) {
 	tag, err := runtime.pool.Exec(ctx,
 		"UPDATE river_job SET state = $2, finalized_at = $3, args = args || jsonb_build_object('user_id', $4::bigint) WHERE id = $1",
@@ -363,6 +374,8 @@ func dbExecStateAndUser(ctx context.Context, runtime *Runtime, id int64, state s
 	return tag.RowsAffected(), nil
 }
 
+// queueIsPaused reports the paused flag of one listed queue. It fails the test when
+// the queue is not listed at all, so a wrong queue name cannot read as "not paused".
 func queueIsPaused(t *testing.T, runtime *Runtime, ctx context.Context, name string) bool {
 	t.Helper()
 	queues, err := runtime.ListQueues(ctx)
@@ -378,6 +391,8 @@ func queueIsPaused(t *testing.T, runtime *Runtime, ctx context.Context, name str
 	return false
 }
 
+// mustListPeriodicJobs returns the persisted periodic definitions and fails the
+// test on error.
 func mustListPeriodicJobs(t *testing.T, runtime *Runtime, ctx context.Context) []PeriodicJob {
 	t.Helper()
 	definitions, err := runtime.ListPeriodicJobs(ctx)
@@ -387,6 +402,8 @@ func mustListPeriodicJobs(t *testing.T, runtime *Runtime, ctx context.Context) [
 	return definitions
 }
 
+// containsState reports whether the states read back from river_job contain want, so
+// the purge tests can assert that a state survived or was removed.
 func containsState(states []string, want string) bool {
 	for _, state := range states {
 		if state == want {

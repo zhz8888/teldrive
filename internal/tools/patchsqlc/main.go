@@ -20,8 +20,12 @@ const generatedDBPath = "internal/db/sqlcgen/db.go"
 // must occur exactly once in a healthy generated file, which makes an
 // unexpected sqlc output fail loudly instead of producing a half-patched file.
 type replacement struct {
+	// from is the literal text a healthy generated file contains exactly once
+	// and that this patch rewrites.
 	from []byte
-	to   []byte
+	// to is the text written in place of from. Its count is also consulted, so
+	// a file that was already patched is recognised instead of patched twice.
+	to []byte
 }
 
 // replacements rewrites the generated constructors and transaction helpers so

@@ -53,14 +53,19 @@ func TestServiceValidationAndUUIDConversion(t *testing.T) {
 // stays zero when the storage cannot identify the message it published, and the error
 // it reports with it.
 type copyPartResponse struct {
+	// part is the StoredPart CopyPart reports; a zero channel or message ID means the
+	// storage could not name the message it published.
 	part telegramstore.StoredPart
-	err  error
+	// err is the error CopyPart reports, possibly together with a usable part.
+	err error
 }
 
 // deletedMessages is one recorded DeleteMessages call, so the tests can prove that a
 // published message really is handed to the compensating delete.
 type deletedMessages struct {
-	channelID  int64
+	// channelID is the channel the deleted messages belonged to.
+	channelID int64
+	// messageIDs are the IDs handed to that call, in the order they arrived.
 	messageIDs []int64
 }
 
@@ -69,24 +74,34 @@ type deletedMessages struct {
 // compensation run without a database or a Telegram account; every method the copy
 // path does not use fails loudly instead of silently succeeding.
 type copyPartStorage struct {
+	// responses is the scripted CopyPart answers, consumed in call order.
 	responses []copyPartResponse
+	// copyCalls is the number of CopyPart calls served so far.
 	copyCalls int
-	deletes   []deletedMessages
+	// deletes records every DeleteMessages call the storage received.
+	deletes []deletedMessages
 }
 
+// Upload reports an error: the copy path copies existing parts instead of
+// re-uploading them.
 func (*copyPartStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
 
+// OpenRange reports an error: the copy path never streams the source bytes.
 func (*copyPartStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not used")
 }
 
+// DeleteMessages records the channel and a copy of the message IDs, so a later
+// assertion does not see the caller's slice reused.
 func (s *copyPartStorage) DeleteMessages(_ context.Context, _ int64, channelID int64, messageIDs []int64) error {
 	s.deletes = append(s.deletes, deletedMessages{channelID: channelID, messageIDs: append([]int64(nil), messageIDs...)})
 	return nil
 }
 
+// CopyPart serves the next scripted response and fails on an unscripted call, so a
+// test that expects fewer copies cannot pass silently.
 func (s *copyPartStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	if s.copyCalls >= len(s.responses) {
 		return telegramstore.StoredPart{}, errors.New("unexpected CopyPart call")
@@ -96,10 +111,13 @@ func (s *copyPartStorage) CopyPart(context.Context, int64, int64, int64, int64) 
 	return response.part, response.err
 }
 
+// CreateChannel reports an error: these tests always copy into an existing channel.
 func (*copyPartStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
 
+// DeleteChannel reports success; no test asserts on channel deletion through this
+// fake.
 func (*copyPartStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
 
 // deletionsByChannel flattens the recorded deletes into the grouped form the

@@ -23,14 +23,20 @@ var errUnexpectedQuery = errors.New("unexpected database query")
 // error instead of a nil interface call.
 type stubDBTX struct{}
 
+// Exec fails the statement, so a validation gap surfaces as an error rather than
+// an unexpected write.
 func (stubDBTX) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, errUnexpectedQuery
 }
 
+// Query fails the statement, so a validation gap surfaces as an error rather than
+// unexpectedly reading rows.
 func (stubDBTX) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return nil, errUnexpectedQuery
 }
 
+// QueryRow returns a row whose Scan always fails, so a validation gap surfaces on
+// the first row read.
 func (stubDBTX) QueryRow(context.Context, string, ...any) pgx.Row {
 	return stubRow{}
 }
@@ -38,6 +44,7 @@ func (stubDBTX) QueryRow(context.Context, string, ...any) pgx.Row {
 // stubRow is the QueryRow half of stubDBTX.
 type stubRow struct{}
 
+// Scan always reports the unexpected query.
 func (stubRow) Scan(...any) error { return errUnexpectedQuery }
 
 // newTestService builds a Service whose listener uses connector and whose
@@ -67,15 +74,25 @@ func newTestService(connector listenerConnector) *Service {
 // blockingConnector holds every Connect call until release is closed, which lets
 // a test pin a Start inside its connect and observe the service from outside.
 type blockingConnector struct {
+	// entered is closed by the first Connect, so a test can wait until Start is
+	// parked inside it.
 	entered chan struct{}
+	// release is closed by the test to let the parked Connect return conn.
 	release chan struct{}
-	conn    listenerConn
+	// conn is the connection every Connect hands back once released.
+	conn listenerConn
 
-	once  sync.Once
-	mu    sync.Mutex
+	// once guards entered so only the first Connect closes it.
+	once sync.Once
+	// mu guards calls against the listener goroutine.
+	mu sync.Mutex
+	// calls counts Connect invocations, read through callCount.
 	calls int
 }
 
+// Connect counts the call, signals entered on the first invocation and then waits
+// for release or ctx, so the test controls exactly when the listener gets a
+// connection.
 func (c *blockingConnector) Connect(ctx context.Context, _ string) (listenerConn, error) {
 	c.mu.Lock()
 	c.calls++
@@ -89,6 +106,7 @@ func (c *blockingConnector) Connect(ctx context.Context, _ string) (listenerConn
 	}
 }
 
+// callCount returns the number of Connect invocations seen so far.
 func (c *blockingConnector) callCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()

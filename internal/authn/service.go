@@ -172,7 +172,12 @@ type Config struct {
 // struct is immutable once built, and coordination that spans requests is
 // delegated to PostgreSQL, so several instances may share one database.
 type Service struct {
-	pool    *pgxpool.Pool
+	// pool is the PostgreSQL pool every statement runs on. Login flows also
+	// acquire a connection from it directly to hold the session-level advisory
+	// lock that serializes one flow's transitions.
+	pool *pgxpool.Pool
+	// queries is the sqlc handle bound to pool for statements that do not run on
+	// a directly acquired connection or inside a transaction.
 	queries *sqlcgen.Queries
 	// cipher seals the Telegram session, phone number and login state before
 	// storage, binding each value to its column so a ciphertext moved elsewhere
@@ -181,7 +186,10 @@ type Service struct {
 	// login is the Telegram gateway. Production wires the gotd implementation;
 	// a deployment without Telegram credentials wires a stub that fails every
 	// call.
-	login  TelegramLogin
+	login TelegramLogin
+	// config is the caller's Config after NewService normalized AllowedUsers to
+	// lowercase names without a leading "@", which is the form userAllowed
+	// compares against.
 	config Config
 	// random is the entropy source for opaque tokens. It is crypto/rand in
 	// production and only injectable so tests can pin token values.
@@ -198,7 +206,10 @@ type Service struct {
 	codeSends *throttle.Limiter
 	// attempts throttles wrong codes and passwords per login flow, which bounds
 	// online guessing of a code or a two-step password.
-	attempts        *throttle.Limiter
+	attempts *throttle.Limiter
+	// loginLimitsOnce guards the one-time construction of loginSlots, codeSends
+	// and attempts in initLoginLimits, so a zero-valued service built by a test
+	// literal still ends up with working limits.
 	loginLimitsOnce sync.Once
 }
 

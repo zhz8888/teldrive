@@ -507,6 +507,9 @@ VALUES ($1,1001,$2,'pending.bin',1,now(),false,'fail',1,'aborted',now())`, uploa
 	}
 }
 
+// insertStoredFile inserts an active four-byte file called name with one part in
+// channel 9001, whose payload the tests seed in fileStorage under messageID, and
+// returns the new file ID.
 func insertStoredFile(t testing.TB, db *testpostgres.Database, name string, messageID int64) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -524,19 +527,38 @@ VALUES ($1,1,9001,$2,4,4,repeat('b',64),decode(repeat('ab',32),'hex'))`, id, mes
 	return id
 }
 
+// fileStorage is an in-memory telegramstore.Storage shared by the integration tests
+// in this file: it holds each message payload by message ID, so copy, purge and read
+// paths can run against a real database without a Telegram account. Callers seed
+// messages directly, and any method outside those paths fails loudly.
 type fileStorage struct {
-	mu          sync.Mutex
-	messages    map[int64][]byte
-	nextID      int64
-	deleteErr   error
-	copyCalls   int
-	failCopyAt  int
+	// mu guards the fields below, so the snapshot helpers can read state while the
+	// service is still calling into the storage.
+	mu sync.Mutex
+	// messages is the payload stored for each message ID; seeding it stands in for
+	// an earlier upload, and CopyPart and DeleteMessages mutate it.
+	messages map[int64][]byte
+	// nextID is the highest message ID known so far; CopyPart increments it to
+	// publish a copy under a fresh ID.
+	nextID int64
+	// deleteErr, when set, makes every DeleteMessages call fail before anything is
+	// recorded or removed.
+	deleteErr error
+	// copyCalls counts CopyPart calls, so failCopyAt can name one of them.
+	copyCalls int
+	// failCopyAt is the 1-based CopyPart call that fails; zero injects no failure.
+	failCopyAt int
+	// deleteCalls records the message IDs of each successful DeleteMessages call.
 	deleteCalls [][]int64
 }
 
+// Upload reports an error: these tests seed their parts instead of uploading.
 func (*fileStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// OpenRange serves a copy of the payload seeded for request.MessageID, and reports
+// ErrMessageNotFound once it was deleted.
 func (s *fileStorage) OpenRange(_ context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -546,6 +568,9 @@ func (s *fileStorage) OpenRange(_ context.Context, request telegramstore.RangeRe
 	}
 	return io.NopCloser(bytes.NewReader(append([]byte(nil), payload...))), nil
 }
+
+// DeleteMessages records the call and removes the messages, unless deleteErr is set,
+// in which case it fails without recording or deleting anything.
 func (s *fileStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -558,6 +583,9 @@ func (s *fileStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []
 	}
 	return nil
 }
+
+// CopyPart republishes the payload of sourceMessageID as a new message in
+// destinationChannelID, failing the call failCopyAt names.
 func (s *fileStorage) CopyPart(_ context.Context, _ int64, _ int64, sourceMessageID, destinationChannelID int64) (telegramstore.StoredPart, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -573,16 +601,26 @@ func (s *fileStorage) CopyPart(_ context.Context, _ int64, _ int64, sourceMessag
 	s.messages[s.nextID] = append([]byte(nil), payload...)
 	return telegramstore.StoredPart{ChannelID: destinationChannelID, MessageID: s.nextID, Size: int64(len(payload))}, nil
 }
+
+// CreateChannel reports an error: the file tests copy into a channel they seeded
+// themselves, so an unexpected creation should fail them.
 func (*fileStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
+
+// DeleteChannel reports success; these tests never assert on channel deletion.
 func (*fileStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
+
+// message returns a copy of the payload stored under id, or nil once it was deleted,
+// which is how the tests detect a compensated message.
 func (s *fileStorage) message(id int64) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]byte(nil), s.messages[id]...)
 }
 
+// deleteCallsSnapshot returns a copy of the recorded delete calls, so an assertion
+// can inspect them without holding the lock.
 func (s *fileStorage) deleteCallsSnapshot() [][]int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -593,6 +631,8 @@ func (s *fileStorage) deleteCallsSnapshot() [][]int64 {
 	return result
 }
 
+// sliceLengths reports the size of each batch, so a failure message can show how
+// DeleteMessages was split.
 func sliceLengths(values [][]int64) []int {
 	lengths := make([]int, len(values))
 	for i, value := range values {
@@ -601,11 +641,19 @@ func sliceLengths(values [][]int64) []int {
 	return lengths
 }
 
+// purgeQueryTracer counts the catalog queries a purge issues by looking for the sqlc
+// "-- name:" marker at the head of each statement. It pins the purge down to one
+// advisory-lock pass, one subtree load and one delete per tree depth, so a fallback
+// to per-file statements on the 1000-child fixture is caught.
 type purgeQueryTracer struct {
-	mu     sync.Mutex
+	// mu guards counts, which may be incremented while the query runs.
+	mu sync.Mutex
+	// counts is the number of statements seen per watched sqlc query name.
 	counts map[string]int
 }
 
+// TraceQueryStart counts the statements of the watched queries and returns ctx
+// unchanged.
 func (t *purgeQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	for _, name := range []string{"TryAdvisoryLocks", "LoadFileSubtrees", "DeleteFileCatalogRowsByIDs"} {
 		if strings.Contains(data.SQL, "-- name: "+name) {
@@ -620,8 +668,12 @@ func (t *purgeQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, dat
 	return ctx
 }
 
+// TraceQueryEnd is required by the pgx tracer interface; the test only needs the
+// start of each statement.
 func (*purgeQueryTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
+// count returns how many statements of the named sqlc query ran, and zero when none
+// did.
 func (t *purgeQueryTracer) count(name string) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()

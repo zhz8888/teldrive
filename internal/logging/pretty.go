@@ -38,12 +38,23 @@ const (
 // Handle assembles a record into one string and holds mu around the single
 // write, so records cannot interleave on a shared out.
 type prettyHandler struct {
-	out    io.Writer
-	level  slog.Leveler
-	color  bool
-	attrs  []slog.Attr
+	// out is the destination of every line. The handler writes each line in one
+	// call under mu and never closes the writer, which the caller owns.
+	out io.Writer
+	// level is the minimum level that is emitted; Enabled drops anything below it.
+	level slog.Leveler
+	// color enables the ANSI escapes and is false for a destination that is not
+	// a terminal, so redirected output stays free of escape sequences.
+	color bool
+	// attrs are the attributes attached with WithAttrs; they are rendered before
+	// the record's own attributes.
+	attrs []slog.Attr
+	// groups are the open groups from WithGroup, joined to each attribute key
+	// with dots.
 	groups []string
-	mu     *sync.Mutex
+	// mu is the pointer to the write lock. Clones returned by WithAttrs and
+	// WithGroup copy it, so all of them serialize on the same mutex.
+	mu *sync.Mutex
 }
 
 // newPrettyHandler returns a handler that writes records at or above level to

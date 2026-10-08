@@ -10,6 +10,10 @@ import (
 	"testing"
 )
 
+// compatibilityCiphertextHex is the fully rendered encrypted stream - magic, file
+// nonce and one sealed block - that the original TelDrive produced for the
+// "TelDrive compatibility payload" plaintext; the vector is frozen so an on-disk
+// format change fails here instead of silently making stored files undecryptable.
 const compatibilityCiphertextHex = "54454c44524956450000000102030405060708090a0b0c0d0e0f1011121314151617c09ad6a7579e2df65e379814cd4fd464c48776cff0caf5195a4016a3f5a43d2199a5ac9caa146a6c72fde00dab47"
 
 func TestCipherMatchesOriginalTelDriveVector(t *testing.T) {
@@ -303,7 +307,10 @@ func TestDecryptSeekRejectsNegativeOffset(t *testing.T) {
 // closeCountingReader counts Close calls so a test can tell whether the
 // decrypter released a range it replaced.
 type closeCountingReader struct {
+	// reader is the stored range the decrypter reads from.
 	reader io.Reader
+	// closes counts Close calls, so a test can tell whether the decrypter
+	// released a range it replaced.
 	closes int
 }
 

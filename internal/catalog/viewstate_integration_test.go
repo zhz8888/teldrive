@@ -105,6 +105,9 @@ func jsonPage(t *testing.T, raw []byte) int {
 	return decoded.Page
 }
 
+// jsonZoom reads the zoom level out of stored view preferences, matching jsonPage:
+// the value is decoded rather than compared as text because PostgreSQL reformats
+// the jsonb it stores.
 func jsonZoom(t *testing.T, raw []byte) float64 {
 	t.Helper()
 	var decoded struct {

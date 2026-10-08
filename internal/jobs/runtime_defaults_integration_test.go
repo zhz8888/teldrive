@@ -141,19 +141,35 @@ func TestRuntimeResetPeriodicJobsRestoresDefaults(t *testing.T) {
 	}
 }
 
+// defaultsStorage is the minimal Storage the runtime needs to be constructed
+// around; the default-configuration tests never move a byte, so every method is
+// either a no-op or fails.
 type defaultsStorage struct{}
 
+// Upload is unused by these tests and reports it.
 func (defaultsStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// OpenRange is unused by these tests and reports it.
 func (defaultsStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not used")
 }
+
+// DeleteMessages succeeds without doing anything: no maintenance job under test
+// deletes messages.
 func (defaultsStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
+
+// CopyPart is unused by these tests and reports it.
 func (defaultsStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// CreateChannel is unused by these tests and reports it.
 func (defaultsStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
+
+// DeleteChannel succeeds without doing anything: no maintenance job under test
+// deletes channels.
 func (defaultsStorage) DeleteChannel(context.Context, int64, int64) error { return nil }

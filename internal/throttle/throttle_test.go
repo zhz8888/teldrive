@@ -7,11 +7,16 @@ import (
 
 // fixedClock drives the limiter without sleeping: tests move it by hand.
 type fixedClock struct {
+	// now is the instant the limiter reads through its injected clock function.
 	now time.Time
 }
 
+// advance moves the clock forward by d without sleeping, so a test can cross a
+// backoff window instantly.
 func (c *fixedClock) advance(d time.Duration) { c.now = c.now.Add(d) }
 
+// newTestLimiter returns a Limiter whose clock starts at a fixed instant and the
+// fixedClock that drives it, so backoff behaviour is tested without real waiting.
 func newTestLimiter(failures int, base, max time.Duration, capacity int) (*Limiter, *fixedClock) {
 	clock := &fixedClock{now: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)}
 	limiter := New(failures, base, max, capacity)

@@ -9,23 +9,36 @@ import (
 	"github.com/zhz8888/teldrive/v2/internal/api/gen"
 )
 
+// cookieTestAuthenticator is an Authenticator that records the credential it was
+// called with and replays a canned identity, so the cookie tests can tell which
+// credential path the security layer took.
 type cookieTestAuthenticator struct {
+	// bearerToken receives the token passed to AuthenticateBearer.
 	bearerToken string
-	apiKey      string
-	identity    Identity
-	err         error
+	// apiKey receives the key passed to AuthenticateAPIKey; cookie auth must never
+	// reach it.
+	apiKey string
+	// identity is the identity both methods return.
+	identity Identity
+	// err, when set, makes both methods fail with it.
+	err error
 }
 
+// AuthenticateBearer records the presented token and returns the canned identity.
 func (a *cookieTestAuthenticator) AuthenticateBearer(_ context.Context, token string) (Identity, error) {
 	a.bearerToken = token
 	return a.identity, a.err
 }
 
+// AuthenticateAPIKey records the presented key and returns the canned identity.
 func (a *cookieTestAuthenticator) AuthenticateAPIKey(_ context.Context, key string) (Identity, error) {
 	a.apiKey = key
 	return a.identity, a.err
 }
 
+// TestHandleCookieAuthUsesBearerAuthentication pins that the session cookie is
+// validated through the bearer-token path and that the API-key path stays
+// untouched, which is what lets one session lookup serve both credential forms.
 func TestHandleCookieAuthUsesBearerAuthentication(t *testing.T) {
 	t.Parallel()
 	sessionID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")

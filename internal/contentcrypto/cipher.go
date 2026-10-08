@@ -297,10 +297,13 @@ func (n *nonce) add(x uint64) {
 // a stream rather than a random-access writer: mu serialises Read calls, so one
 // encrypter must not be read concurrently.
 type encrypter struct {
+	// mu serializes Read, the only method that advances the stream state.
 	mu sync.Mutex
 	// in is the plaintext source, consumed in blockDataSize chunks.
 	in io.Reader
-	c  *Cipher
+	// c is the cipher that seals the blocks; it owns the data key and the
+	// scratch-buffer pool the encrypter borrows from.
+	c *Cipher
 	// nonce is the nonce that seals the block currently held in buf; it advances
 	// after every block.
 	nonce nonce
@@ -422,6 +425,8 @@ func (c *Cipher) EncryptData(in io.Reader) (io.ReadCloser, error) {
 // boundary and resume there. Its methods are serialised by mu, so it must not be
 // read and seeked concurrently.
 type decrypter struct {
+	// mu serializes Read, RangeSeek and Close, which all advance or release the
+	// block state; a decrypter must not be read and seeked concurrently.
 	mu sync.Mutex
 	// rc is the stored content currently being read. A seek closes the range it
 	// replaces and installs a freshly opened one, so Close always releases the
@@ -432,7 +437,9 @@ type decrypter struct {
 	// initialNonce is the file nonce taken from the header. Seeking recomputes a
 	// block nonce by adding the block index to it.
 	initialNonce nonce
-	c            *Cipher
+	// c is the cipher that authenticates and opens the blocks; it owns the data
+	// key and the scratch-buffer pool the decrypter borrows from.
+	c *Cipher
 	// buf holds the authenticated plaintext of the current block.
 	buf *[blockSize]byte
 	// readBuf stages the raw encrypted block read from rc before it is opened.

@@ -934,9 +934,14 @@ func legacyFileRow(f legacyFile, cfg Config) []any {
 // file's parts as soon as the last of them is handed out, so the memory the
 // migration holds shrinks while it writes.
 type legacyPartCursor struct {
+	// files holds the legacy files whose parts are still to be written. Each
+	// file's Parts slice is cleared once it is drained, so the memory the
+	// migration holds shrinks as the copy proceeds.
 	files []legacyFile
-	file  int
-	part  int
+	// file is the index into files of the file currently being drained.
+	file int
+	// part is the index into that file's Parts of the next part to hand out.
+	part int
 }
 
 // hasRows reports whether any legacy file contributes a part, which is what the

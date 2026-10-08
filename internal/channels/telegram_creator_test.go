@@ -39,24 +39,41 @@ func TestTelegramCreatorRejectsMissingStorage(t *testing.T) {
 	}
 }
 
+// creatorStorage is a telegramstore.Storage stand-in for TelegramCreator: it reports
+// a scripted channel from CreateChannel and remembers the channel DeleteChannel was
+// asked to remove. Every method the channel lifecycle does not use fails loudly
+// instead of quietly succeeding.
 type creatorStorage struct {
+	// created is the channel CreateChannel reports.
 	created telegramstore.Channel
+	// deleted is the channel ID DeleteChannel last received.
 	deleted int64
 }
 
+// Upload reports an error: TelegramCreator must never publish an upload.
 func (*creatorStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// OpenRange reports an error: TelegramCreator must never read stored bytes.
 func (*creatorStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not used")
 }
+
+// DeleteMessages is a no-op: the channel lifecycle only creates and deletes channels.
 func (*creatorStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
+
+// CopyPart reports an error: TelegramCreator must never copy a part.
 func (s *creatorStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not implemented")
 }
+
+// CreateChannel reports the scripted channel, standing in for the Telegram API.
 func (s *creatorStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return s.created, nil
 }
+
+// DeleteChannel records the channel ID so the test can prove Delete forwarded it.
 func (s *creatorStorage) DeleteChannel(_ context.Context, _ int64, channelID int64) error {
 	s.deleted = channelID
 	return nil

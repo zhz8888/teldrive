@@ -69,11 +69,20 @@ func TestUploadSourceWorkerPublishesAndSkipsMatchingLocalFile(t *testing.T) {
 	}
 }
 
+// uploadWorkerStorage is the single Storage the upload worker and its channel
+// service share. It counts published parts, and it fails any upload whose stream
+// does not hold exactly the announced number of bytes, which is what proves the
+// worker sent the whole file rather than a truncated prefix.
 type uploadWorkerStorage struct {
-	mu      sync.Mutex
+	// mu guards uploads, because the pipeline may publish parts in parallel.
+	mu sync.Mutex
+	// uploads is the number of successful publications and also the source of the
+	// message IDs handed back to the pipeline.
 	uploads int
 }
 
+// Upload checks the streamed length against the announced size and returns the next
+// message ID.
 func (s *uploadWorkerStorage) Upload(_ context.Context, request telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	payload, err := io.ReadAll(request.Reader)
 	if err != nil {
@@ -88,14 +97,26 @@ func (s *uploadWorkerStorage) Upload(_ context.Context, request telegramstore.Up
 	return telegramstore.StoredPart{ChannelID: request.ChannelID, MessageID: int64(s.uploads), Size: request.Size}, nil
 }
 
+// OpenRange returns an empty stream: this test only publishes, so a download path
+// that ran would silently serve nothing.
 func (*uploadWorkerStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
+
+// DeleteMessages succeeds without doing anything: the test never cleans up.
 func (*uploadWorkerStorage) DeleteMessages(context.Context, int64, int64, []int64) error { return nil }
+
+// CopyPart reports an empty stored part and no error: the publish path never has to
+// copy an existing part here.
 func (*uploadWorkerStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, nil
 }
+
+// CreateChannel returns an empty channel without creating one, because the seeded
+// user already has a selected channel.
 func (*uploadWorkerStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, nil
 }
+
+// DeleteChannel succeeds without doing anything.
 func (*uploadWorkerStorage) DeleteChannel(context.Context, int64, int64) error { return nil }

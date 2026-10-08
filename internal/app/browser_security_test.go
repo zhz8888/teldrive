@@ -119,12 +119,21 @@ func TestBrowserCSRFMiddleware(t *testing.T) {
 	}
 }
 
+// renewalStub is the session-renewal dependency of the middleware under test: it
+// counts calls and returns a fixed renewal or a forced error.
 type renewalStub struct {
-	calls   atomic.Int32
+	// calls counts RenewAccess invocations; TestSessionRenewalMiddleware expects
+	// one per request that needs a refreshed access cookie.
+	calls atomic.Int32
+	// renewal is the token pair handed back when err is nil.
 	renewal authn.AccessRenewal
-	err     error
+	// err, when set, is returned instead of renewal so the failure path can be
+	// exercised.
+	err error
 }
 
+// RenewAccess records the call and returns the configured renewal, or err when one
+// was set.
 func (s *renewalStub) RenewAccess(_ context.Context, _ string) (*authn.AccessRenewal, error) {
 	s.calls.Add(1)
 	if s.err != nil {
@@ -184,6 +193,9 @@ func TestSessionRenewalMiddleware(t *testing.T) {
 	}
 }
 
+// testAccessJWT builds an unsigned token whose payload carries only the exp claim:
+// accessCookieNeedsRefresh reads the expiry before any signature check, so the
+// placeholder header and signature are never inspected.
 func testAccessJWT(expiresAt time.Time) string {
 	payload, _ := json.Marshal(map[string]int64{"exp": expiresAt.Unix()})
 	return "h." + base64.RawURLEncoding.EncodeToString(payload) + ".s"

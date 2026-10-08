@@ -490,7 +490,11 @@ func IsNestedStruct(t reflect.Type) bool {
 
 // staticProvider is a koanf provider over an in-memory nested map, used for the
 // defaults and environment sources. It is immutable once constructed.
-type staticProvider struct{ values map[string]any }
+type staticProvider struct {
+	// values is the nested configuration map Read hands to koanf; the provider
+	// keeps the map as given and never copies or mutates it.
+	values map[string]any
+}
 
 // Read returns the provider's configuration map unchanged; it never fails.
 func (p staticProvider) Read() (map[string]any, error) { return p.values, nil }

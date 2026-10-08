@@ -320,6 +320,9 @@ WHERE user_id=1001 AND parent_id IS NULL AND status='active'`).Scan(&activeCount
 	}
 }
 
+// claimAndStore drives one part through ClaimPart and StorePart, computing the
+// checksum and block hashes from data, and returns the block hashes so the caller
+// can compare them with what was persisted.
 func claimAndStore(t testing.TB, ctx context.Context, svc *uploads.Service, uploadID uuid.UUID, partNo int32, data []byte, messageID int64) []byte {
 	t.Helper()
 	blockHashes, checksum := hashMetadata(data)
@@ -338,6 +341,8 @@ func claimAndStore(t testing.TB, ctx context.Context, svc *uploads.Service, uplo
 	return blockHashes
 }
 
+// hashMetadata returns the per-block hashes of data and the hex tree hash over
+// them, matching the metadata the service records for a stored part.
 func hashMetadata(data []byte) ([]byte, string) {
 	hasher := treehash.NewBlockHasher()
 	_, _ = hasher.Write(data)
@@ -345,6 +350,8 @@ func hashMetadata(data []byte) ([]byte, string) {
 	return blockHashes, treehash.SumToHex(treehash.ComputeTreeHash(blockHashes))
 }
 
+// seedUploadOwner inserts the user and the selected storage channel an upload
+// needs, so a test can claim parts without going through onboarding.
 func seedUploadOwner(t testing.TB, db *pgxpool.Pool, userID, channelID int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -356,6 +363,8 @@ func seedUploadOwner(t testing.TB, db *pgxpool.Pool, userID, channelID int64) {
 	}
 }
 
+// mustUploadUUID converts a nullable UUID column into a uuid.UUID, failing the test
+// on a NULL or malformed value instead of returning a zero ID.
 func mustUploadUUID(t testing.TB, value pgtype.UUID) uuid.UUID {
 	t.Helper()
 	id, ok := dbtypes.GoogleUUID(value)

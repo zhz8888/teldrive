@@ -38,10 +38,16 @@ FROM generate_series(9000::bigint, 9000 + $1::bigint - 1) AS g`, int64(channelCo
 	}
 }
 
+// recordingInviter stands in for the Telegram side of provisioning: it counts how
+// many channel invitations were sent, which lets the test assert that every page
+// of channels was promoted.
 type recordingInviter struct {
+	// calls is the number of InviteBot invocations, one per provisioned channel.
 	calls int
 }
 
+// InviteBot counts the invitation and reports success, so provisioning runs
+// without Telegram.
 func (r *recordingInviter) InviteBot(context.Context, int64, int64, string) error {
 	r.calls++
 	return nil

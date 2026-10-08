@@ -144,6 +144,9 @@ func TestRolloverCompensatesDatabaseFailure(t *testing.T) {
 	}
 }
 
+// seedChannelOwner inserts the owner row that the channels foreign key requires and,
+// when the owner is not user 2002, that second user too, so a test can ask for a
+// channel belonging to someone else.
 func seedChannelOwner(t testing.TB, pool *pgxpool.Pool, userID int64) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), "INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", userID); err != nil {
@@ -156,6 +159,8 @@ func seedChannelOwner(t testing.TB, pool *pgxpool.Pool, userID int64) {
 	}
 }
 
+// insertChannel inserts one channel row for userID carrying the given Telegram
+// channel ID, selected or not.
 func insertChannel(t testing.TB, pool *pgxpool.Pool, userID, channelID int64, selected bool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), "INSERT INTO channels (channel_id, user_id, name, selected) VALUES ($1, $2, $3, $4)", channelID, userID, "storage", selected); err != nil {
@@ -163,6 +168,8 @@ func insertChannel(t testing.TB, pool *pgxpool.Pool, userID, channelID int64, se
 	}
 }
 
+// insertStoredPart gives channelID one stored message of its own, which is what the
+// capacity count reads when deciding whether the channel is full.
 func insertStoredPart(t testing.TB, pool *pgxpool.Pool, userID, channelID, messageID int64) {
 	t.Helper()
 	fileID := uuid.New()
@@ -178,14 +185,25 @@ VALUES ($1, 1, $2, $3, 1, 1)`, fileID, channelID, messageID); err != nil {
 	}
 }
 
+// fakeCreator is a Creator that mints channel IDs without Telegram and counts what
+// the service asked it to do, so rollover and its compensations can be observed.
 type fakeCreator struct {
-	mu      sync.Mutex
-	nextID  int64
+	// mu guards the fields below, because the concurrency test resolves from many
+	// goroutines at once.
+	mu sync.Mutex
+	// nextID is the last ID handed out; Create increments it first, so the first
+	// created channel is nextID+1.
+	nextID int64
+	// fixedID, when non-zero, is reported by every Create instead of nextID, which
+	// lets a test collide with a channel row that already exists.
 	fixedID int64
+	// creates counts Create calls.
 	creates int
+	// deletes counts Delete calls.
 	deletes int
 }
 
+// Create counts the call and reports a new channel carrying the requested name.
 func (f *fakeCreator) Create(_ context.Context, _ int64, name string) (channels.RemoteChannel, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -197,6 +215,7 @@ func (f *fakeCreator) Create(_ context.Context, _ int64, name string) (channels.
 	return channels.RemoteChannel{ID: f.nextID, Name: name}, nil
 }
 
+// Delete counts the compensation call and reports success.
 func (f *fakeCreator) Delete(context.Context, int64, int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -204,12 +223,16 @@ func (f *fakeCreator) Delete(context.Context, int64, int64) error {
 	return nil
 }
 
+// createCalls returns the number of Create calls made so far, which is how the
+// rollover tests count created channels.
 func (f *fakeCreator) createCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.creates
 }
 
+// deleteCalls returns the number of Delete calls made so far, which is how the test
+// counts compensating deletions.
 func (f *fakeCreator) deleteCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

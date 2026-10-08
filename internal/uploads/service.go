@@ -134,7 +134,9 @@ type Service struct {
 	// Both come from Config so a host that cannot afford the shipped 512 MiB
 	// default can lower it without a code change.
 	defaultPartSize int64
-	maxPartSize     int64
+	// maxPartSize is the ceiling a requested part size is checked against;
+	// Create rejects a larger one with ErrInvalidInput instead of clamping it.
+	maxPartSize int64
 	// catalogInvalidator is optional and set once during composition via
 	// SetCacheInvalidator; while nil, replace-policy completions skip cache
 	// invalidation.

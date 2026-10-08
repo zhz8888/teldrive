@@ -282,6 +282,10 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 	_ = shutdownResponse.Body.Close()
 }
 
+// openEventStream issues an authenticated streaming request and returns the live
+// response together with the cancel func that ends it. The request runs under a
+// three-second deadline, so a stream that never opens or stalls cannot hang the
+// test binary, and the caller owns the returned cancel.
 func openEventStream(t *testing.T, endpoint string, headers map[string]string) (*http.Response, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -307,6 +311,9 @@ func openEventStream(t *testing.T, endpoint string, headers map[string]string) (
 	return response, cancel
 }
 
+// readEventFrame reads frames until one names eventName and returns it, discarding
+// the heartbeats and unrelated events in between. It has no deadline of its own,
+// so it relies on the stream's own context or connection closing to fail.
 func readEventFrame(t *testing.T, reader *bufio.Reader, eventName string) map[string]string {
 	t.Helper()
 	for {
@@ -317,6 +324,10 @@ func readEventFrame(t *testing.T, reader *bufio.Reader, eventName string) map[st
 	}
 }
 
+// readSSEFrame reads one server-sent event frame, keyed by its field names ("id",
+// "event", "data"), with a leading-colon comment line stored under "comment". The
+// terminating blank line ends the frame, so the reader must point at the start of
+// one and the connection must stay open.
 func readSSEFrame(t *testing.T, reader *bufio.Reader) map[string]string {
 	t.Helper()
 	frame := make(map[string]string)
@@ -341,6 +352,9 @@ func readSSEFrame(t *testing.T, reader *bufio.Reader) map[string]string {
 	}
 }
 
+// Example_eventStreamFrame is the readable reference for the exact three-line
+// layout writeStreamEvent emits; it pins the literal wire text the readers in this
+// file parse rather than calling the encoder.
 func Example_eventStreamFrame() {
 	fmt.Println("id: 42")
 	fmt.Println("event: file.updated")

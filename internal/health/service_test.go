@@ -6,8 +6,11 @@ import (
 	"testing"
 )
 
+// pingerFunc adapts a plain function to the database pinger the service takes, so
+// tests can inject a healthy, failing or absent dependency without a pool.
 type pingerFunc func(context.Context) error
 
+// Ping runs the adapted function as the liveness probe.
 func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
 
 func TestServiceHealth(t *testing.T) {

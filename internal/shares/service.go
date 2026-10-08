@@ -103,7 +103,10 @@ type SharedWithMe struct {
 	// caller can build the cursor of the next page; they are not part of the API
 	// payload.
 	GrantUpdatedAt time.Time
-	GrantID        uuid.UUID
+	// GrantID is the grant id half of that cursor and breaks ties between grants
+	// written at the same instant; like GrantUpdatedAt it is not part of the API
+	// payload.
+	GrantID uuid.UUID
 }
 
 // ListSharedInput selects one page of the files an owner has shared. Pages are
@@ -290,7 +293,8 @@ type Service struct {
 	// attempts throttles password guessing per share, so a token holder cannot
 	// try passwords at the speed bcrypt allows. It is built on first use, which
 	// keeps a service assembled by a test literal working.
-	attempts     *throttle.Limiter
+	attempts *throttle.Limiter
+	// attemptsOnce guards the one-time construction of attempts.
 	attemptsOnce sync.Once
 }
 

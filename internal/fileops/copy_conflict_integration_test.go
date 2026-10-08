@@ -83,6 +83,9 @@ func TestCopyConflictPolicies(t *testing.T) {
 	})
 }
 
+// insertFolder inserts an active folder owned by user 1001, optionally below
+// parentID, and returns its ID. The conflict tests use these as copy sources,
+// conflict targets and a target's child.
 func insertFolder(t testing.TB, db *testpostgres.Database, parentID *uuid.UUID, name string) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
@@ -94,6 +97,8 @@ VALUES ($1,1001,$2,$3,'folder',false,'active',now())`, id, parentID, name); err 
 	return id
 }
 
+// assertFileStatus fails the test unless the file row carries the expected status,
+// which is how each conflict policy's effect on the target is observed.
 func assertFileStatus(t testing.TB, db *testpostgres.Database, id uuid.UUID, want sqlcgen.FileStatus) {
 	t.Helper()
 	var status sqlcgen.FileStatus
@@ -105,6 +110,9 @@ func assertFileStatus(t testing.TB, db *testpostgres.Database, id uuid.UUID, wan
 	}
 }
 
+// assertActiveNameCount fails the test unless user 1001 owns exactly want live
+// top-level files called name, which is how the conflict policies are shown to
+// leave a single visible row behind.
 func assertActiveNameCount(t testing.TB, db *testpostgres.Database, name string, want int) {
 	t.Helper()
 	var count int

@@ -16,8 +16,11 @@ import (
 )
 
 var (
+	// durationType is the time.Duration leaf type, which nixType renders as a
+	// Nix string even though it is a struct.
 	durationType = reflect.TypeFor[time.Duration]()
-	sizeType     = reflect.TypeFor[size.Size]()
+	// sizeType is the size.Size leaf type, also rendered as a Nix string.
+	sizeType = reflect.TypeFor[size.Size]()
 )
 
 // nixEscape renders s as a double-quoted Nix string literal.
@@ -40,6 +43,10 @@ func nixEscape(s string) string {
 	return b.String()
 }
 
+// isNested reports whether t is a configuration group whose fields are emitted
+// as a nested Nix attribute set. Durations and sizes are structs but stay
+// leaves, and this mirrors config.IsNestedStruct so the module and the loader
+// classify fields identically.
 func isNested(t reflect.Type) bool {
 	return t.Kind() == reflect.Struct && t != durationType && t != sizeType
 }
@@ -73,6 +80,11 @@ func nixType(t reflect.Type, path string) string {
 	}
 }
 
+// descriptionFor renders the Nix option description for one field: its
+// `description` tag, the `default` tag in parentheses, and the `validate` tag
+// in brackets. A field with neither tag still gets a sentence, because a
+// missing default only means Teldrive applies its own rather than that the
+// option has none.
 func descriptionFor(f reflect.StructField) string {
 	desc := f.Tag.Get("description")
 	def := f.Tag.Get("default")
@@ -90,6 +102,11 @@ func descriptionFor(f reflect.StructField) string {
 	return desc
 }
 
+// emitOptions writes one Nix option per leaf field of t into b, recursing into
+// nested structs as attribute sets, and appends the dotted path of every
+// map-typed leaf to leafMaps so the module can render those as comma-joined
+// key:value pairs. indent is the Nix indentation depth and path is the branch's
+// dotted key, used to name the offending field in the panic of nixType.
 func emitOptions(b *strings.Builder, t reflect.Type, path string, indent int, leafMaps *[]string) {
 	pad := strings.Repeat("  ", indent)
 	for i := range t.NumField() {

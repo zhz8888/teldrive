@@ -106,32 +106,54 @@ VALUES ($1, 1, 9001, 99)`, brokenID.String()); err != nil {
 	}
 }
 
+// orphanStorage is both the document lister and the deleting storage of the orphan
+// sweep: it serves one fixed page of documents and records what the sweep removed,
+// so the test can prove which documents were treated as orphans.
 type orphanStorage struct {
+	// messages is the single page the lister returns; the page is always exhausted,
+	// so the sweep never pages past it.
 	messages []telegramstore.DocumentMessage
-	deleted  []int64
-	limits   []int
+	// deleted accumulates the message IDs the sweep selected for deletion.
+	deleted []int64
+	// limits records the page size of every listing request.
+	limits []int
 }
 
+// ListDocumentMessages records the requested page size and returns the whole fixed
+// page as exhausted.
 func (s *orphanStorage) ListDocumentMessages(_ context.Context, request telegramstore.ListDocumentMessagesRequest) (telegramstore.DocumentMessagePage, error) {
 	s.limits = append(s.limits, request.Limit)
 	return telegramstore.DocumentMessagePage{Messages: s.messages, Exhausted: true}, nil
 }
+
+// Upload is unused by the sweep and reports it.
 func (*orphanStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// OpenRange is unused by the sweep and reports it.
 func (*orphanStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not used")
 }
+
+// DeleteMessages records the IDs the sweep removed.
 func (s *orphanStorage) DeleteMessages(_ context.Context, _, _ int64, ids []int64) error {
 	s.deleted = append(s.deleted, ids...)
 	return nil
 }
+
+// CopyPart is unused by the sweep and reports it.
 func (*orphanStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not used")
 }
+
+// CreateChannel is unused by the sweep and reports it.
 func (*orphanStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not used")
 }
+
+// DeleteChannel is unused by the sweep and reports it, so a sweep that deleted a
+// channel instead of messages would fail the test.
 func (*orphanStorage) DeleteChannel(context.Context, int64, int64) error {
 	return errors.New("not used")
 }

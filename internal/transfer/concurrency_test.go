@@ -17,13 +17,21 @@ import (
 // countingCatalog serves one small file so every test here reaches the slot logic
 // rather than a validation branch.
 type countingCatalog struct {
-	file   *sqlcgen.File
+	// file is the catalog row Get returns and the download plans its range from.
+	file *sqlcgen.File
+	// fileID is the ID of that row; every request in this file names it.
 	fileID uuid.UUID
-	parts  []*sqlcgen.FilePart
-	mu     sync.Mutex
-	calls  int
+	// parts is the part list Parts reports; newCountingDownloader seeds the one
+	// part the 4-byte file is made of.
+	parts []*sqlcgen.FilePart
+	// mu guards calls, because these tests open downloads from more than one
+	// goroutine.
+	mu sync.Mutex
+	// calls counts the Get and Parts lookups served.
+	calls int
 }
 
+// Get returns the seeded row for any user and ID, and counts the lookup.
 func (c *countingCatalog) Get(context.Context, int64, uuid.UUID) (*sqlcgen.File, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -31,6 +39,7 @@ func (c *countingCatalog) Get(context.Context, int64, uuid.UUID) (*sqlcgen.File,
 	return c.file, nil
 }
 
+// Parts returns the seeded parts for any user and ID, and counts the lookup.
 func (c *countingCatalog) Parts(context.Context, int64, uuid.UUID) ([]*sqlcgen.FilePart, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -38,6 +47,9 @@ func (c *countingCatalog) Parts(context.Context, int64, uuid.UUID) ([]*sqlcgen.F
 	return c.parts, nil
 }
 
+// newCountingDownloader returns a Downloader bounded to maxConcurrent ranges
+// over a single 4-byte part, together with the catalog it consults, so a test
+// can drive the slot logic with no database or Telegram behind it.
 func newCountingDownloader(maxConcurrent int) (*Downloader, *countingCatalog) {
 	fileID := uuid.New()
 	catalog := &countingCatalog{

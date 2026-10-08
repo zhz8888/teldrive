@@ -73,6 +73,8 @@ VALUES ($1,1001,$2,$3,$4)`, sessionID, initial, bytes.Repeat([]byte{9}, 32), tim
 	}
 }
 
+// gotdSessionBytes serializes a gotd session for the given data centre, address and
+// repeated auth-key byte, so a test can round-trip session storage without Telegram.
 func gotdSessionBytes(t *testing.T, dc int, addr string, fill byte) []byte {
 	t.Helper()
 	memory := new(session.StorageMemory)
@@ -88,6 +90,9 @@ func gotdSessionBytes(t *testing.T, dc int, addr string, fill byte) []byte {
 	return raw
 }
 
+// assertSessionEquivalent decodes both raw sessions with gotd's loader and compares
+// data centre, address and auth key; the bytes themselves differ because the session
+// round-trips through Telethon's StringSession encoding.
 func assertSessionEquivalent(t *testing.T, wantRaw, gotRaw []byte) {
 	t.Helper()
 	load := func(raw []byte) *session.Data {

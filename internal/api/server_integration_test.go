@@ -186,6 +186,9 @@ func TestGeneratedServerRejectsMissingAuthentication(t *testing.T) {
 	}
 }
 
+// performRequest runs one request through handler and returns the recorded
+// response, framing a supplied body with an explicit Content-Length header so the
+// request looks like one a real client sent.
 func performRequest(t testing.TB, handler http.Handler, method, path string, body []byte, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(method, path, bytes.NewReader(body))
@@ -200,14 +203,19 @@ func performRequest(t testing.TB, handler http.Handler, method, path string, bod
 	return response
 }
 
+// apiAuthenticator accepts the two literal credentials these tests send and maps
+// both onto the seeded user 1001; anything else is rejected.
 type apiAuthenticator struct{}
 
+// AuthenticateBearer accepts the "test-token" bearer credential.
 func (apiAuthenticator) AuthenticateBearer(_ context.Context, token string) (api.Identity, error) {
 	if token != "test-token" {
 		return api.Identity{}, errors.New("invalid token")
 	}
 	return api.Identity{UserID: 1001, Roles: []string{"user"}}, nil
 }
+
+// AuthenticateAPIKey accepts the "test-key" API key with the same identity.
 func (apiAuthenticator) AuthenticateAPIKey(_ context.Context, key string) (api.Identity, error) {
 	if key != "test-key" {
 		return api.Identity{}, errors.New("invalid key")
@@ -215,17 +223,32 @@ func (apiAuthenticator) AuthenticateAPIKey(_ context.Context, key string) (api.I
 	return api.Identity{UserID: 1001, Roles: []string{"user"}}, nil
 }
 
+// apiFixedResolver is a channel resolver that always returns its own value, which
+// stands in for the user's selected storage channel so the test can pick one
+// without reading the channels table.
 type apiFixedResolver int64
 
+// Resolve ignores its arguments and returns the pinned channel ID.
 func (r apiFixedResolver) Resolve(context.Context, int64, int64) (int64, error) { return int64(r), nil }
 
+// apiMemoryStorage is an in-memory telegramstore.Storage that keys payloads by a
+// monotonically increasing message ID, so an upload followed by a range download
+// exercises the real transfer pipeline without Telegram. It is safe for concurrent
+// use because the pipeline may move parts in parallel.
 type apiMemoryStorage struct {
-	mu        sync.Mutex
-	messages  map[int64][]byte
-	nextID    int64
+	// mu guards every field below.
+	mu sync.Mutex
+	// messages holds each stored payload under the message ID handed back to the
+	// caller; a CopyPart duplicates an entry under a fresh ID.
+	messages map[int64][]byte
+	// nextID is the ID the last stored or copied message received.
+	nextID int64
+	// openCount counts OpenRange calls, letting the test prove a HEAD or a 304
+	// answer never fetched the body.
 	openCount int
 }
 
+// Upload reads the part into memory and returns it under the next message ID.
 func (s *apiMemoryStorage) Upload(_ context.Context, request telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	payload, err := io.ReadAll(request.Reader)
 	if err != nil {
@@ -240,6 +263,10 @@ func (s *apiMemoryStorage) Upload(_ context.Context, request telegramstore.Uploa
 	s.messages[s.nextID] = append([]byte(nil), payload...)
 	return telegramstore.StoredPart{ChannelID: request.ChannelID, MessageID: s.nextID, Size: int64(len(payload))}, nil
 }
+
+// OpenRange returns a copy of the requested byte window and counts the call, so a
+// test can tell a metadata answer from a real body fetch. It reports
+// ErrMessageNotFound for an unknown message and clamps the window to the payload.
 func (s *apiMemoryStorage) OpenRange(_ context.Context, request telegramstore.RangeRequest) (io.ReadCloser, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -254,6 +281,8 @@ func (s *apiMemoryStorage) OpenRange(_ context.Context, request telegramstore.Ra
 	}
 	return io.NopCloser(bytes.NewReader(append([]byte(nil), payload[request.Offset:end]...))), nil
 }
+
+// DeleteMessages drops the named messages and ignores IDs that are not stored.
 func (s *apiMemoryStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -262,6 +291,9 @@ func (s *apiMemoryStorage) DeleteMessages(_ context.Context, _ int64, _ int64, i
 	}
 	return nil
 }
+
+// CopyPart duplicates a stored message under a fresh ID in the destination
+// channel and leaves the source in place.
 func (s *apiMemoryStorage) CopyPart(_ context.Context, _ int64, _ int64, sourceMessageID, destinationChannelID int64) (telegramstore.StoredPart, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -273,7 +305,12 @@ func (s *apiMemoryStorage) CopyPart(_ context.Context, _ int64, _ int64, sourceM
 	s.messages[s.nextID] = append([]byte(nil), payload...)
 	return telegramstore.StoredPart{ChannelID: destinationChannelID, MessageID: s.nextID, Size: int64(len(payload))}, nil
 }
+
+// CreateChannel fails by design: the seeded user already has a selected channel,
+// so no code path in these tests may need to create one.
 func (*apiMemoryStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not implemented")
 }
+
+// DeleteChannel is a no-op: the in-memory backend keeps no channel registry.
 func (*apiMemoryStorage) DeleteChannel(context.Context, int64, int64) error { return nil }

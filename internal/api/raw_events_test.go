@@ -78,21 +78,34 @@ func TestWriteStreamEvent(t *testing.T) {
 	}
 }
 
+// deadlineRecorder is a ResponseRecorder that also implements the write-deadline
+// and flush hooks http.ResponseController probes for, so writeAndFlushStream can
+// be driven down its deadline path and the deadlines it sets can be inspected.
 type deadlineRecorder struct {
+	// ResponseRecorder provides the ResponseWriter, body and Flush behaviour.
 	*httptest.ResponseRecorder
+	// deadlines records every deadline in the order it was set; the last entry is
+	// the zero deadline a successful call must leave behind.
 	deadlines []time.Time
 }
 
+// SetWriteDeadline records the deadline and reports success, standing in for a
+// connection that supports write deadlines.
 func (w *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
 	w.deadlines = append(w.deadlines, deadline)
 	return nil
 }
 
+// FlushError flushes the underlying recorder and reports success, satisfying the
+// error-returning flush interface ResponseController prefers.
 func (w *deadlineRecorder) FlushError() error {
 	w.Flush()
 	return nil
 }
 
+// TestWriteAndFlushStreamSetsAndClearsDeadline also asserts the second recorded
+// deadline is the zero time, because a deadline left in place would abort the next
+// write on the same connection.
 func TestWriteAndFlushStreamSetsAndClearsDeadline(t *testing.T) {
 	t.Parallel()
 	response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}

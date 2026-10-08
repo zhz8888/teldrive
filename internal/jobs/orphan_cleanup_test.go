@@ -15,6 +15,8 @@ import (
 	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
 )
 
+// mustTestFileUUID turns a literal UUID into the pgtype form the sqlc row types
+// use; it panics on a malformed literal, which is the failure a test wants.
 func mustTestFileUUID(id string) pgtype.UUID {
 	return dbtypes.UUID(uuid.MustParse(id))
 }

@@ -10,11 +10,20 @@ import (
 	"github.com/gotd/td/tg"
 )
 
+// backgroundRunnerStub stands in for the Telegram runner that carries the pool's
+// background clients: it serves downloads only and counts how many were started
+// and finished.
 type backgroundRunnerStub struct {
-	runs  atomic.Int32
+	// runs counts Run invocations that reached the callback, that is background
+	// clients the pool started.
+	runs atomic.Int32
+	// exits counts Run invocations that have returned, so a client the pool
+	// started but never stopped shows up as a missing exit.
 	exits atomic.Int32
 }
 
+// Run rejects every operation but a download, counts the start, runs fn against a
+// fresh client and counts the exit when fn returns.
 func (r *backgroundRunnerStub) Run(ctx context.Context, _ int64, operation Operation, fn func(context.Context, *tg.Client) error) error {
 	if operation != OperationDownload {
 		return ErrInvalidRequest
@@ -240,6 +249,8 @@ func TestDownloadClientPoolClosedSessionReportsClientUnavailable(t *testing.T) {
 	closeDownloadClientPool(t, pool)
 }
 
+// newTestDownloadClientPool builds a pool over runner and fails the test on an
+// invalid configuration; a zero ReadBuffers or ReadParallel keeps the default.
 func newTestDownloadClientPool(t *testing.T, runner Runner, config DownloadClientPoolConfig) *DownloadClientPool {
 	t.Helper()
 	pool, err := NewDownloadClientPool(runner, config, nil)
@@ -249,6 +260,8 @@ func newTestDownloadClientPool(t *testing.T, runner Runner, config DownloadClien
 	return pool
 }
 
+// closeDownloadClientPool closes the pool under a one-second deadline, so a session
+// that never releases its client fails the test instead of hanging it.
 func closeDownloadClientPool(t *testing.T, pool *DownloadClientPool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

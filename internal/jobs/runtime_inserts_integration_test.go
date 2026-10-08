@@ -16,8 +16,11 @@ import (
 // anything, which is enough to enable the purge sweep for these insert tests.
 type purgeCapableStorage struct{}
 
+// Purge accepts one root without touching anything, which is all these tests need
+// from a purge service.
 func (purgeCapableStorage) Purge(context.Context, int64, uuid.UUID) error { return nil }
 
+// PurgeMany accepts a batch of roots without touching anything.
 func (purgeCapableStorage) PurgeMany(context.Context, int64, []uuid.UUID) error { return nil }
 
 // TestOptionalWorkersAreRefusedWhenTheirRuntimeCannotRunThem is the reason every

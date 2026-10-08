@@ -54,7 +54,9 @@ type locale struct {
 	// code is the directory under content/docs/ holding this locale.
 	code string
 	// title and description are the page front matter.
-	title       string
+	title string
+	// description is the front matter description, written unquoted by
+	// renderReference, unlike the quoted title.
 	description string
 	// preamble holds the three English-language notes rendered above the table.
 	preamble []string

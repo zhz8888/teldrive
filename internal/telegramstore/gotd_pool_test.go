@@ -7,17 +7,26 @@ import (
 	"github.com/gotd/td/tg"
 )
 
+// recordingPooledRunner is a Runner that also implements the pooled variant: it
+// records which entry point was used and with how many connections, so a test can
+// pin when storage takes the pooled path.
 type recordingPooledRunner struct {
+	// regularCalls counts Run invocations, the unpooled path.
 	regularCalls int
-	pooledCalls  int
-	connections  int
+	// pooledCalls counts RunPooled invocations, the pooled path.
+	pooledCalls int
+	// connections is the connection count of the most recent RunPooled call.
+	connections int
 }
 
+// Run records the unpooled call and runs fn against a fresh client.
 func (r *recordingPooledRunner) Run(ctx context.Context, userID int64, operation Operation, fn func(context.Context, *tg.Client) error) error {
 	r.regularCalls++
 	return fn(ctx, new(tg.Client))
 }
 
+// RunPooled records the pooled call and its connection count, then runs fn against
+// a fresh client.
 func (r *recordingPooledRunner) RunPooled(ctx context.Context, userID int64, operation Operation, connections int, fn func(context.Context, *tg.Client) error) error {
 	r.pooledCalls++
 	r.connections = connections

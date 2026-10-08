@@ -50,6 +50,9 @@ type Cacher interface {
 // concurrent use by multiple goroutines and must be closed to release its
 // background resources.
 type MemoryCache struct {
+	// cache is the Ristretto store. It is never nil on an instance returned by
+	// NewMemoryCache; Close tolerates a nil one so a zero-value struct can be
+	// closed defensively.
 	cache *ristretto.Cache[string, []byte]
 	// prefix namespaces every key written by this instance, so cache contents can
 	// be told apart from anything else sharing the process.

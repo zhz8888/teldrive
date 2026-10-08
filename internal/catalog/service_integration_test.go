@@ -374,6 +374,8 @@ func TestCatalogRejectsInvalidParent(t *testing.T) {
 	}
 }
 
+// seedUser inserts the bare users row the file fixtures reference, so a test can
+// create files for a user that never logged in.
 func seedUser(t testing.TB, db *pgxpool.Pool, userID int64) {
 	t.Helper()
 	if _, err := db.Exec(context.Background(), "INSERT INTO users (user_id) VALUES ($1)", userID); err != nil {
@@ -381,6 +383,8 @@ func seedUser(t testing.TB, db *pgxpool.Pool, userID int64) {
 	}
 }
 
+// mustUUID converts a nullable UUID column into a uuid.UUID, failing the test on a
+// NULL or malformed value instead of returning a zero ID.
 func mustUUID(t testing.TB, value pgtype.UUID) uuid.UUID {
 	t.Helper()
 	id, ok := dbtypes.GoogleUUID(value)
@@ -390,6 +394,9 @@ func mustUUID(t testing.TB, value pgtype.UUID) uuid.UUID {
 	return id
 }
 
+// seedFile inserts one active, unencrypted file row and returns its generated ID;
+// created_at, mod_time and updated_at all carry updatedAt so ordering assertions
+// have a timestamp the test controls.
 func seedFile(t testing.TB, db *pgxpool.Pool, userID int64, parentID *uuid.UUID, name, mime string, size int64, updatedAt time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.New()

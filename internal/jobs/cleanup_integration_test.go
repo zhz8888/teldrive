@@ -232,6 +232,8 @@ FROM sessions
 	}
 }
 
+// seedCleanupOwner inserts the account and the selected storage channel the
+// cleanup tests attribute their uploads to.
 func seedCleanupOwner(t testing.TB, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -243,6 +245,9 @@ func seedCleanupOwner(t testing.TB, pool *pgxpool.Pool) {
 	}
 }
 
+// cleanupHash computes the block hashes and the tree checksum of data, the pair the
+// part row records, so a part seeded directly carries the values the upload
+// pipeline would have stored for the same bytes.
 func cleanupHash(data []byte) ([]byte, string) {
 	hasher := treehash.NewBlockHasher()
 	_, _ = hasher.Write(data)
@@ -250,18 +255,31 @@ func cleanupHash(data []byte) ([]byte, string) {
 	return blocks, treehash.SumToHex(treehash.ComputeTreeHash(blocks))
 }
 
+// cleanupStorage is a Storage whose only real behaviour is DeleteMessages: it
+// records the deleted Telegram message IDs and can be made to fail, which is what
+// the sweep asserts on. Every other method reports that the sweep never needs it.
 type cleanupStorage struct {
-	mu        sync.Mutex
-	deleted   []int64
+	// mu guards deleted and deleteErr, because the retry test clears the failure
+	// between two worker runs.
+	mu sync.Mutex
+	// deleted accumulates the message IDs handed to DeleteMessages.
+	deleted []int64
+	// deleteErr, when set, makes DeleteMessages fail so the sweep has to keep the
+	// part rows for a later attempt.
 	deleteErr error
 }
 
+// Upload is unused by the cleanup tests and reports it.
 func (*cleanupStorage) Upload(context.Context, telegramstore.UploadRequest) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not implemented")
 }
+
+// OpenRange is unused by the cleanup tests and reports it.
 func (*cleanupStorage) OpenRange(context.Context, telegramstore.RangeRequest) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
+
+// DeleteMessages records the IDs, or returns the configured failure instead.
 func (s *cleanupStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -271,13 +289,23 @@ func (s *cleanupStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids
 	s.deleted = append(s.deleted, ids...)
 	return nil
 }
+
+// CopyPart is unused by the cleanup tests and reports it.
 func (*cleanupStorage) CopyPart(context.Context, int64, int64, int64, int64) (telegramstore.StoredPart, error) {
 	return telegramstore.StoredPart{}, errors.New("not implemented")
 }
+
+// CreateChannel is unused by the cleanup tests and reports it.
 func (*cleanupStorage) CreateChannel(context.Context, int64, string) (telegramstore.Channel, error) {
 	return telegramstore.Channel{}, errors.New("not implemented")
 }
+
+// DeleteChannel succeeds without doing anything: the sweep deletes messages, never
+// channels.
 func (*cleanupStorage) DeleteChannel(context.Context, int64, int64) error { return nil }
+
+// deletedMessages returns a copy of the recorded IDs, so an assertion cannot race
+// with the worker appending to the slice.
 func (s *cleanupStorage) deletedMessages() []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

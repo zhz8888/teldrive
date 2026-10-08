@@ -14,12 +14,19 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// fakeListenerConnector hands out the listener connections a test queued, one per
+// Connect, so reconnect behaviour can be scripted.
 type fakeListenerConnector struct {
-	mu    sync.Mutex
+	// mu guards conns and calls against the listener goroutine.
+	mu sync.Mutex
+	// conns holds the connections still to hand out, first element first.
 	conns []listenerConn
+	// calls counts Connect invocations, which the reconnect test asserts grew.
 	calls int
 }
 
+// Connect records the call and returns the next queued connection, or an error
+// once the queue is drained so the listener keeps retrying.
 func (c *fakeListenerConnector) Connect(context.Context, string) (listenerConn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -32,13 +39,24 @@ func (c *fakeListenerConnector) Connect(context.Context, string) (listenerConn, 
 	return conn, nil
 }
 
+// fakeListenerConn is one scripted listener connection: it delivers the queued
+// notifications, then either returns the queued error once or blocks until the
+// context is cancelled, which keeps the listener idle without a real socket.
 type fakeListenerConn struct {
-	mu            sync.Mutex
+	// mu guards the fields below against the listener goroutine.
+	mu sync.Mutex
+	// notifications holds the notifications still to deliver, first element first.
 	notifications []*pgconn.Notification
-	err           error
-	closed        bool
+	// err is returned once after the queue is drained; a test sets it to end a
+	// connection the way a dropped socket would.
+	err error
+	// closed records that Close ran, so a test can tell the connection was released.
+	closed bool
 }
 
+// WaitForNotification delivers the next queued notification; with none left it
+// returns err once when set, otherwise blocks until ctx is done and returns its
+// error.
 func (c *fakeListenerConn) WaitForNotification(ctx context.Context) (*pgconn.Notification, error) {
 	c.mu.Lock()
 	if len(c.notifications) > 0 {
@@ -58,7 +76,11 @@ func (c *fakeListenerConn) WaitForNotification(ctx context.Context) (*pgconn.Not
 	return nil, ctx.Err()
 }
 
+// Ping always succeeds: the listener's liveness check is not what these tests
+// exercise.
 func (c *fakeListenerConn) Ping(context.Context) error { return nil }
+
+// Close marks the connection closed so the test can observe the release.
 func (c *fakeListenerConn) Close() {
 	c.mu.Lock()
 	c.closed = true
@@ -113,16 +135,21 @@ func TestListenerReconnectsAndDelivers(t *testing.T) {
 // syncBuffer collects the listener's log output, which the run goroutine keeps
 // writing while the test reads it.
 type syncBuffer struct {
-	mu  sync.Mutex
+	// mu guards buf against the listener goroutine, which keeps writing while the
+	// test reads the captured output.
+	mu sync.Mutex
+	// buf accumulates the captured log output.
 	buf bytes.Buffer
 }
 
+// Write appends p under the mutex and reports a complete write.
 func (b *syncBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.Write(p)
 }
 
+// String returns everything captured so far, under the mutex.
 func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()

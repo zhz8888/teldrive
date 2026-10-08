@@ -16,7 +16,11 @@ import (
 // serving parallel goroutines. The zero value is ready to use; counts are
 // accumulated for the lifetime of the Counter and are never reset.
 type Counter struct {
-	mu     sync.Mutex
+	// mu guards counts, because pgx may call the tracer from several goroutines
+	// at once.
+	mu sync.Mutex
+	// counts maps a query name to the number of times it started. It is created
+	// on the first counted query, which is what makes the zero Counter usable.
 	counts map[string]int
 }
 

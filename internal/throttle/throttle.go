@@ -16,7 +16,10 @@ import (
 
 // Limiter tracks consecutive failures per key.
 type Limiter struct {
-	mu      sync.Mutex
+	// mu guards entries, which every exported method reads or writes.
+	mu sync.Mutex
+	// entries holds the failure state of the keys seen so far and is bounded by
+	// capacity, so invented keys cannot grow it without limit.
 	entries map[string]*entry
 	// failures is how many consecutive failures a key may accumulate before the
 	// limiter starts refusing attempts.
@@ -24,7 +27,9 @@ type Limiter struct {
 	// base is the first block applied after the threshold, doubled for every
 	// further failure up to max.
 	base time.Duration
-	max  time.Duration
+	// max caps one block, so a longer failure streak cannot lock a key out
+	// indefinitely.
+	max time.Duration
 	// capacity bounds how many keys are remembered at once.
 	capacity int
 	// now is the clock, injectable so tests do not sleep.

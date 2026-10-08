@@ -44,16 +44,40 @@ var ErrLegacySchema = errors.New("legacy TelDrive schema detected")
 
 // Config controls the PostgreSQL connection pool used by TelDrive.
 type Config struct {
-	URL                 string        `koanf:"url" default:"" validate:"required" description:"PostgreSQL connection URL"`
-	Schema              string        `koanf:"schema" default:"teldrive" validate:"required" description:"PostgreSQL schema for all TelDrive and River tables"`
-	ApplicationName     string        `koanf:"application-name" default:"teldrive-v2" validate:"required" description:"PostgreSQL application name"`
-	MaxConnections      int32         `koanf:"max-connections" default:"25" validate:"gte=1" description:"Maximum PostgreSQL connections"`
-	MinConnections      int32         `koanf:"min-connections" default:"2" validate:"gte=0" description:"Minimum PostgreSQL connections"`
-	MaxConnectionIdle   time.Duration `koanf:"max-connection-idle" default:"5m" validate:"gte=0" description:"Maximum idle time for a PostgreSQL connection"`
-	MaxConnectionLife   time.Duration `koanf:"max-connection-life" default:"30m" validate:"gte=0" description:"Maximum lifetime for a PostgreSQL connection"`
+	// URL is the libpq-style connection string handed to pgx. A timezone
+	// parameter in it is dropped by Open so every connection runs in UTC.
+	URL string `koanf:"url" default:"" validate:"required" description:"PostgreSQL connection URL"`
+	// Schema names the PostgreSQL schema holding all TelDrive and River tables.
+	// It must match the unquoted lower-case identifier form; an empty value is
+	// replaced by DefaultSchema.
+	Schema string `koanf:"schema" default:"teldrive" validate:"required" description:"PostgreSQL schema for all TelDrive and River tables"`
+	// ApplicationName is sent as the application_name startup parameter. A blank
+	// value leaves whatever the URL already specified in place.
+	ApplicationName string `koanf:"application-name" default:"teldrive-v2" validate:"required" description:"PostgreSQL application name"`
+	// MaxConnections is the pool ceiling; it must be at least one, and a
+	// non-positive value here would leave pgxpool's own default of four in place.
+	MaxConnections int32 `koanf:"max-connections" default:"25" validate:"gte=1" description:"Maximum PostgreSQL connections"`
+	// MinConnections is the number of connections the pool keeps open even while
+	// idle. It may be zero, and Validate rejects a minimum above the maximum.
+	MinConnections int32 `koanf:"min-connections" default:"2" validate:"gte=0" description:"Minimum PostgreSQL connections"`
+	// MaxConnectionIdle closes a connection after this idle time; zero keeps
+	// pgxpool's default of thirty minutes.
+	MaxConnectionIdle time.Duration `koanf:"max-connection-idle" default:"5m" validate:"gte=0" description:"Maximum idle time for a PostgreSQL connection"`
+	// MaxConnectionLife retires a connection after this age; zero keeps
+	// pgxpool's default of one hour.
+	MaxConnectionLife time.Duration `koanf:"max-connection-life" default:"30m" validate:"gte=0" description:"Maximum lifetime for a PostgreSQL connection"`
+	// HealthCheckInterval is how often the pool checks idle connections; zero
+	// keeps pgxpool's default of one minute, and the tag requires a positive
+	// value from configuration.
 	HealthCheckInterval time.Duration `koanf:"health-check-interval" default:"30s" validate:"gt=0" description:"PostgreSQL pool health-check interval"`
-	ConnectTimeout      time.Duration `koanf:"connect-timeout" default:"10s" validate:"gt=0" description:"PostgreSQL connection timeout"`
-	AutoMigrateLegacy   bool          `koanf:"auto-migrate-legacy" default:"true" description:"Automatically migrate a detected TelDrive v1 database during startup"`
+	// ConnectTimeout bounds the pool's first ping in Open. A zero or negative
+	// value falls back to defaultConnectTimeout, while Migrate always uses that
+	// fallback regardless of this setting.
+	ConnectTimeout time.Duration `koanf:"connect-timeout" default:"10s" validate:"gt=0" description:"PostgreSQL connection timeout"`
+	// AutoMigrateLegacy lets the application migrate a detected TelDrive v1
+	// database during startup. When false, a surviving v1 schema makes Migrate
+	// fail with ErrLegacySchema instead.
+	AutoMigrateLegacy bool `koanf:"auto-migrate-legacy" default:"true" description:"Automatically migrate a detected TelDrive v1 database during startup"`
 	// AllowLegacySchema accepts connecting to a database that still contains the
 	// TelDrive v1 schema instead of failing with ErrLegacySchema. It has no
 	// corresponding configuration key and is set programmatically, which keeps

@@ -137,19 +137,35 @@ VALUES ($1, 1001, 'pending', 'file', 0, 'deletion_pending', now(), now())
 	}
 }
 
+// purgeCall is one Purge invocation, kept so a test can tell which root each call
+// resolved to.
 type purgeCall struct {
+	// userID is the owner the purge was attributed to.
 	userID int64
+	// fileID is the root the worker asked to purge.
 	fileID uuid.UUID
 }
 
+// recordingPurgeService is a PurgeService that logs the calls it receives and the
+// size of every batch, can be made to fail, and can run a hook per call so a test
+// can delete the row the worker is about to purge.
 type recordingPurgeService struct {
-	mu      sync.Mutex
-	calls   []purgeCall
+	// mu guards every field below, because the worker may call from a goroutine.
+	mu sync.Mutex
+	// calls records each single-file purge in order.
+	calls []purgeCall
+	// batches records the file count of every PurgeMany call, which is how the
+	// page size the worker chose becomes visible.
 	batches []int
-	err     error
-	after   func(context.Context, int64, uuid.UUID) error
+	// err, when set, is returned by Purge without running after.
+	err error
+	// after runs once a call has been recorded, so the test can delete the file and
+	// make the sweep fetch another page.
+	after func(context.Context, int64, uuid.UUID) error
 }
 
+// PurgeMany records the batch size and then purges the files one by one, stopping
+// at the first failure.
 func (s *recordingPurgeService) PurgeMany(ctx context.Context, userID int64, fileIDs []uuid.UUID) error {
 	s.mu.Lock()
 	s.batches = append(s.batches, len(fileIDs))
@@ -162,6 +178,8 @@ func (s *recordingPurgeService) PurgeMany(ctx context.Context, userID int64, fil
 	return nil
 }
 
+// Purge records the call, then runs after unless the service is configured to
+// fail; the failure wins over the hook.
 func (s *recordingPurgeService) Purge(ctx context.Context, userID int64, fileID uuid.UUID) error {
 	s.mu.Lock()
 	s.calls = append(s.calls, purgeCall{userID: userID, fileID: fileID})
@@ -173,12 +191,14 @@ func (s *recordingPurgeService) Purge(ctx context.Context, userID int64, fileID 
 	return after(ctx, userID, fileID)
 }
 
+// callsSnapshot returns a copy of the recorded calls.
 func (s *recordingPurgeService) callsSnapshot() []purgeCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]purgeCall(nil), s.calls...)
 }
 
+// batchesSnapshot returns a copy of the recorded batch sizes.
 func (s *recordingPurgeService) batchesSnapshot() []int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

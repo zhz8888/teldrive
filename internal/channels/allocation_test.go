@@ -11,12 +11,18 @@ import (
 // stubCreator answers Create with whatever the test set up, so the allocation
 // branches can be driven without a Telegram connection.
 type stubCreator struct {
+	// channel is the RemoteChannel Create reports; leaving its ID zero exercises the
+	// empty-Telegram-ID branch.
 	channel RemoteChannel
-	err     error
+	// err, when set, is what Create returns instead of channel.
+	err error
+	// created records the channel names Create was asked for, in call order.
 	created []string
+	// deleted records the channel IDs Delete was asked to remove.
 	deleted []int64
 }
 
+// Create records the requested name and then reports the scripted channel or error.
 func (s *stubCreator) Create(_ context.Context, _ int64, name string) (RemoteChannel, error) {
 	s.created = append(s.created, name)
 	if s.err != nil {
@@ -25,11 +31,16 @@ func (s *stubCreator) Create(_ context.Context, _ int64, name string) (RemoteCha
 	return s.channel, nil
 }
 
+// Delete records the channel ID and reports success, because the compensation
+// contract requires a delete of an already-gone channel to count as done.
 func (s *stubCreator) Delete(_ context.Context, _ int64, id int64) error {
 	s.deleted = append(s.deleted, id)
 	return nil
 }
 
+// newStubbedService builds a Service around the given creator with a fixed name
+// prefix, part limit and clock, so the allocation branches under test need neither a
+// database nor real time.
 func newStubbedService(creator Creator) *Service {
 	return &Service{
 		creator: creator,

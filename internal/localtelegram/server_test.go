@@ -156,6 +156,8 @@ func TestDiscoverChannelsPagesPastOneBatch(t *testing.T) {
 	}
 }
 
+// assertRange reads length bytes at offset through storage and compares them with
+// want, so callers only have to name the range and its expected content.
 func assertRange(t *testing.T, storage telegramstore.Storage, part telegramstore.StoredPart, offset, length int64, want []byte) {
 	t.Helper()
 	reader, err := storage.OpenRange(context.Background(), telegramstore.RangeRequest{

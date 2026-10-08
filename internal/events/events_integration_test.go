@@ -189,6 +189,9 @@ func TestServiceDurableReplayNotificationsAndTickets(t *testing.T) {
 	}
 }
 
+// waitWake blocks until the subscription's wake channel fires, naming the awaited
+// notification in the failure message; the two-second budget is what keeps a lost
+// NOTIFY from hanging the whole suite.
 func waitWake(t *testing.T, wake <-chan struct{}, name string) {
 	t.Helper()
 	select {
@@ -198,6 +201,8 @@ func waitWake(t *testing.T, wake <-chan struct{}, name string) {
 	}
 }
 
+// closeService closes the service with a one-second deadline and reports the error
+// through t.Errorf, so a failure does not skip the assertions that follow.
 func closeService(t *testing.T, service *events.Service) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

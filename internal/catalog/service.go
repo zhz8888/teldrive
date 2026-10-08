@@ -69,7 +69,11 @@ var (
 // takes the caller's user ID and scopes its SQL to that owner, so no per-request
 // state lives in the struct.
 type Service struct {
-	pool    *pgxpool.Pool
+	// pool is the connectivity the queries handle was built from; no method
+	// reads it directly after construction, so all SQL goes through queries.
+	pool *pgxpool.Pool
+	// queries is the sqlc handle bound to pool; every catalog statement uses it
+	// and none of them opens a transaction of its own.
 	queries *sqlcgen.Queries
 	// now supplies the current time and is a field so tests can pin it; only
 	// CreateFolder consults it, to fill in a zero ModTime.

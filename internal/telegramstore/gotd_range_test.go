@@ -56,8 +56,15 @@ func TestGotdDownloadSessionStopsWhenRequestIsCanceled(t *testing.T) {
 	}
 }
 
-type sessionCountingRunner struct{ runs atomic.Int32 }
+// sessionCountingRunner serves downloads and counts Run invocations, so a test can
+// tell how many background sessions a storage handle actually opened.
+type sessionCountingRunner struct {
+	// runs counts Run invocations that reached the callback.
+	runs atomic.Int32
+}
 
+// Run counts every invocation before validating it, rejects anything but a
+// download and runs fn against a fresh client.
 func (r *sessionCountingRunner) Run(ctx context.Context, _ int64, operation Operation, fn func(context.Context, *tg.Client) error) error {
 	r.runs.Add(1)
 	if operation != OperationDownload {
@@ -218,10 +225,16 @@ func TestTelegramRangeReaderRefreshesExpiredFileReference(t *testing.T) {
 	}
 }
 
+// expiringDownloadInvoker impersonates Telegram answering a stale location: the
+// first UploadGetFile call fails with FILE_REFERENCE_EXPIRED and every later call
+// succeeds, so a test can pin that the reader refreshes the reference exactly once.
 type expiringDownloadInvoker struct {
+	// calls counts Invoke invocations; the first one is the expired attempt.
 	calls atomic.Int32
 }
 
+// Invoke fails the first call with FILE_REFERENCE_EXPIRED and serves the rest with
+// a full-size file box.
 func (i *expiringDownloadInvoker) Invoke(_ context.Context, input bin.Encoder, output bin.Decoder) error {
 	request := input.(*tg.UploadGetFileRequest)
 	if i.calls.Add(1) == 1 {
@@ -235,11 +248,19 @@ func (i *expiringDownloadInvoker) Invoke(_ context.Context, input bin.Encoder, o
 	return nil
 }
 
+// pipelinedDownloadInvoker lets a test hold individual chunk reads in flight: each
+// request is announced on started and then blocks until the release channel
+// registered for its offset is closed, which pins how far ahead the reader reads.
 type pipelinedDownloadInvoker struct {
-	started  chan int64
+	// started receives the offset of every request as it begins.
+	started chan int64
+	// releases maps a chunk offset to the channel whose close lets that request
+	// finish; an offset without an entry returns immediately.
 	releases map[int64]<-chan struct{}
 }
 
+// Invoke announces the request offset, waits for its release or ctx and then
+// returns a full-size file box.
 func (i *pipelinedDownloadInvoker) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
 	request := input.(*tg.UploadGetFileRequest)
 	i.started <- request.Offset
@@ -255,10 +276,15 @@ func (i *pipelinedDownloadInvoker) Invoke(ctx context.Context, input bin.Encoder
 	return nil
 }
 
+// timeoutThenSuccessDownloadInvoker makes the first request outlive its context and
+// succeed afterwards, so a test can pin that a chunk which times out is retried
+// rather than failing the whole read.
 type timeoutThenSuccessDownloadInvoker struct {
+	// calls counts Invoke invocations; the first one is the timed-out attempt.
 	calls atomic.Int32
 }
 
+// Invoke blocks the first call until ctx is done and serves every later call.
 func (i *timeoutThenSuccessDownloadInvoker) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
 	request := input.(*tg.UploadGetFileRequest)
 	if i.calls.Add(1) == 1 {
@@ -270,10 +296,15 @@ func (i *timeoutThenSuccessDownloadInvoker) Invoke(ctx context.Context, input bi
 	return nil
 }
 
+// rpcTimeoutThenSuccessDownloadInvoker answers the first request with Telegram's
+// RPC-level -503 Timeout and succeeds afterwards, so a test can pin that the retry
+// path covers an error returned by the API rather than by the transport.
 type rpcTimeoutThenSuccessDownloadInvoker struct {
+	// calls counts Invoke invocations; the first one is the rejected attempt.
 	calls atomic.Int32
 }
 
+// Invoke returns the -503 Timeout RPC error on the first call and serves the rest.
 func (i *rpcTimeoutThenSuccessDownloadInvoker) Invoke(_ context.Context, input bin.Encoder, output bin.Decoder) error {
 	request := input.(*tg.UploadGetFileRequest)
 	if i.calls.Add(1) == 1 {

@@ -91,7 +91,10 @@ type UploadCleanupWorker struct {
 // cleanupChannel identifies one Telegram channel and the user who owns it, so the
 // parts of several sessions can be deleted per channel with a single request.
 type cleanupChannel struct {
-	userID    int64
+	// userID is the owner whose Telegram account or bots hold the channel; it is
+	// passed to the storage layer together with channelID.
+	userID int64
+	// channelID is the Telegram channel that holds the group's parts.
 	channelID int64
 }
 
