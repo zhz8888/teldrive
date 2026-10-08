@@ -6,6 +6,10 @@ on:
       - v2
     paths:
       - "docs/**"
+      # The API reference is rendered from the committed contract, so a spec
+      # change has to redeploy the site even when nothing under docs/ moved.
+      - "openapi/teldrive.openapi.yaml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,11 +42,22 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      # Astro bakes absolute URLs into the output, so the site and the base path
+      # have to match where Pages actually serves the repository. Deriving them
+      # from the run keeps a renamed repository, a fork or a user site
+      # deployable without editing the workflow.
+      - name: Resolve the Pages origin and base path
+        run: |
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          if [ "$repository_name" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            echo "DOCS_BASE=/" >> "$GITHUB_ENV"
+          else
+            echo "DOCS_BASE=/${repository_name}" >> "$GITHUB_ENV"
+          fi
+          echo "DOCS_SITE=https://${GITHUB_REPOSITORY_OWNER}.github.io" >> "$GITHUB_ENV"
+
       - name: Build docs
         working-directory: docs
-        env:
-          DOCS_SITE: https://zhz8888.github.io
-          DOCS_BASE: /teldrive
         run: bun run build
 
       - name: Upload Pages artifact
