@@ -12,6 +12,9 @@ buildGoModule {
   inherit version;
   src = lib.cleanSourceWith {
     src = ../.;
+    # filter keeps the store copy to the Go sources: the build output, the
+    # JavaScript dependency trees and the local database artifacts would only
+    # invalidate the derivation without being read.
     filter = path: _type:
       !(builtins.elem (baseNameOf path) [
         ".git"

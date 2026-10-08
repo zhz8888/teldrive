@@ -9,6 +9,9 @@
 # on that basis is the failure this check exists to prevent.
 set -euo pipefail
 
+# require_engine checks that the named runtime is both installed and answering,
+# and explains which of the two is missing on stderr. It is used for an explicit
+# TELDRIVE_CONTAINER_RUNTIME, where a silent fallback would run the wrong engine.
 require_engine() {
   local runtime="$1"
   command -v "$runtime" >/dev/null 2>&1 || {

@@ -7,9 +7,13 @@ import Icons from "unplugin-icons/vite";
 import { defineConfig, type Plugin } from "vite";
 import babel from "@rolldown/plugin-babel";
 
+// The pdf.js build ships its character maps, standard fonts, wasm modules and ICC
+// profiles outside the bundle; the reader requests them at run time from /pdfjs.
 const pdfJsRoot = path.resolve(import.meta.dirname, "node_modules/pdfjs-dist");
 const pdfJsAssetDirectories = ["cmaps", "standard_fonts", "wasm", "iccs"] as const;
 
+// assetFiles lists every file below directory, following nested directories, so
+// the plugin can emit the whole pdf.js asset tree without naming its files.
 async function assetFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = await Promise.all(
@@ -35,6 +39,11 @@ function keepDistPlaceholder(): Plugin {
   };
 }
 
+// pdfJsAssets emits pdf.js's asset tree next to the bundle and patches the
+// vendored foliate-js sources: foliate's own PDF path is replaced with an error
+// (Teldrive renders PDFs itself) and its ResizeObserver callbacks ignore
+// observations of detached elements and render only once a document is loaded,
+// which is what keeps a destroyed reader from rendering into a dead layout.
 function pdfJsAssets(): Plugin {
   return {
     name: "pdfjs-assets",
@@ -87,6 +96,9 @@ function pdfJsAssets(): Plugin {
 }
 
 export default defineConfig(() => {
+  // The dev server proxies /api to the backend; a backend configured to listen on
+  // every interface is reached over loopback, which is the address that works
+  // from the browser as well.
   const backendAddress = process.env.TELDRIVE_HTTP_ADDRESS ?? "127.0.0.1:8080";
   const backendHost = backendAddress.startsWith("0.0.0.0:")
     ? `127.0.0.1:${backendAddress.slice("0.0.0.0:".length)}`
@@ -104,6 +116,8 @@ export default defineConfig(() => {
         compiler: "jsx",
         jsx: "react",
         autoInstall: true,
+        // Every icon renders at one size and never reacts to pointer events, so
+        // the defaults are applied here instead of at each call site.
         iconCustomizer(_1, _2, props) {
           props.width = "1.25rem";
           props.height = "1.25rem";

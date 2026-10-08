@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// When a URL is supplied the suite runs against an already running deployment and
+// starts no server of its own; otherwise the config starts Vite on 4173 below.
 const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL ?? process.env.TELDRIVE_UI_BASE_URL;
 
 export default defineConfig({

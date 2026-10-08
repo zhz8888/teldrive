@@ -58,6 +58,9 @@
             };
         };
 
+      # mkPkgs is the nixpkgs instance every output evaluates against: the
+      # bun2nix from the flake input plus the prebuilt-binary overlay above, so
+      # the JavaScript builds do not compile bun2nix's Rust CLI from source.
       mkPkgs = system: import nixpkgs {
         inherit system;
         overlays = [ bun2nix.overlays.default bun2nixPrebuilt ];

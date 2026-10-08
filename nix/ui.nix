@@ -4,6 +4,8 @@ stdenv.mkDerivation {
   inherit version;
   src = lib.cleanSourceWith {
     src = ../ui;
+    # filter keeps the source tree only: node_modules comes from bun2nix and
+    # dist is what this derivation builds.
     filter = path: _type:
       !(builtins.elem (baseNameOf path) [ "node_modules" "dist" "test-results" ]);
   };

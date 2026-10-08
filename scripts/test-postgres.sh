@@ -13,6 +13,9 @@ user="teldrive"
 password="teldrive"
 database="teldrive_test"
 
+# cleanup removes the throwaway database container; it runs on every exit path,
+# so a failed start must not be reported as a leaked container. Failures are
+# ignored because the container may never have been created.
 cleanup() {
   "$runtime" rm -f "$name" >/dev/null 2>&1 || true
 }
