@@ -1,11 +1,11 @@
 import { Button } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import DisplayIcon from "~icons/gravity-ui/display";
 import MoonIcon from "~icons/gravity-ui/moon";
 import SunIcon from "~icons/gravity-ui/sun";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
 import { LOCALE_LABELS, LOCALES, type MessageKey, useI18n } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
 
 export const Route = createFileRoute("/_settings/settings/appearance")({
   component: AppearanceSettings,

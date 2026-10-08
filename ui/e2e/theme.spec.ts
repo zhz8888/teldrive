@@ -97,3 +97,24 @@ test("the toolbar button switches to the opposite theme", async ({ page }) => {
   await page.getByRole("button", { name: "Switch to the light theme" }).click();
   await expect(documentTheme(page)).toHaveClass(/light/);
 });
+
+test("a choice made in another tab reaches this one", async ({ context, page }) => {
+  await installShellApi(page);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/files");
+  await expect(documentTheme(page)).toHaveClass(/light/);
+
+  // The same context shares localStorage, so the second tab is another window
+  // onto the same stored choice rather than a separate profile.
+  const other = await context.newPage();
+  await installShellApi(other);
+  await other.emulateMedia({ colorScheme: "light" });
+  await other.goto("/settings/appearance");
+  await themeChoice(other, "Dark").click();
+  await expect(documentTheme(other)).toHaveClass(/dark/);
+
+  // Only the window that did not make the change receives the storage event.
+  await expect(documentTheme(page)).toHaveClass(/dark/);
+  await expect(themeChoice(other, "Dark")).toHaveAttribute("aria-pressed", "true");
+  await other.close();
+});

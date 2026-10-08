@@ -17,7 +17,6 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import { useEffect, useState, type Ref } from "react";
 import { toast } from "sonner";
 import MenuIcon from "~icons/gravity-ui/bars";
@@ -42,6 +41,7 @@ import { $api } from "../api/client";
 import { isUnauthorized, userMessage } from "../api/errors";
 import { useI18n, type MessageKey } from "../lib/i18n";
 import { getQueryClient } from "../lib/queryClient";
+import { useTheme } from "../lib/theme";
 
 const mainNav = [
   { labelKey: "routes.root.nav.files", icon: GridIcon, path: "/files" },
