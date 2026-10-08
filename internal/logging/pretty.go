@@ -32,11 +32,11 @@ const (
 )
 
 // prettyHandler is the slog.Handler behind the "text" log format: one line per
-// record with a timestamp, level icon, message, and key=value attributes.
-// Methods that derive a handler clone shared state, so Enabled, Handle, and
-// the With* methods may be called from multiple goroutines; Handle assembles a
-// record into one string and holds mu around the single write, so records cannot
-// interleave on a shared out.
+// record reading "[YYYY-MM-DD_HH:mm:ss] [LEVEL] message", followed by the
+// key=value attributes. Methods that derive a handler clone shared state, so
+// Enabled, Handle, and the With* methods may be called from multiple goroutines;
+// Handle assembles a record into one string and holds mu around the single
+// write, so records cannot interleave on a shared out.
 type prettyHandler struct {
 	out    io.Writer
 	level  slog.Leveler
@@ -74,24 +74,23 @@ func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
 // attributes; groups are joined with their children using dots. It returns the
 // write error, if any, and never mutates the record.
 func (h *prettyHandler) Handle(_ context.Context, record slog.Record) error {
-	icon, levelText, color := prettyLevel(record.Level)
+	levelText, color := prettyLevel(record.Level)
 	if !h.color {
 		color = ""
 	}
 
 	var line strings.Builder
-	line.WriteString(record.Time.Format("2006-01-02 15:04:05"))
-	line.WriteString("  ")
-	line.WriteString(icon)
-	line.WriteString(" ")
+	line.WriteString("[")
+	line.WriteString(record.Time.Format("2006-01-02_15:04:05"))
+	line.WriteString("] [")
 	if color != "" {
 		line.WriteString(color)
 	}
-	line.WriteString(fmt.Sprintf("%-5s", levelText))
+	line.WriteString(levelText)
 	if color != "" {
 		line.WriteString(ansiReset)
 	}
-	line.WriteString("  ")
+	line.WriteString("] ")
 	line.WriteString(record.Message)
 
 	attrs := append([]slog.Attr(nil), h.attrs...)
@@ -171,22 +170,22 @@ func (h *prettyHandler) appendAttr(line *strings.Builder, groups []string, attr 
 	line.WriteString(formatSlogValue(attr.Value))
 }
 
-// prettyLevel maps a level to the icon, five-character label, and ANSI color
-// used for it. Levels below DEBUG and at or above ERROR saturate to the nearest
-// known level, and the final branch is unreachable because slog levels are
-// integers.
-func prettyLevel(level slog.Level) (icon, text, color string) {
+// prettyLevel maps a level to the label and ANSI color used for it. The label
+// is the level name in capitals so the bracketed field reads the same in every
+// record. Levels below DEBUG and at or above ERROR saturate to the nearest known
+// level, and the final branch is unreachable because slog levels are integers.
+func prettyLevel(level slog.Level) (text, color string) {
 	switch {
 	case level <= slog.LevelDebug:
-		return "🐛", "DEBUG", ansiMagenta
+		return "DEBUG", ansiMagenta
 	case level < slog.LevelWarn:
-		return "✓", "INFO", ansiGreen
+		return "INFO", ansiGreen
 	case level < slog.LevelError:
-		return "⚠", "WARN", ansiYellow
+		return "WARN", ansiYellow
 	case level >= slog.LevelError:
-		return "✗", "ERROR", ansiRed
+		return "ERROR", ansiRed
 	default:
-		return "·", strings.ToUpper(level.String()), ansiWhite
+		return strings.ToUpper(level.String()), ansiWhite
 	}
 }
 
