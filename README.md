@@ -103,7 +103,7 @@ just ui-check    # UI lint, typecheck, browser tests and build
 just check       # full gate: generation, lint, tests, coverage, builds
 ```
 
-Integration and race tests need Podman:
+Integration and race tests need a container runtime, Docker or Podman:
 
 ```bash
 just test-integration

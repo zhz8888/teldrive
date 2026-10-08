@@ -158,8 +158,10 @@ dev:
     cleanup
     exit "$status"
 
+# The container runtime is whichever engine answers: docker or podman. Override
+# with TELDRIVE_CONTAINER_RUNTIME when both are installed and the choice matters.
 image:
-    podman build --build-arg VERSION={{version}} --build-arg COMMIT={{commit}} --build-arg BUILD_DATE={{build_date}} -t teldrive-backend:{{version}} .
+    "$(./scripts/container-runtime.sh)" build --build-arg VERSION={{version}} --build-arg COMMIT={{commit}} --build-arg BUILD_DATE={{build_date}} -t teldrive-backend:{{version}} .
 
 test-unit:
     go test ./...

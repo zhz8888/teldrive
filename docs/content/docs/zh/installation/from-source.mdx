@@ -12,7 +12,7 @@ description: 从仓库构建并测试 Teldrive。
 - `sqlc` **必须是 v1.31.1** —— `just generate-db` 以及因此 `just check` 会拒绝任何其他版本
 - Playwright 浏览器 —— `bunx playwright install chromium`，`just ui-check` 和 `just check` 需要它们
 - PostgreSQL 18，用于运行服务端
-- Podman，用于 `just image`、集成测试和竞态测试
+- Docker 或 Podman，用于 `just image`、集成测试和竞态测试
 
 或者全部跳过——Nix flake 提供了完整的工具链：
 
@@ -89,7 +89,7 @@ just generate-db
 just image
 ```
 
-该命令用 Podman 构建根目录的 `Dockerfile`，并在**本地**把结果标记为 `teldrive-backend:dev` —— 不会推送到 `ghcr.io`。该镜像采用多阶段构建（Bun/Vite 界面 → `golang:1.26-alpine` → `gcr.io/distroless/static-debian12:nonroot`），产出与发布归档包相同的静态二进制文件。
+该命令用可用的容器运行时（Docker 或 Podman）构建根目录的 `Dockerfile`，并在**本地**把结果标记为 `teldrive-backend:dev` —— 不会推送到 `ghcr.io`。该镜像采用多阶段构建（Bun/Vite 界面 → `golang:1.26-alpine` → `gcr.io/distroless/static-debian12:nonroot`），产出与发布归档包相同的静态二进制文件。
 
 ## 文档站点
 

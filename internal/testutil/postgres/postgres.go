@@ -2,8 +2,8 @@
 
 // Package postgres provisions throwaway PostgreSQL databases for integration
 // tests. It is compiled only under the integration build tag and expects the
-// harness started by scripts/test-postgres.sh (Podman plus the pinned PostgreSQL
-// image), which is what exports TEST_DATABASE_URL.
+// harness started by scripts/test-postgres.sh (docker or podman plus the pinned
+// PostgreSQL image), which is what exports TEST_DATABASE_URL.
 package postgres
 
 import (

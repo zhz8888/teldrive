@@ -97,7 +97,7 @@ just ui-check    # 前端 lint、类型检查、浏览器测试与构建
 just check       # 完整门禁：生成、lint、测试、覆盖率、构建
 ```
 
-集成测试与竞态测试需要 Podman：
+集成测试与竞态测试需要容器运行时（Docker 或 Podman）：
 
 ```bash
 just test-integration

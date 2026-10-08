@@ -13,9 +13,9 @@
 - Run locally: `just dev` (backend plus the Vite dev server). `teldrive check` pre-flight-loads the configuration, applies migrations and initializes every dependency, then exits.
 - Install pinned JS dependencies: `just install-tools` (uses Bun for both `typespec/` and `ui/`).
 - Backend unit tests: `go test ./...`; focused package/test: `go test ./internal/transfer -run '^TestName$'`.
-- Integration tests require Podman and must use the harness: `scripts/test-postgres.sh go test -tags=integration ./internal/uploads`; use `just test-integration` for all packages.
+- Integration tests need a container runtime (docker or podman, whichever engine answers; see `scripts/container-runtime.sh`) and must use the harness: `scripts/test-postgres.sh go test -tags=integration ./internal/uploads`; use `just test-integration` for all packages.
 - Race tests also require the PostgreSQL harness: `just test-race`.
-- Full project validation: `just check`. This regenerates artifacts and runs lint, UI checks/build, unit tests, and the Podman-backed 78% core coverage gate; it is intentionally expensive.
+- Full project validation: `just check`. This regenerates artifacts and runs lint, UI checks/build, unit tests, and the container-backed 78% core coverage gate; it is intentionally expensive.
 - UI checks: `just ui-check` (includes browser E2E with mocked API responses).
 - Documentation site: `just docs-build`; `just check` builds it too, so a docs change fails the gate.
 - Format only handwritten code with `just format`; generated Go directories are deliberately excluded.

@@ -21,6 +21,11 @@ jobs:
     name: Full gate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # The PostgreSQL harness drives docker or podman, whichever engine
+      # answers. Runners ship docker preinstalled, so pin it rather than
+      # installing podman and leaving the choice to detection order.
+      TELDRIVE_CONTAINER_RUNTIME: docker
 
     steps:
       - name: Check out repository
@@ -48,9 +53,6 @@ jobs:
         run: |
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Install Podman
-        run: sudo apt-get update && sudo apt-get install -y podman
 
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
