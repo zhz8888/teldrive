@@ -15,6 +15,8 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # The Cloudflare mirror records a GitHub deployment for every upload.
+  deployments: write
 
 concurrency:
   group: docs-pages
@@ -68,3 +70,49 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # The Cloudflare mirror stays off until the repository carries all three
+      # secrets below, so a fork without them still gets the Pages deployment
+      # and no skipped-looking work. Reading them in this step alone keeps the
+      # token out of the environment of the actions the job ran above.
+      - name: Check the Cloudflare Pages inputs
+        id: cloudflare
+        env:
+          DOCS_SITE: ${{ secrets.DOCS_SITE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$DOCS_SITE" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cloudflare Pages is skipped: set DOCS_SITE, CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to enable the mirror."
+          fi
+
+      # Cloudflare serves the site from the domain root while Pages serves it
+      # under the repository name, and Astro bakes absolute URLs into the
+      # output, so the origin and the base path are rebuilt for this target.
+      # They are exported here rather than inherited, because the job wrote the
+      # Pages values into the environment of every later step. Running this
+      # after the Pages artifact was uploaded leaves that artifact untouched.
+      - name: Build docs for Cloudflare Pages
+        if: steps.cloudflare.outputs.enabled == 'true'
+        working-directory: docs
+        env:
+          CLOUDFLARE_DOCS_SITE: ${{ secrets.DOCS_SITE }}
+        run: |
+          export DOCS_SITE="$CLOUDFLARE_DOCS_SITE"
+          export DOCS_BASE=/
+          bun run build
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.cloudflare.outputs.enabled == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # docs/ owns the lockfile the action needs to detect Bun.
+          workingDirectory: docs
+          packageManager: bun
+          command: pages deploy dist --project-name=teldrive-docs --branch=${{ github.ref_name }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
