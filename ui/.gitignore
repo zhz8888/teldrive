@@ -2,6 +2,5 @@ node_modules/
 dist/*
 !dist/.gitkeep
 public/mockServiceWorker.js
-src/routeTree.gen.ts
 playwright-report/
 test-results/

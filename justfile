@@ -72,6 +72,10 @@ generate-ui: generate-openapi
 docs-generate: generate-openapi
     go run ./internal/tools/docsconfig
 
+# The repository tracks every generated artifact and CI verifies the committed
+# ones against a fresh run. ui/src/routeTree.gen.ts is the exception to the
+# recipe list: the TanStack Router plugin owns it, so `ui build` rewrites it and
+# the diff after `check` is what keeps the committed copy honest.
 generate: generate-api generate-db generate-ui docs-generate
     go mod tidy
 
