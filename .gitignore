@@ -1,24 +1,44 @@
+# JavaScript and TypeScript workspaces: ui/, docs/ and typespec/ each install
+# their own dependency tree.
 node_modules/
-.direnv/
+*.log
+
+# Build output. dist/ is shared by Vite, Astro and GoReleaser; bin/ is where the
+# justfile writes the server binary, and a bare `go build ./cmd/teldrive` drops
+# the same binary at the repository root.
 dist/
+bin/
+/teldrive
+
 # The embedded UI directory must exist in a fresh clone: ui/ui.go embeds it with
 # //go:embed all:dist, which fails to compile when the directory is missing. Only
 # the placeholder is tracked; the built assets stay ignored.
 !ui/dist/
 ui/dist/*
 !ui/dist/.gitkeep
+
+# Test and coverage output. test-results/ covers Playwright on any workspace.
 test-results/
+coverage/
+coverage.out
+
+# Playwright downloads its browsers here when PLAYWRIGHT_BROWSERS_PATH points at
+# the checkout; the ui workspace owns the browser revision the specs run against.
+.playwright-browsers/
+# Go vendoring, written by `just update-flake-hashes` and by `go mod vendor`.
+vendor/
+
+# Local configuration. The justfile loads .env for every recipe, and it holds the
+# database URL and the security keys of this deployment.
 .env
 .env.*
-coverage/
-bin/
-*.log
-.DS_Store
 
-coverage.out
-.slim/deepwork/
-ui/.tanstack/
-
-# Nix build output and per-user garbage collection roots.
+# Nix builds and direnv.
+.direnv/
 result
 result-*
+
+# Tool caches, editor and OS files.
+ui/.tanstack/
+.slim/deepwork/
+.DS_Store
