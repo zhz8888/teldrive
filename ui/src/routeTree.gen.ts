@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/_settings'
 import { Route as FilesRouteImport } from './routes/files'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as SearchRouteImport } from './routes/search'
 import { Route as SharedRouteImport } from './routes/shared'
 import { Route as SharedWithMeRouteImport } from './routes/shared-with-me'
 import { Route as StorageRouteImport } from './routes/storage'
@@ -47,6 +48,11 @@ const FilesRoute = FilesRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SharedRoute = SharedRouteImport.update({
@@ -138,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/shared': typeof SharedRoute
   '/shared-with-me': typeof SharedWithMeRoute
   '/storage': typeof StorageRoute
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/shared': typeof SharedRoute
   '/shared-with-me': typeof SharedWithMeRoute
   '/storage': typeof StorageRoute
@@ -182,6 +190,7 @@ export interface FileRoutesById {
   '/_settings': typeof SettingsRouteWithChildren
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
+  '/search': typeof SearchRoute
   '/shared': typeof SharedRoute
   '/shared-with-me': typeof SharedWithMeRoute
   '/storage': typeof StorageRoute
@@ -205,6 +214,7 @@ export interface FileRouteTypes {
     | '/'
     | '/files'
     | '/login'
+    | '/search'
     | '/shared'
     | '/shared-with-me'
     | '/storage'
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/'
     | '/files'
     | '/login'
+    | '/search'
     | '/shared'
     | '/shared-with-me'
     | '/storage'
@@ -248,6 +259,7 @@ export interface FileRouteTypes {
     | '/_settings'
     | '/files'
     | '/login'
+    | '/search'
     | '/shared'
     | '/shared-with-me'
     | '/storage'
@@ -271,6 +283,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   FilesRoute: typeof FilesRoute
   LoginRoute: typeof LoginRoute
+  SearchRoute: typeof SearchRoute
   SharedRoute: typeof SharedRoute
   SharedWithMeRoute: typeof SharedWithMeRoute
   StorageRoute: typeof StorageRoute
@@ -308,6 +321,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/shared': {
@@ -458,6 +478,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   FilesRoute: FilesRoute,
   LoginRoute: LoginRoute,
+  SearchRoute: SearchRoute,
   SharedRoute: SharedRoute,
   SharedWithMeRoute: SharedWithMeRoute,
   StorageRoute: StorageRoute,

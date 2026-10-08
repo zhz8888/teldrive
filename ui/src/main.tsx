@@ -2,7 +2,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
-import { CommandPaletteProvider } from "./components/command-palette-context";
 import { I18nProvider } from "./lib/i18n";
 import { getQueryClient } from "./lib/queryClient";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -56,9 +55,7 @@ async function startApp() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <I18nProvider>
-            <CommandPaletteProvider>
-              <RouterProvider router={router} />
-            </CommandPaletteProvider>
+            <RouterProvider router={router} />
           </I18nProvider>
           <ThemedToaster />
         </ThemeProvider>

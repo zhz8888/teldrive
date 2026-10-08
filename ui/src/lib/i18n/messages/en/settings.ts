@@ -212,6 +212,7 @@ export const settings = {
   "settings.users.disable": "Disable",
   "settings.users.revokeAccess": "Revoke access",
   "settings.users.empty": "No users match this search.",
+  "settings.users.loading": "Loading users",
   "settings.users.toast.updated": "User updated",
   "settings.users.toast.updateFailed": "User could not be updated",
   "settings.users.toast.revoked": "Sessions and API keys revoked",

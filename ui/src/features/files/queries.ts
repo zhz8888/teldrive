@@ -48,7 +48,11 @@ export type FileRouteSearch = {
   q?: string;
   sort: FileSort;
   order: "asc" | "desc";
-  category?: FileCategory;
+  category?: FileCategory | FileCategory[];
+  scope?: "folder" | "drive" | "recursive";
+  kind?: "file" | "folder";
+  updatedAfter?: string;
+  updatedBefore?: string;
   cursor?: string;
   cursorHistory?: string;
   view: "list" | "grid";
@@ -62,10 +66,25 @@ export function filePageInit(search: FileRouteSearch, status: FileStatus, cursor
     params: {
       query: {
         parentId: search.parentId,
-        path: search.parentId ? undefined : search.path === "/" ? undefined : search.path,
+        path:
+          search.scope && search.scope !== "folder"
+            ? undefined
+            : search.parentId
+              ? undefined
+              : search.path === "/"
+                ? undefined
+                : search.path,
+        scope: search.scope,
+        kind: search.kind,
         status,
         search: search.q || undefined,
-        category: search.category ? [search.category] : undefined,
+        category: Array.isArray(search.category)
+          ? search.category
+          : search.category
+            ? [search.category]
+            : undefined,
+        updatedAfter: search.updatedAfter,
+        updatedBefore: search.updatedBefore,
         sort: search.sort,
         order: search.order,
         cursor,
@@ -179,6 +198,10 @@ export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus
       sort: search.sort,
       order: search.order,
       category: search.category,
+      scope: search.scope,
+      kind: search.kind,
+      updatedAfter: search.updatedAfter,
+      updatedBefore: search.updatedBefore,
       status,
     },
   ] as const;
@@ -199,6 +222,7 @@ export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 15_000,
     enabled,
+    placeholderData: search.scope && search.scope !== "folder" ? (previous) => previous : undefined,
   });
 }
 
@@ -207,6 +231,24 @@ export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus
  * through them with `fetchNextPage`, so a folder beyond the first page is still
  * selectable.
  */
+
+/**
+ * Filters the drive-wide search sends to `GET /v1/files`. The two wide scopes
+ * are the ones the listing endpoint added: "drive" covers every active entry of
+ * the owner, "recursive" the entries below one folder.
+ */
+export type DriveSearchOptions = {
+  q?: string;
+  scope: "drive" | "recursive";
+  parentId?: string;
+  kind?: "file" | "folder";
+  category?: FileCategory[];
+  updatedAfter?: string;
+  updatedBefore?: string;
+  sort: FileSort;
+  order: "asc" | "desc";
+};
+
 export function useFolderChildren(parentId?: string, path?: string) {
   const queryKey = ["get", "/v1/files", "folders", { parentId, path }] as const;
 

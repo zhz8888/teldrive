@@ -1,12 +1,13 @@
 import { Button, Chip, Input, Label, Spinner, TextField } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { $api } from "@/api/client";
 import { userMessage } from "@/api/errors";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
 
 export const Route = createFileRoute("/_settings/settings/users")({
@@ -24,15 +25,11 @@ function UsersSettings() {
   // The listing is fetched without suspense so typing never swaps the page for
   // the route pending component (which would drop the focus of the search
   // field); the debounce keeps the request rate down while typing.
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search), 250);
-    return () => window.clearTimeout(timer);
-  }, [search]);
+  const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const query = $api.useQuery(
     "get",
     "/v1/admin/users",
-    { params: { query: { search: debouncedSearch.trim() || undefined } } },
+    { params: { query: { search: debouncedSearch || undefined } } },
     { staleTime: 10_000, placeholderData: (previous) => previous },
   );
   const updateUser = $api.useMutation("patch", "/v1/admin/users/{userId}");
@@ -76,7 +73,11 @@ function UsersSettings() {
           </TextField>
         </div>
         {query.isPending ? (
-          <div className="flex justify-center py-16">
+          <div
+            className="flex justify-center py-16"
+            role="status"
+            aria-label={t("settings.users.loading")}
+          >
             <Spinner size="lg" />
           </div>
         ) : query.data?.length ? (

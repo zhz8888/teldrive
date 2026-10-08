@@ -672,14 +672,20 @@ test("trash exposes restore and permanent deletion", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Delete forever" })).toBeVisible();
 });
 
-test("command palette searches Teldrive files", async ({ page }) => {
+test("the search shortcut focuses the header box and lands on the drive search", async ({
+  page,
+}) => {
   await page.goto("/files");
+  // Control+K used to open a command palette dialog. The palette is gone: the
+  // shortcut focuses the header box, which is the same field the pointer route
+  // uses and which submits to the routed drive search.
   await page.keyboard.press("Control+KeyK");
-  const dialog = page.getByRole("dialog", { name: /search/i });
-  await expect(dialog).toBeVisible();
-  const input = dialog.getByRole("textbox");
+  const input = page.getByRole("textbox", { name: "Search files" });
+  await expect(input).toBeFocused();
   await input.fill("fixture");
-  await expect(dialog.getByText("fixture.txt", { exact: true })).toBeVisible();
+  await input.press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=fixture/);
+  await expect(page.getByText("fixture.txt", { exact: true })).toBeVisible();
 });
 
 test("mobile navigation opens and reaches Tasks", async ({ page, isMobile }) => {
@@ -797,24 +803,24 @@ test("all active routes render without runtime errors", async ({ page }) => {
 });
 
 test("visual regression for every active surface", async ({ page }, testInfo) => {
-  // Each route names the text it renders once its data has arrived, which is what
-  // the capture waits for instead of guessing from a spinner. The strings are the
-  // ones the interface shows in both shells, since the two layouts label the same
-  // page differently in places; the settings pages share the shell title because
-  // the narrow layout shows the section navigation instead of the section body.
+  // Each route names the text its rendered body shows once its data has arrived,
+  // which is what the capture waits for instead of guessing from a spinner; the
+  // strings are the ones both shells show, so one list covers the wide and the
+  // narrow layout. The settings pages name their own section rather than the shell
+  // title, because the header title is hidden in the narrow shell.
   const surfaces = [
     ["files", "/files", "fixture.txt"],
     ["storage", "/storage", "Main Storage"],
     ["tasks", "/tasks", "teldrive_upload_cleanup #42"],
     ["trash", "/trash", "deleted.txt"],
-    ["settings-overview", "/settings", "Settings"],
-    ["settings-channels", "/settings/channels", "Settings"],
-    ["settings-bots", "/settings/bots", "Settings"],
-    ["settings-sessions", "/settings/sessions", "Settings"],
-    ["settings-api-keys", "/settings/api-keys", "Settings"],
-    ["settings-uploads", "/settings/uploads", "Settings"],
-    ["settings-periodic-jobs", "/settings/periodic-jobs", "Settings"],
-    ["settings-appearance", "/settings/appearance", "Settings"],
+    ["settings-overview", "/settings", "Account"],
+    ["settings-channels", "/settings/channels", "Storage channels"],
+    ["settings-bots", "/settings/bots", "Telegram bots"],
+    ["settings-sessions", "/settings/sessions", "Sessions"],
+    ["settings-api-keys", "/settings/api-keys", "API keys"],
+    ["settings-uploads", "/settings/uploads", "Uploads"],
+    ["settings-periodic-jobs", "/settings/periodic-jobs", "Periodic Jobs"],
+    ["settings-appearance", "/settings/appearance", "Appearance"],
     ["task-detail", "/tasks/42", "Clean stale uploads"],
     ["login", "/login", "Sign in with Telegram"],
   ] as const;
@@ -826,7 +832,9 @@ test("visual regression for every active surface", async ({ page }, testInfo) =>
     // waits for the text the route only renders once its content is there, for the
     // requests that fill it to settle, and then for the pending component to be
     // gone; the retry covers a busy machine that paints the spinner again.
-    await expect(page.getByText(ready, { exact: true }).first()).toBeVisible({
+    await expect(
+      page.getByText(ready, { exact: true }).filter({ visible: true }).first(),
+    ).toBeVisible({
       timeout: 15_000,
     });
     await page.waitForLoadState("networkidle");

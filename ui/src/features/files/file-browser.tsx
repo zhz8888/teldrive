@@ -10,12 +10,12 @@ import {
   type Selection,
   Virtualizer,
 } from "react-aria-components";
+import type { FileEntry } from "@/api/types";
 import BackIcon from "~icons/gravity-ui/arrow-left";
 import UpIcon from "~icons/gravity-ui/chevron-up";
 import FolderIcon from "~icons/gravity-ui/folder";
 import GridIcon from "~icons/gravity-ui/layout-cells";
 import ListIcon from "~icons/gravity-ui/list-ul";
-import type { FileEntry } from "@/api/types";
 import { FileTypeIcon } from "./file-type-icon";
 import { useI18n } from "@/lib/i18n";
 
@@ -38,14 +38,32 @@ type FileBrowserProps = {
     onClearSelection: () => void;
   };
   selectionOverlay?: ReactNode;
+  selectionDisabled?: boolean;
 
   dimmedIds?: ReadonlySet<string>;
   hasNextPage?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
   emptyHint?: string;
+  /** Headline of the empty state; the folder wording is the default. */
+  emptyTitle?: string;
+  /**
+   * Hides the up button and the breadcrumb. Search results are not a folder, so
+   * the drive search turns them off and shows the location of each hit instead.
+   */
+  hideFolderControls?: boolean;
+  /** Shows the folder each entry lives in, in place of its size column. */
+  showLocations?: boolean;
+  /** Opens the folder of an entry and closes the overlay around it. */
+  onOpenContainingFolder?: (file: FileEntry) => void;
 };
 
+/**
+ * Renders one folder or result list with its header controls, its empty state and
+ * the selection overlay passed by the page. It owns no data: the caller decides
+ * what is listed, which entries are dimmed and what a selection can do, so the
+ * same component serves the drive, share and search screens.
+ */
 export function FileBrowser({
   files,
   path,
@@ -59,12 +77,17 @@ export function FileBrowser({
   onBack,
   selection,
   selectionOverlay,
+  selectionDisabled = false,
 
   dimmedIds,
   hasNextPage = false,
   isLoadingMore = false,
   onLoadMore,
   emptyHint,
+  emptyTitle,
+  hideFolderControls = false,
+  showLocations = false,
+  onOpenContainingFolder,
 }: FileBrowserProps) {
   const { t } = useI18n();
   return (
@@ -82,27 +105,31 @@ export function FileBrowser({
               <BackIcon className="size-4" />
             </Button>
           ) : null}
-          <Button
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            aria-label={t("features.fileBrowser.upOneFolder")}
-            isDisabled={path === "/"}
-            onPress={() => {
-              const parts = path.split("/").filter(Boolean);
-              const parentPath = parts.length <= 1 ? "/" : `/${parts.slice(0, -1).join("/")}`;
-              onNavigatePath(parentPath);
-            }}
-          >
-            <UpIcon className="size-4" />
-          </Button>
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <FileBrowserBreadcrumb
-              path={path}
-              rootLabel={rootLabel}
-              onNavigatePath={onNavigatePath}
-            />
-          </div>
+          {!hideFolderControls && (
+            <Button
+              isIconOnly
+              size="sm"
+              variant="ghost"
+              aria-label={t("features.fileBrowser.upOneFolder")}
+              isDisabled={path === "/"}
+              onPress={() => {
+                const parts = path.split("/").filter(Boolean);
+                const parentPath = parts.length <= 1 ? "/" : `/${parts.slice(0, -1).join("/")}`;
+                onNavigatePath(parentPath);
+              }}
+            >
+              <UpIcon className="size-4" />
+            </Button>
+          )}
+          {!hideFolderControls && (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <FileBrowserBreadcrumb
+                path={path}
+                rootLabel={rootLabel}
+                onNavigatePath={onNavigatePath}
+              />
+            </div>
+          )}
           <div className="flex shrink-0 items-center gap-1">
             {toolbar}
             <Button
@@ -137,12 +164,16 @@ export function FileBrowser({
               files={files}
               view={view}
               selection={selection}
+              selectionDisabled={selectionDisabled}
               onOpen={onOpen}
               dimmedIds={dimmedIds}
               hasNextPage={hasNextPage}
               isLoadingMore={isLoadingMore}
               onLoadMore={onLoadMore}
               emptyHint={emptyHint ?? t("features.fileBrowser.emptyHint")}
+              emptyTitle={emptyTitle ?? t("features.fileBrowser.emptyTitle")}
+              showLocations={showLocations}
+              onOpenContainingFolder={onOpenContainingFolder}
             />
           </div>
         )}
@@ -156,6 +187,7 @@ function FileCollection({
   files,
   view,
   selection,
+  selectionDisabled,
   onOpen,
 
   dimmedIds,
@@ -163,10 +195,14 @@ function FileCollection({
   isLoadingMore,
   onLoadMore,
   emptyHint,
+  emptyTitle,
+  showLocations,
+  onOpenContainingFolder,
 }: {
   files: FileEntry[];
   view: FileBrowserView;
   selection?: FileBrowserProps["selection"];
+  selectionDisabled: boolean;
   onOpen: (file: FileEntry) => void;
 
   dimmedIds?: ReadonlySet<string>;
@@ -174,6 +210,9 @@ function FileCollection({
   isLoadingMore: boolean;
   onLoadMore?: () => void;
   emptyHint: string;
+  emptyTitle: string;
+  showLocations: boolean;
+  onOpenContainingFolder?: (file: FileEntry) => void;
 }) {
   const { t } = useI18n();
   const grid = view === "grid";
@@ -189,6 +228,8 @@ function FileCollection({
         selectionBehavior="replace"
         selectedKeys={selection?.selectedKeys}
         onSelectionChange={selection?.onSelectionChange}
+        disabledKeys={selectionDisabled ? files.map((file) => file.id) : undefined}
+        disabledBehavior="selection"
         onClick={(event) => {
           if (!selection) return;
           const target = event.target as HTMLElement;
@@ -203,7 +244,9 @@ function FileCollection({
             <div className="mb-3 flex size-11 items-center justify-center rounded-xl bg-default/30 text-muted">
               <FolderIcon className="size-5" />
             </div>
-            <p className="text-sm font-medium">{t("features.fileBrowser.emptyTitle")}</p>
+            <p className="text-sm font-medium">
+              {emptyTitle ?? t("features.fileBrowser.emptyTitle")}
+            </p>
             <p className="mt-1 text-xs text-muted">{emptyHint}</p>
           </div>
         )}
@@ -213,7 +256,7 @@ function FileCollection({
             : `h-full min-h-0 overflow-x-hidden overflow-y-auto outline-none ${hasSelection ? "pb-24" : ""}`
         }
       >
-        <Collection items={files} dependencies={[dimmedIds]}>
+        <Collection items={files} dependencies={[dimmedIds, showLocations, onOpenContainingFolder]}>
           {(file) => (
             <GridListItem
               id={file.id}
@@ -248,12 +291,20 @@ function FileCollection({
                     file={file}
                     selectable={Boolean(selection)}
                     showCheckbox={state.isHovered || state.isFocusVisible || state.isSelected}
+                    location={showLocations ? file.parentPath : undefined}
+                    onOpenContainingFolder={
+                      onOpenContainingFolder ? () => onOpenContainingFolder(file) : undefined
+                    }
                   />
                 ) : (
                   <ListFile
                     file={file}
                     selectable={Boolean(selection)}
                     showCheckbox={state.isHovered || state.isFocusVisible || state.isSelected}
+                    location={showLocations ? file.parentPath : undefined}
+                    onOpenContainingFolder={
+                      onOpenContainingFolder ? () => onOpenContainingFolder(file) : undefined
+                    }
                   />
                 )
               }
@@ -300,10 +351,14 @@ function GridFile({
   file,
   selectable,
   showCheckbox,
+  location,
+  onOpenContainingFolder,
 }: {
   file: FileEntry;
   selectable: boolean;
   showCheckbox: boolean;
+  location?: string;
+  onOpenContainingFolder?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -320,6 +375,9 @@ function GridFile({
       </div>
       <div className="min-w-0">
         <p className="truncate text-sm font-medium group-hover:text-accent">{file.name}</p>
+        {location && (
+          <LocationButton location={location} onPress={onOpenContainingFolder} className="mt-1" />
+        )}
         <p className="mt-1 text-[11px] text-muted">
           {file.kind === "folder"
             ? t("features.fileBrowser.folderKind")
@@ -334,10 +392,14 @@ function ListFile({
   file,
   selectable,
   showCheckbox,
+  location,
+  onOpenContainingFolder,
 }: {
   file: FileEntry;
   selectable: boolean;
   showCheckbox: boolean;
+  location?: string;
+  onOpenContainingFolder?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -351,17 +413,62 @@ function ListFile({
             <FileTypeIcon file={file} className="size-4" />
           )}
         </div>
-        <span className="truncate text-sm font-medium group-hover:text-accent">{file.name}</span>
+        <div className="min-w-0">
+          <span
+            className="block truncate text-sm font-medium group-hover:text-accent"
+            title={file.name}
+          >
+            {file.name}
+          </span>
+          {location ? (
+            <LocationButton
+              location={location}
+              onPress={onOpenContainingFolder}
+              className="lg:hidden"
+            />
+          ) : null}
+        </div>
       </div>
       <span className="hidden text-xs text-muted sm:block">
         {file.kind === "folder"
           ? t("features.fileBrowser.folderKind")
           : formatFileBytes(file.size ?? 0)}
       </span>
-      <span className="hidden text-xs text-muted lg:block">
-        {new Date(file.modTime).toLocaleString()}
+      <span className="hidden min-w-0 text-xs text-muted lg:block">
+        {location ? (
+          <LocationButton location={location} onPress={onOpenContainingFolder} />
+        ) : (
+          new Date(file.modTime).toLocaleString()
+        )}
       </span>
     </>
+  );
+}
+
+/**
+ * Shows where a search hit lives and opens that folder. The label names the path
+ * so a row of results is readable without the breadcrumb the search hides.
+ */
+function LocationButton({
+  location,
+  onPress,
+  className = "",
+}: {
+  location: string;
+  onPress?: () => void;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={`h-auto min-h-0 max-w-full justify-start rounded-sm px-0 py-0 text-[11px] text-muted ${className}`}
+      aria-label={t("features.fileBrowser.openContainingFolder", { path: location })}
+      onPress={onPress}
+    >
+      <span className="truncate">{location}</span>
+    </Button>
   );
 }
 

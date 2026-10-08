@@ -15,6 +15,7 @@ export const features: AreaMessages<typeof enFeatures> = {
   "features.fileBrowser.currentFolder": "当前文件夹",
   "features.fileBrowser.folderKind": "文件夹",
   "features.fileBrowser.selectFile": "选择 {name}",
+  "features.fileBrowser.openContainingFolder": "打开所在文件夹 {path}",
   "features.fileBrowser.emptyTitle": "此文件夹为空",
   "features.fileBrowser.emptyHint": "此文件夹为空。",
   "features.fileBrowser.emptyShared": "你分享的文件和文件夹会显示在这里。",

@@ -1,6 +1,6 @@
 /**
- * English entries of the shared components: dialogs, viewers, the upload shelf,
- * the command palette and the layouts they render into.
+ * English entries of the shared components: dialogs, viewers, the upload shelf
+ * and the layouts they render into.
  *
  * Keys are `components.<component>.<name>`. Third-party interfaces embedded by a
  * component (the PDF.js viewer chrome, the foliate renderer, the HeroUI dialogs,
@@ -8,15 +8,6 @@
  * strings and are left alone.
  */
 export const components = {
-  "components.searchOverlay.close": "Close search",
-  "components.searchOverlay.dialogLabel": "Search files",
-  "components.searchOverlay.inputLabel": "Search files and folders",
-  "components.searchOverlay.placeholder": "Search files and folders...",
-  "components.searchOverlay.hint": "Type at least 2 characters to search",
-  "components.searchOverlay.noResults": "No results for “{query}”",
-  "components.searchOverlay.kindFolder": "Folder",
-  "components.searchOverlay.kindFile": "File",
-
   "components.uploadShelf.title": "Uploads",
   "components.uploadShelf.summaryActive": "{active} active - {progress}% - {uploaded} of {total}",
   "components.uploadShelf.summaryCompleted": "{completed} files completed",

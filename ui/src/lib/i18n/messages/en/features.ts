@@ -13,6 +13,7 @@ export const features = {
   "features.fileBrowser.currentFolder": "Current folder",
   "features.fileBrowser.folderKind": "Folder",
   "features.fileBrowser.selectFile": "Select {name}",
+  "features.fileBrowser.openContainingFolder": "Open containing folder {path}",
   "features.fileBrowser.emptyTitle": "This folder is empty",
   "features.fileBrowser.emptyHint": "This folder is empty.",
   "features.fileBrowser.emptyShared": "Files and folders you shared appear here.",

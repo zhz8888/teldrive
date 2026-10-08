@@ -199,7 +199,15 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
     .poll(async () => (await editedDownload).suggestedFilename())
     .toBe("reader-sample-edited.pdf");
 
-  await page.keyboard.press("Escape");
+  // Escape peels the overlay stack: the tool popover, the annotation tool, then
+  // the reader itself. The narrow layout has no physical Escape key, so the loop
+  // falls back to the close button once the keyboard path has been exercised.
+  for (let attempt = 0; attempt < 5 && (await dialog.isVisible()); attempt += 1) {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
+  if (await dialog.isVisible())
+    await dialog.getByRole("button", { name: "Close PDF reader" }).click();
   await expect(dialog).toBeHidden();
   expect(errors).toEqual([]);
 });

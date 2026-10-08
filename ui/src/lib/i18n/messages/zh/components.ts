@@ -9,15 +9,6 @@ import type { AreaMessages } from "../../types";
 import type { components as enComponents } from "../en/components";
 
 export const components: AreaMessages<typeof enComponents> = {
-  "components.searchOverlay.close": "关闭搜索",
-  "components.searchOverlay.dialogLabel": "搜索文件",
-  "components.searchOverlay.inputLabel": "搜索文件和文件夹",
-  "components.searchOverlay.placeholder": "搜索文件和文件夹...",
-  "components.searchOverlay.hint": "至少输入 2 个字符才能搜索",
-  "components.searchOverlay.noResults": "没有与“{query}”匹配的结果",
-  "components.searchOverlay.kindFolder": "文件夹",
-  "components.searchOverlay.kindFile": "文件",
-
   "components.uploadShelf.title": "上传",
   "components.uploadShelf.summaryActive": "{active} 个进行中 - {progress}% - {uploaded}/{total}",
   "components.uploadShelf.summaryCompleted": "已完成 {completed} 个文件",

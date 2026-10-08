@@ -198,6 +198,7 @@ export const settings: AreaMessages<typeof enSettings> = {
   "settings.users.disable": "停用",
   "settings.users.revokeAccess": "吊销访问权限",
   "settings.users.empty": "没有符合该搜索条件的用户。",
+  "settings.users.loading": "正在加载用户",
   "settings.users.toast.updated": "已更新用户",
   "settings.users.toast.updateFailed": "无法更新用户",
   "settings.users.toast.revoked": "已吊销会话和 API 密钥",

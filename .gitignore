@@ -1,4 +1,5 @@
 node_modules/
+.direnv/
 dist/
 # The embedded UI directory must exist in a fresh clone: ui/ui.go embeds it with
 # //go:embed all:dist, which fails to compile when the directory is missing. Only
