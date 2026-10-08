@@ -1,8 +1,15 @@
 # Teldrive
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tgdrive/teldrive)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhz8888/teldrive)
 
 **English** · [简体中文](README.zh-CN.md)
+
+> **This repository is a fork.** It is maintained at
+> [zhz8888/teldrive](https://github.com/zhz8888/teldrive) by
+> [zhz8888](https://github.com/zhz8888), and it builds on
+> [tgdrive/teldrive](https://github.com/tgdrive/teldrive) by
+> [divyam234](https://github.com/divyam234). The releases, container images, documentation,
+> issues and pull requests for this fork live here rather than upstream.
 
 Teldrive turns Telegram into self-hosted cloud storage. The server keeps file metadata in
 PostgreSQL, stores file payloads in Telegram channels, and serves a web UI and an HTTP API from
@@ -60,8 +67,9 @@ release tag (`ghcr.io/zhz8888/teldrive:vX.Y.Z`) instead of `latest` for controll
 
 ### Release binary
 
-Download the archive for your platform from GitHub Releases and install `teldrive`, then point
-it at PostgreSQL:
+Download the archive for your platform from this fork's
+[GitHub Releases](https://github.com/zhz8888/teldrive/releases) and install `teldrive`, then
+point it at PostgreSQL:
 
 ```bash
 teldrive check     # validate configuration, run migrations, initialize dependencies
@@ -146,18 +154,16 @@ before opening a pull request; `AGENTS.md` is the entry point for working in thi
 
 ## License
 
-Teldrive is released under the
-[MIT License](https://github.com/zhz8888/teldrive/blob/main/LICENSE) (Copyright © 2024
-divyam234).
+Teldrive is released under the [MIT License](LICENSE).
 
-## Recognitions
+- Original project — Copyright © 2024 [divyam234](https://github.com/divyam234)
+  ([tgdrive/teldrive](https://github.com/tgdrive/teldrive)).
+- This fork and the changes in it — Copyright © 2026
+  [zhz8888](https://github.com/zhz8888).
 
-<a href="https://trendshift.io/repositories/7568" target="_blank"><img src="https://trendshift.io/api/badge/repositories/7568" alt="divyam234%2Fteldrive | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+## Acknowledgements
 
-<a href="https://www.star-history.com/#tgdrive/teldrive&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date" />
-  </picture>
-</a>
+This fork builds on the original [tgdrive/teldrive](https://github.com/tgdrive/teldrive) by
+[divyam234](https://github.com/divyam234) and its contributors. The upstream copyright notice and
+the MIT license are kept unchanged; every fix, feature and rewrite this fork carries is work on
+top of that foundation.

@@ -1,8 +1,14 @@
 # Teldrive
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tgdrive/teldrive)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhz8888/teldrive)
 
 **简体中文** · [English](README.md)
+
+> **本仓库是 fork。** 由 [zhz8888](https://github.com/zhz8888) 维护在
+> [zhz8888/teldrive](https://github.com/zhz8888/teldrive)，基于
+> [divyam234](https://github.com/divyam234) 的
+> [tgdrive/teldrive](https://github.com/tgdrive/teldrive)。本 fork 的发布、容器镜像、文档、
+> issue 与 pull request 都在这里，而不是上游。
 
 Teldrive 把 Telegram 变成自建的云存储：服务端把文件元数据放在 PostgreSQL，把文件内容放在
 Telegram 频道，并由**同一个二进制**同时提供 Web 界面和 HTTP API。
@@ -56,7 +62,8 @@ docker run --rm \
 
 ### 发布二进制
 
-从 GitHub Releases 下载对应平台的压缩包并安装 `teldrive`，然后指向 PostgreSQL：
+从本 fork 的 [GitHub Releases](https://github.com/zhz8888/teldrive/releases) 下载对应平台的
+压缩包并安装 `teldrive`，然后指向 PostgreSQL：
 
 ```bash
 teldrive check     # 校验配置、执行迁移、初始化依赖
@@ -137,17 +144,14 @@ just test-race
 
 ## 许可证
 
-Teldrive 以 [MIT 许可证](https://github.com/zhz8888/teldrive/blob/main/LICENSE)发布
-（Copyright © 2024 divyam234）。
+Teldrive 以 [MIT 许可证](LICENSE)发布。
 
-## 认可
+- 原始项目 —— Copyright © 2024 [divyam234](https://github.com/divyam234)
+  （[tgdrive/teldrive](https://github.com/tgdrive/teldrive)）。
+- 本 fork 及其中的修改 —— Copyright © 2026 [zhz8888](https://github.com/zhz8888)。
 
-<a href="https://trendshift.io/repositories/7568" target="_blank"><img src="https://trendshift.io/api/badge/repositories/7568" alt="divyam234%2Fteldrive | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+## 致谢
 
-<a href="https://www.star-history.com/#tgdrive/teldrive&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tgdrive/teldrive&type=Date" />
-  </picture>
-</a>
+本 fork 基于 [divyam234](https://github.com/divyam234) 与贡献者们创作的
+[tgdrive/teldrive](https://github.com/tgdrive/teldrive)。上游的版权声明与 MIT 许可证原样保留；
+本 fork 所带的每一项修复、特性与重写都建立在这份基础之上。
