@@ -5,12 +5,18 @@ on:
     branches:
       - v2
   pull_request:
+  # A manual run is how a release is rehearsed before its tag exists.
+  workflow_dispatch:
   # The publish workflows call this one so an image or a release is only built
   # from a commit that passed the same gate.
   workflow_call:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # github.workflow is what keeps this group distinct from the caller's: the
+  # publish workflows call this file, and a called workflow that shares the
+  # caller's group cancels the run it belongs to. It also keeps this run
+  # separate from the standalone run the same push to v2 starts.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -39,6 +45,10 @@ jobs:
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          # The committed lockfiles were produced by this release; pinning the
+          # runtime keeps a newer Bun from re-resolving them mid-gate.
+          bun-version: 1.4.2
 
       - name: Install the JavaScript workspaces
         run: |
@@ -54,20 +64,41 @@ jobs:
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # The ui workspace owns the Playwright version the specs were written
+      # against, so the browser download has to come from there. Installing it
+      # from the repository root would resolve whatever the registry calls
+      # latest, and a browser revision ahead of @playwright/test fails at
+      # launch instead of at install time.
       - name: Install Playwright browsers
+        working-directory: ui
         run: bunx playwright install --with-deps chromium
 
-      # A contract or SQL change that was not regenerated shows up as a diff
-      # here, which keeps the committed artifacts and the sources that produce
-      # them in step.
-      - name: Verify the generated artifacts are up to date
-        run: |
-          just generate
-          git diff --exit-code
-
-      # just check regenerates, lints, runs the unit tests, enforces the core
-      # coverage floor through the Podman-backed PostgreSQL harness, and builds
-      # the UI and the documentation site: the same gate the README tells
-      # contributors to run locally.
+      # just check regenerates the contract, the query layer, the UI types and
+      # the route tree, lints, runs the unit tests, enforces the core coverage
+      # floor through the Docker-backed PostgreSQL harness, and builds the UI
+      # and the documentation site: the same gate the README tells contributors
+      # to run locally.
       - name: Run the full gate
         run: just check
+
+      # Playwright captures separate baselines per platform and this runner is
+      # the Linux half of that pair; without the report a failed screenshot
+      # comparison leaves no way to see the image that was actually rendered.
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            ui/playwright-report
+            ui/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # The gate has just rewritten every generated artifact from its sources,
+      # so a diff here is exactly the drift a commit was supposed to avoid:
+      # a contract or SQL change that was not regenerated, or a route tree the
+      # UI build rewrote differently. Checking after the gate rather than
+      # before it is what keeps the generators from running twice.
+      - name: Verify the generated artifacts are up to date
+        run: git diff --exit-code
