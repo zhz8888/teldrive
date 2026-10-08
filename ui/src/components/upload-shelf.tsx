@@ -7,12 +7,12 @@ import UploadIcon from "~icons/gravity-ui/arrow-up-from-line";
 import ChevronDownIcon from "~icons/gravity-ui/chevron-down";
 import ChevronRightIcon from "~icons/gravity-ui/chevron-right";
 import ChevronUpIcon from "~icons/gravity-ui/chevron-up";
-import FileIcon from "~icons/gravity-ui/file";
 import FolderIcon from "~icons/gravity-ui/folder";
 import PauseIcon from "~icons/gravity-ui/pause";
 import PlayIcon from "~icons/gravity-ui/play";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 import CloseIcon from "~icons/gravity-ui/xmark";
+import { FileTypeIcon } from "@/features/files/file-type-icon";
 
 type UploadNode = {
   id: string;
@@ -213,7 +213,7 @@ function UploadTreeItem({ node, root = false }: { node: UploadNode; root?: boole
             className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${node.kind === "file" ? "bg-accent/10 text-accent" : "bg-warning/10 text-warning"}`}
           >
             {node.kind === "file" ? (
-              <FileIcon className="size-4" />
+              <FileTypeIcon file={{ name: node.name }} className="size-4" />
             ) : (
               <FolderIcon className="size-4" />
             )}

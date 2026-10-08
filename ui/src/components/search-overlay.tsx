@@ -1,11 +1,11 @@
 import { Button, Chip, Input, Kbd, Spinner } from "@heroui/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import FileIcon from "~icons/gravity-ui/file";
 import FolderIcon from "~icons/gravity-ui/folder";
 import SearchIcon from "~icons/gravity-ui/magnifier";
 import { $api } from "@/api/client";
 import type { FileEntry } from "@/api/types";
+import { FileTypeIcon } from "@/features/files/file-type-icon";
 import { useI18n } from "@/lib/i18n";
 import { useCommandPalette } from "./command-palette-context";
 
@@ -151,7 +151,6 @@ export function SearchOverlay() {
             </div>
           ) : (
             items.map((item, index) => {
-              const Icon = item.kind === "folder" ? FolderIcon : FileIcon;
               return (
                 <Button
                   key={item.id}
@@ -161,7 +160,11 @@ export function SearchOverlay() {
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                    <Icon className="size-4" />
+                    {item.kind === "folder" ? (
+                      <FolderIcon className="size-4" />
+                    ) : (
+                      <FileTypeIcon file={item} className="size-4" />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{item.name}</p>
