@@ -36,11 +36,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/principal"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	"github.com/tgdrive/teldrive/v2/internal/throttle"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/principal"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/throttle"
 )
 
 var (

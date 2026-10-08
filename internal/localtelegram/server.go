@@ -32,7 +32,7 @@ import (
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
 
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 const (

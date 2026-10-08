@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 // TestViewStateRoundTripsPerUserAndFile covers the reader's memory of where it was:

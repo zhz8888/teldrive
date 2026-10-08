@@ -6,7 +6,7 @@ description: Run Teldrive with Docker or Podman.
 Official images:
 
 ```text
-ghcr.io/tgdrive/teldrive:v2
+ghcr.io/zhz8888/teldrive:v2
 ```
 
 `:v2` is a rolling tag: every push to the repository's `v2` branch rebuilds and republishes it for `linux/amd64` and `linux/arm64`. Pull it to pick up fixes:
@@ -15,7 +15,7 @@ ghcr.io/tgdrive/teldrive:v2
 docker compose pull teldrive
 ```
 
-Version-tagged images (`ghcr.io/tgdrive/teldrive:vX.Y.Z`) are published when a `v*` release tag is pushed. No v2 release has been published yet, so `:v2` is currently the only tag that resolves.
+Version-tagged images (`ghcr.io/zhz8888/teldrive:vX.Y.Z`) are published when a `v*` release tag is pushed. No v2 release has been published yet, so `:v2` is currently the only tag that resolves.
 
 Use [Quick start](/getting-started/quick-start) for PostgreSQL + Teldrive Compose.
 
@@ -30,7 +30,7 @@ docker run --rm \
   -e TELDRIVE_DATABASE_URL='postgres://teldrive:password@db.example:5432/teldrive?sslmode=require' \
   -e TELDRIVE_SECURITY_SIGNING_KEY='YOUR_SIGNING_KEY' \
   -e TELDRIVE_SECURITY_DATA_KEY='YOUR_DATA_KEY' \
-  ghcr.io/tgdrive/teldrive:v2
+  ghcr.io/zhz8888/teldrive:v2
 ```
 
 Podman uses the same settings with `podman run`.
@@ -46,16 +46,16 @@ curl -fsS http://127.0.0.1:8080/health/ready
 ## Pin a specific build
 
 ```yaml
-image: ghcr.io/tgdrive/teldrive:v2@sha256:<manifest-digest>
+image: ghcr.io/zhz8888/teldrive:v2@sha256:<manifest-digest>
 ```
 
 A digest pins the exact build. Get one with:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/tgdrive/teldrive:v2
+docker buildx imagetools inspect ghcr.io/zhz8888/teldrive:v2
 ```
 
-Once a `v*` release is published, `ghcr.io/tgdrive/teldrive:vX.Y.Z` pins a release instead, and `latest` tracks the newest release. Prefer a digest over either for a controlled rollback.
+Once a `v*` release is published, `ghcr.io/zhz8888/teldrive:vX.Y.Z` pins a release instead, and `latest` tracks the newest release. Prefer a digest over either for a controlled rollback.
 
 ## Local imports
 

@@ -10,12 +10,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/tgdrive/teldrive/v2/internal/bots"
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/database"
-	"github.com/tgdrive/teldrive/v2/internal/legacymigrate"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/database"
+	"github.com/zhz8888/teldrive/v2/internal/legacymigrate"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestMigrateIfNeededCopiesLegacyDatabase(t *testing.T) {

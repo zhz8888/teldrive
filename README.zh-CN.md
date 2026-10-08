@@ -35,7 +35,7 @@ Telegram 频道，并由**同一个二进制**同时提供 Web 界面和 HTTP AP
 
 ### 容器
 
-[快速开始指南](https://tgdrive.github.io/teldrive/getting-started/quick-start)会生成 PostgreSQL
+[快速开始指南](https://zhz8888.github.io/teldrive/getting-started/quick-start)会生成 PostgreSQL
 加 Teldrive 的 `compose.yaml`。启动前请备份 `security.data-key` 与所有内容加密密钥——丢失它们
 可能导致受保护的数据无法恢复。
 
@@ -48,11 +48,11 @@ docker run --rm \
   -e TELDRIVE_DATABASE_URL='postgres://teldrive:password@db.example:5432/teldrive?sslmode=require' \
   -e TELDRIVE_SECURITY_SIGNING_KEY='YOUR_SIGNING_KEY' \
   -e TELDRIVE_SECURITY_DATA_KEY='YOUR_DATA_KEY' \
-  ghcr.io/tgdrive/teldrive:v2
+  ghcr.io/zhz8888/teldrive:v2
 ```
 
 打开 <http://127.0.0.1:8080>，用 Telegram 登录，并上传一个小的测试文件。需要可控升级时请固定
-发布标签（`ghcr.io/tgdrive/teldrive:vX.Y.Z`），不要使用 `latest`。
+发布标签（`ghcr.io/zhz8888/teldrive:vX.Y.Z`），不要使用 `latest`。
 
 ### 发布二进制
 
@@ -70,7 +70,7 @@ teldrive version   # 打印构建信息
 PostgreSQL。
 
 ```bash
-git clone https://github.com/tgdrive/teldrive.git
+git clone https://github.com/zhz8888/teldrive.git
 cd teldrive
 just install-tools
 just build
@@ -84,7 +84,7 @@ just build
 
 配置按**文件 → `TELDRIVE_*` 环境变量 → 命令行参数**的顺序覆盖。可从 `config.sample.yaml`
 （或 `config.sample.toml`）开始，详见
-[配置参考](https://tgdrive.github.io/teldrive/configuration/overview)。
+[配置参考](https://zhz8888.github.io/teldrive/configuration/overview)。
 
 `teldrive check` 会加载配置、执行迁移并初始化全部依赖后退出，适合作为部署前的预检。
 
@@ -111,11 +111,11 @@ just test-race
 
 ## 文档
 
-- 使用指南：<https://tgdrive.github.io/teldrive>
-- API 参考：<https://tgdrive.github.io/teldrive/api/>
+- 使用指南：<https://zhz8888.github.io/teldrive>
+- API 参考：<https://zhz8888.github.io/teldrive/api/>
 - rclone：本仓库**不包含 rclone 后端**。除非你另行获取，否则 `rclone config` 不会提供
   `teldrive` 类型；Teldrive 提供的是该后端所驱动的 HTTP API，认证使用在**设置 → API 密钥**中
-  创建的密钥。参见 [rclone 配置](https://tgdrive.github.io/teldrive/rclone/setup)
+  创建的密钥。参见 [rclone 配置](https://zhz8888.github.io/teldrive/rclone/setup)
 
 ## 最佳实践
 
@@ -132,12 +132,12 @@ just test-race
 
 ## 参与贡献
 
-欢迎在 <https://github.com/tgdrive/teldrive> 提交 issue 与 pull request。提交前请先跑通
+欢迎在 <https://github.com/zhz8888/teldrive> 提交 issue 与 pull request。提交前请先跑通
 `just check`；`AGENTS.md` 是参与本仓库开发的入口。
 
 ## 许可证
 
-Teldrive 以 [MIT 许可证](https://github.com/tgdrive/teldrive/blob/main/LICENSE)发布
+Teldrive 以 [MIT 许可证](https://github.com/zhz8888/teldrive/blob/main/LICENSE)发布
 （Copyright © 2024 divyam234）。
 
 ## 认可

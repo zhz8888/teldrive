@@ -14,13 +14,13 @@ import (
 
 	"github.com/riverqueue/river"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/channels"
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/channels"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestUploadSourceWorkerPublishesAndSkipsMatchingLocalFile(t *testing.T) {

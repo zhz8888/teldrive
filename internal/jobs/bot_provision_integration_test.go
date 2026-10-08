@@ -14,10 +14,10 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/tgdrive/teldrive/v2/internal/bots"
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 const provisionBotID = 777

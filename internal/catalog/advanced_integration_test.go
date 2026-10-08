@@ -10,9 +10,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestAdvancedListingPathAndStatistics(t *testing.T) {

@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gotd/td/session"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	"github.com/tgdrive/teldrive/v2/internal/telethonsession"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/telethonsession"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestDatabaseSessionStoragePersistsEncryptedUpdates(t *testing.T) {

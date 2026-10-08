@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestOrphanCleanupDeletesOnlyExpiredUnreferencedDocuments(t *testing.T) {

@@ -9,14 +9,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/shares"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/shares"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 // requireAdmin rejects the request with a 403 problem unless the caller holds the

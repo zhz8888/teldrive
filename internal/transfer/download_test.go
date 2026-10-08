@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 func TestPlanSegments(t *testing.T) {

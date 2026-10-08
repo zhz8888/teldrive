@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/tgdrive/teldrive/v2
+module github.com/zhz8888/teldrive/v2
 
 go 1.26.0
 

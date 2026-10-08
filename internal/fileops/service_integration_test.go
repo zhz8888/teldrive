@@ -15,13 +15,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/channels"
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/testutil/querytrace"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/channels"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/testutil/querytrace"
 )
 
 func TestCopyWideFolderUsesSetBasedCatalogQueries(t *testing.T) {

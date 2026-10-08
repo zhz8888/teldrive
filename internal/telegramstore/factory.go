@@ -22,11 +22,11 @@ import (
 	"golang.org/x/net/proxy"
 	"golang.org/x/time/rate"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/principal"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	"github.com/tgdrive/teldrive/v2/internal/telethonsession"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/principal"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/telethonsession"
 )
 
 // ErrTelegramConfiguration reports missing or contradictory gotd client

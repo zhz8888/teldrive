@@ -12,14 +12,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tgdrive/teldrive/v2/internal/contentcrypto"
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/treehash"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	"github.com/zhz8888/teldrive/v2/internal/contentcrypto"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/treehash"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestUploadPipelinePlaintextAndRetry(t *testing.T) {

@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
 )
 
 // GetStorageStats builds the authenticated user's storage dashboard: totals,

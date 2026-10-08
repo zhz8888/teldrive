@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 // purgeCapableStorage is a PurgeService that accepts every root without touching

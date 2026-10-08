@@ -8,12 +8,12 @@ import (
 	"io"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestDownloaderReadsAcrossTelegramParts(t *testing.T) {

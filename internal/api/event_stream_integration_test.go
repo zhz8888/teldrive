@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/tgdrive/teldrive/v2/internal/api"
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/events"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	api "github.com/zhz8888/teldrive/v2/internal/api"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/events"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {

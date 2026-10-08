@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
 )
 
 func TestRequestSecurity(t *testing.T) {

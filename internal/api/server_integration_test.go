@@ -16,15 +16,15 @@ import (
 
 	"github.com/google/uuid"
 
-	api "github.com/tgdrive/teldrive/v2/internal/api"
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/health"
-	"github.com/tgdrive/teldrive/v2/internal/shares"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	api "github.com/zhz8888/teldrive/v2/internal/api"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/health"
+	"github.com/zhz8888/teldrive/v2/internal/shares"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestGeneratedServerUploadCompleteAndRangeDownload(t *testing.T) {

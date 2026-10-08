@@ -11,7 +11,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestRuntimeRetryClearsCancellationMarker(t *testing.T) {

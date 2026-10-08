@@ -6,7 +6,7 @@ description: 使用 Docker 或 Podman 运行 Teldrive。
 官方镜像：
 
 ```text
-ghcr.io/tgdrive/teldrive:v2
+ghcr.io/zhz8888/teldrive:v2
 ```
 
 `:v2` 是滚动标签：每次向仓库的 `v2` 分支推送都会重新构建并重新发布该镜像，覆盖 `linux/amd64` 和 `linux/arm64`。拉取镜像即可获得最新修复：
@@ -15,7 +15,7 @@ ghcr.io/tgdrive/teldrive:v2
 docker compose pull teldrive
 ```
 
-带版本号的镜像（`ghcr.io/tgdrive/teldrive:vX.Y.Z`）在推送 `v*` 发布标签时生成。目前尚未发布任何 v2 版本，因此 `:v2` 是当前唯一能解析到的标签。
+带版本号的镜像（`ghcr.io/zhz8888/teldrive:vX.Y.Z`）在推送 `v*` 发布标签时生成。目前尚未发布任何 v2 版本，因此 `:v2` 是当前唯一能解析到的标签。
 
 PostgreSQL + Teldrive 的 Compose 配置请使用[快速开始](/getting-started/quick-start)。
 
@@ -30,7 +30,7 @@ docker run --rm \
   -e TELDRIVE_DATABASE_URL='postgres://teldrive:password@db.example:5432/teldrive?sslmode=require' \
   -e TELDRIVE_SECURITY_SIGNING_KEY='YOUR_SIGNING_KEY' \
   -e TELDRIVE_SECURITY_DATA_KEY='YOUR_DATA_KEY' \
-  ghcr.io/tgdrive/teldrive:v2
+  ghcr.io/zhz8888/teldrive:v2
 ```
 
 Podman 使用 `podman run` 时设置相同。
@@ -46,16 +46,16 @@ curl -fsS http://127.0.0.1:8080/health/ready
 ## 锁定特定构建
 
 ```yaml
-image: ghcr.io/tgdrive/teldrive:v2@sha256:<manifest-digest>
+image: ghcr.io/zhz8888/teldrive:v2@sha256:<manifest-digest>
 ```
 
 摘要（digest）可以锁定确切的构建版本。获取摘要：
 
 ```bash
-docker buildx imagetools inspect ghcr.io/tgdrive/teldrive:v2
+docker buildx imagetools inspect ghcr.io/zhz8888/teldrive:v2
 ```
 
-一旦发布了 `v*` 版本，`ghcr.io/tgdrive/teldrive:vX.Y.Z` 就锁定某个发布版本，而 `latest` 跟踪最新的发布版本。为了实现可控回滚，优先使用摘要而不是这两者。
+一旦发布了 `v*` 版本，`ghcr.io/zhz8888/teldrive:vX.Y.Z` 就锁定某个发布版本，而 `latest` 跟踪最新的发布版本。为了实现可控回滚，优先使用摘要而不是这两者。
 
 ## 本地导入
 

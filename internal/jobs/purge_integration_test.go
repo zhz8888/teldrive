@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestPendingFilePurgeWorkerProcessesDeletionPendingRoots(t *testing.T) {

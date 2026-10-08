@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/tgdrive/teldrive/v2/internal/size"
+	"github.com/zhz8888/teldrive/v2/internal/size"
 )
 
 func TestDecodeSizeVariants(t *testing.T) {

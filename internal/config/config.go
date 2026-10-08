@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/database"
-	"github.com/tgdrive/teldrive/v2/internal/size"
+	"github.com/zhz8888/teldrive/v2/internal/database"
+	"github.com/zhz8888/teldrive/v2/internal/size"
 )
 
 // envPrefix is prepended to every generated environment variable name, so the

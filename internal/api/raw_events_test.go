@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	userevents "github.com/tgdrive/teldrive/v2/internal/events"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	userevents "github.com/zhz8888/teldrive/v2/internal/events"
 )
 
 func TestEventCursor(t *testing.T) {

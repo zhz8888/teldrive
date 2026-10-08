@@ -32,7 +32,7 @@ const withLocale = <T extends { url: string } | undefined>(item: T): T => {
 };
 
 const sourceFile = slugs.length > 0 ? `${slugs.join('/')}.mdx` : 'index.mdx';
-const editUrl = `https://github.com/tgdrive/teldrive/edit/v2/docs/content/docs/${locale}/${sourceFile}`;
+const editUrl = `https://github.com/zhz8888/teldrive/edit/v2/docs/content/docs/${locale}/${sourceFile}`;
 
 const toc: TOCItemType[] = headings.map((heading) => ({
   depth: heading.depth,

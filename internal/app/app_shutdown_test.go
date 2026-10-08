@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/cache"
+	"github.com/zhz8888/teldrive/v2/internal/cache"
 )
 
 // blockingCache is the process-local cache of an App under test: it records how often

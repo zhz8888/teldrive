@@ -9,15 +9,15 @@ import (
 	"github.com/gotd/td/telegram"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/botgateway"
-	"github.com/tgdrive/teldrive/v2/internal/bots"
-	"github.com/tgdrive/teldrive/v2/internal/cache"
-	"github.com/tgdrive/teldrive/v2/internal/config"
-	"github.com/tgdrive/teldrive/v2/internal/localtelegram"
-	"github.com/tgdrive/teldrive/v2/internal/logingateway"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/botgateway"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/cache"
+	"github.com/zhz8888/teldrive/v2/internal/config"
+	"github.com/zhz8888/teldrive/v2/internal/localtelegram"
+	"github.com/zhz8888/teldrive/v2/internal/logingateway"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 // telegramComponents groups the Telegram-facing gateways that one configured

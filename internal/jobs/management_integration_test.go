@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func newManagementRuntime(t *testing.T, db *testpostgres.Database) *Runtime {

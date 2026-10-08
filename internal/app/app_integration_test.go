@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	appapi "github.com/tgdrive/teldrive/v2/internal/api"
-	"github.com/tgdrive/teldrive/v2/internal/app"
-	"github.com/tgdrive/teldrive/v2/internal/config"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	appapi "github.com/zhz8888/teldrive/v2/internal/api"
+	"github.com/zhz8888/teldrive/v2/internal/app"
+	"github.com/zhz8888/teldrive/v2/internal/config"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestApplicationLifecycleAgainstRealPostgres(t *testing.T) {

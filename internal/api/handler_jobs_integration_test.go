@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	"github.com/tgdrive/teldrive/v2/internal/principal"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/principal"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestJobHandlersScopeUsersAndGiveAdminsGlobalAccess(t *testing.T) {

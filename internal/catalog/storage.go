@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
 )
 
 // StorageDashboard is the aggregated storage view of one user: current totals,

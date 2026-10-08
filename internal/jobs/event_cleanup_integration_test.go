@@ -9,7 +9,7 @@ import (
 
 	"github.com/riverqueue/river"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestEventCleanupWorkerDeletesOnlyExpiredEvents(t *testing.T) {

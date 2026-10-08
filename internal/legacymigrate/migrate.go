@@ -21,10 +21,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/tgdrive/teldrive/v2/internal/bots"
-	"github.com/tgdrive/teldrive/v2/internal/database"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
-	"github.com/tgdrive/teldrive/v2/internal/treehash"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/database"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/treehash"
 )
 
 // Config describes one migration run.

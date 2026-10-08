@@ -12,14 +12,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/bots"
-	"github.com/tgdrive/teldrive/v2/internal/channels"
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/dbtypes"
-	"github.com/tgdrive/teldrive/v2/internal/fileops"
-	"github.com/tgdrive/teldrive/v2/internal/shares"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/channels"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
+	"github.com/zhz8888/teldrive/v2/internal/fileops"
+	"github.com/zhz8888/teldrive/v2/internal/shares"
 )
 
 // TelegramLoginStart begins an unauthenticated Telegram login flow and sends a

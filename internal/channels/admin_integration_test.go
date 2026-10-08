@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/channels"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/channels"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestChannelAdminLifecycleAgainstRealPostgres(t *testing.T) {

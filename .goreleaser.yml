@@ -48,7 +48,7 @@ dockers_v2:
     ids:
       - teldrive
     images:
-      - "ghcr.io/tgdrive/{{ .ProjectName }}"
+      - "ghcr.io/zhz8888/{{ .ProjectName }}"
     tags:
       - "{{ .Tag }}"
       - "latest"

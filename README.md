@@ -39,7 +39,7 @@ private network.
 
 ### Container
 
-The [quick start guide](https://tgdrive.github.io/teldrive/getting-started/quick-start)
+The [quick start guide](https://zhz8888.github.io/teldrive/getting-started/quick-start)
 generates a `compose.yaml` for PostgreSQL plus Teldrive. Back up `security.data-key` and every
 content-encryption key before you start: losing them can make protected data unrecoverable.
 
@@ -52,11 +52,11 @@ docker run --rm \
   -e TELDRIVE_DATABASE_URL='postgres://teldrive:password@db.example:5432/teldrive?sslmode=require' \
   -e TELDRIVE_SECURITY_SIGNING_KEY='YOUR_SIGNING_KEY' \
   -e TELDRIVE_SECURITY_DATA_KEY='YOUR_DATA_KEY' \
-  ghcr.io/tgdrive/teldrive:v2
+  ghcr.io/zhz8888/teldrive:v2
 ```
 
 Open <http://127.0.0.1:8080>, sign in with Telegram, and upload a small test file. Pin a
-release tag (`ghcr.io/tgdrive/teldrive:vX.Y.Z`) instead of `latest` for controlled upgrades.
+release tag (`ghcr.io/zhz8888/teldrive:vX.Y.Z`) instead of `latest` for controlled upgrades.
 
 ### Release binary
 
@@ -75,7 +75,7 @@ Requires Go 1.26, [Bun](https://bun.sh), [Just](https://github.com/casey/just), 
 to run the server.
 
 ```bash
-git clone https://github.com/tgdrive/teldrive.git
+git clone https://github.com/zhz8888/teldrive.git
 cd teldrive
 just install-tools
 just build
@@ -89,7 +89,7 @@ binary. A Nix flake is available as well: `nix develop` provides the toolchain.
 
 Settings are read from a file, `TELDRIVE_*` environment variables and flags, in that order of
 precedence. Start from `config.sample.yaml` (or `config.sample.toml`) and see the
-[configuration reference](https://tgdrive.github.io/teldrive/configuration/overview).
+[configuration reference](https://zhz8888.github.io/teldrive/configuration/overview).
 
 `teldrive check` loads the configuration, applies the migrations and initializes every
 dependency once, then exits — use it as a deployment pre-flight.
@@ -118,12 +118,12 @@ generation rules and test harness.
 
 ## Documentation
 
-- Guides: <https://tgdrive.github.io/teldrive>
-- API reference: <https://tgdrive.github.io/teldrive/api/>
+- Guides: <https://zhz8888.github.io/teldrive>
+- API reference: <https://zhz8888.github.io/teldrive/api/>
 - rclone: this repository ships **no rclone backend**. `rclone config` will not offer a
   `teldrive` type unless you obtained one separately; what Teldrive provides is the HTTP API such
   a backend drives, authenticated with an API key created in **Settings → API keys**. See
-  [Rclone setup](https://tgdrive.github.io/teldrive/rclone/setup)
+  [Rclone setup](https://zhz8888.github.io/teldrive/rclone/setup)
 
 ## Best practices
 
@@ -141,13 +141,13 @@ generation rules and test harness.
 
 ## Contributing
 
-Issues and pull requests are welcome at <https://github.com/tgdrive/teldrive>. Run `just check`
+Issues and pull requests are welcome at <https://github.com/zhz8888/teldrive>. Run `just check`
 before opening a pull request; `AGENTS.md` is the entry point for working in this repository.
 
 ## License
 
 Teldrive is released under the
-[MIT License](https://github.com/tgdrive/teldrive/blob/main/LICENSE) (Copyright © 2024
+[MIT License](https://github.com/zhz8888/teldrive/blob/main/LICENSE) (Copyright © 2024
 divyam234).
 
 ## Recognitions

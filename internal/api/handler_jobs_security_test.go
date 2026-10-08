@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/principal"
+	"github.com/zhz8888/teldrive/v2/internal/principal"
 )
 
 func TestRedactJobArgs(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 // TelegramCreator adapts the shared Telegram storage boundary to channel

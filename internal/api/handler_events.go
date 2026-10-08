@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
 )
 
 // CreateEventStreamTicket issues a short-lived ticket that the browser can pass as

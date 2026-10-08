@@ -10,15 +10,15 @@ import (
 
 	"github.com/ogen-go/ogen/ogenerrors"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
-	"github.com/tgdrive/teldrive/v2/internal/channels"
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	"github.com/tgdrive/teldrive/v2/internal/shares"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	"github.com/tgdrive/teldrive/v2/internal/transfer"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/channels"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/shares"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/transfer"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestMapServiceErrorContextLifecycle(t *testing.T) {

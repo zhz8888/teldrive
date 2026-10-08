@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/riverqueue/river/rivermigrate"
 
-	"github.com/tgdrive/teldrive/v2/db/migrations"
+	"github.com/zhz8888/teldrive/v2/db/migrations"
 )
 
 const (

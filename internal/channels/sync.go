@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
 )
 
 // Sync upserts Telegram channels the authenticated user can administer. It

@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	embeddedui "github.com/tgdrive/teldrive/v2/ui"
+	embeddedui "github.com/zhz8888/teldrive/v2/ui"
 )
 
 // newWebUIHandler returns a handler for the UI bundle compiled into the binary.

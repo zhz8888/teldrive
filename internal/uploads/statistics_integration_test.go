@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
-	"github.com/tgdrive/teldrive/v2/internal/uploads"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/uploads"
 )
 
 func TestStatisticsReturnsDenseDailySeries(t *testing.T) {

@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tgdrive/teldrive/v2/internal/app"
-	"github.com/tgdrive/teldrive/v2/internal/config"
-	"github.com/tgdrive/teldrive/v2/internal/logging"
+	"github.com/zhz8888/teldrive/v2/internal/app"
+	"github.com/zhz8888/teldrive/v2/internal/config"
+	"github.com/zhz8888/teldrive/v2/internal/logging"
 )
 
 var (

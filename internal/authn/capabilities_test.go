@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
 )
 
 // TestCapabilitiesAreDerivedFromTheRoleAlone pins the permission strings every

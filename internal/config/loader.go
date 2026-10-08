@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/pflag"
 	stdmaps "maps"
 
-	"github.com/tgdrive/teldrive/v2/internal/size"
+	"github.com/zhz8888/teldrive/v2/internal/size"
 )
 
 // defaultConfigPath is the location advertised in the --config flag help text.

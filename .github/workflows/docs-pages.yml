@@ -41,7 +41,7 @@ jobs:
       - name: Build docs
         working-directory: docs
         env:
-          DOCS_SITE: https://tgdrive.github.io
+          DOCS_SITE: https://zhz8888.github.io
           DOCS_BASE: /teldrive
         run: bun run build
 

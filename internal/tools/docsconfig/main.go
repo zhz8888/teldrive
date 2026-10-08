@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/config"
-	"github.com/tgdrive/teldrive/v2/internal/size"
+	"github.com/zhz8888/teldrive/v2/internal/config"
+	"github.com/zhz8888/teldrive/v2/internal/size"
 )
 
 // row is one leaf configuration setting as rendered in a table row. Rows are

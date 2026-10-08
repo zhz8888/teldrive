@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/size"
+	"github.com/zhz8888/teldrive/v2/internal/size"
 )
 
 var (

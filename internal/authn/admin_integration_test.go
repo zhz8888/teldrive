@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
 
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 // newAdminService returns a service whose token randomness is fixed, so a test that

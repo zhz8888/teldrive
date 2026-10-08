@@ -12,7 +12,7 @@ import (
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
-	"github.com/tgdrive/teldrive/v2/internal/config"
+	"github.com/zhz8888/teldrive/v2/internal/config"
 )
 
 // knownConfigKeys returns every leaf configuration path, rendered the way a

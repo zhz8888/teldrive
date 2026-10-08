@@ -10,8 +10,8 @@ import (
 	"github.com/go-faster/jx"
 	"github.com/riverqueue/river"
 
-	"github.com/tgdrive/teldrive/v2/internal/api/gen"
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
+	"github.com/zhz8888/teldrive/v2/internal/api/gen"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
 )
 
 // ListPeriodicJobs returns every configured periodic job with its schedule, queue

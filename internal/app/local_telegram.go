@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/bots"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/bots"
 )
 
 // ErrLocalTelegramLoginUnavailable reports that interactive Telegram login was

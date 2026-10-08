@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/tgdrive/teldrive/v2/internal/database"
+	"github.com/zhz8888/teldrive/v2/internal/database"
 )
 
 // testDatabaseEnv names the environment variable holding the connection URL of

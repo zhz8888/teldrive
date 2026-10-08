@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
 )
 
 // TestBulkTrashRefusesEmptyAndNilIdentities keeps a malformed selection from

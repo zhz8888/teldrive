@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/localtelegram"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/localtelegram"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 func TestServerPersistsGotdStorageLifecycle(t *testing.T) {

@@ -27,9 +27,9 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
-	"github.com/tgdrive/teldrive/v2/internal/telethonsession"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/telethonsession"
 )
 
 // loginState is the opaque state a login step hands back to the caller and

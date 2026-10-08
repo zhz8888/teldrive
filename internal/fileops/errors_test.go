@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/tgdrive/teldrive/v2/internal/catalog"
+	"github.com/zhz8888/teldrive/v2/internal/catalog"
 )
 
 // TestClassifyWriteErrorTurnsOnlyCollisionsIntoConflicts decides what a caller sees

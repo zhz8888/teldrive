@@ -34,7 +34,7 @@ export function Docs({
     >
       <DocsLayout
         tree={tree}
-        githubUrl="https://github.com/tgdrive/teldrive"
+        githubUrl="https://github.com/zhz8888/teldrive"
         themeSwitch={{ enabled: true }}
         nav={{
           title: 'Teldrive',

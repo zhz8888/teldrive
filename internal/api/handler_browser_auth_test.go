@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/authn"
-	"github.com/tgdrive/teldrive/v2/internal/principal"
+	"github.com/zhz8888/teldrive/v2/internal/authn"
+	"github.com/zhz8888/teldrive/v2/internal/principal"
 )
 
 func TestCookieSecureFromContext(t *testing.T) {

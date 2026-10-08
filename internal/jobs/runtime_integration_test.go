@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/jobs"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/jobs"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestRuntimeInsertStartAndStopAgainstRealPostgres(t *testing.T) {

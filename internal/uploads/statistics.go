@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
 )
 
 // DailyStatistic is one calendar day of completed upload activity.

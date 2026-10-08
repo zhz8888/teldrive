@@ -17,7 +17,7 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
-	"github.com/tgdrive/teldrive/v2/internal/cache"
+	"github.com/zhz8888/teldrive/v2/internal/cache"
 )
 
 const (

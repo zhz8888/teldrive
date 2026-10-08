@@ -7,10 +7,10 @@ import (
 
 	"github.com/gotd/td/session"
 
-	"github.com/tgdrive/teldrive/v2/internal/telethonsession"
+	"github.com/zhz8888/teldrive/v2/internal/telethonsession"
 
-	"github.com/tgdrive/teldrive/v2/internal/db/sqlcgen"
-	"github.com/tgdrive/teldrive/v2/internal/secureblob"
+	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/secureblob"
 )
 
 // botSessionStorage adapts one bot row to gotd's session.Storage interface: it

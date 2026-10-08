@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/database"
-	testpostgres "github.com/tgdrive/teldrive/v2/internal/testutil/postgres"
+	"github.com/zhz8888/teldrive/v2/internal/database"
+	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
 
 func TestMigrateAndOpenAgainstPostgres18(t *testing.T) {

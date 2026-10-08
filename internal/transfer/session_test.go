@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tgdrive/teldrive/v2/internal/telegramstore"
+	"github.com/zhz8888/teldrive/v2/internal/telegramstore"
 )
 
 // stubMetadataStorage implements Storage without the optional MetadataReader, so
