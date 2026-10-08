@@ -135,7 +135,13 @@ test("PDF opens in the Teldrive PDF.js workspace with navigation and search", as
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-pdf-reader]")).toBeVisible();
   await expect(dialog.locator("foliate-view")).toHaveCount(0);
-  await expect.poll(() => dialog.locator(".pdfViewer .page").count()).toBe(2);
+  // The first render boots the pdf.js worker and its wasm bundle before the
+  // pages exist. That is slow enough on a fully parallel, four-core run to miss
+  // the five second default, and a missing page is still a failure: the poll
+  // only waits longer for the same two pages.
+  await expect
+    .poll(() => dialog.locator(".pdfViewer .page").count(), { timeout: 20_000 })
+    .toBe(2);
   await expect(dialog.locator(".pdfViewer .textLayer").first()).toBeVisible();
   const initialContentRequests = stats.pdfContentRequests;
 
