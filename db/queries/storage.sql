@@ -1,3 +1,5 @@
+-- GetStorageDashboardTotals returns the user's active byte total with the active
+-- file, active folder, trashed file and trash byte counts, zero where nothing matches.
 -- name: GetStorageDashboardTotals :one
 SELECT
     COALESCE(sum(f.size) FILTER (WHERE f.kind = 'file' AND f.status = 'active'), 0)::bigint AS logical_bytes,
@@ -8,6 +10,9 @@ SELECT
 FROM /* TEMPLATE: schema */files f
 WHERE f.user_id = sqlc.arg(user_id);
 
+-- GetStorageCleanupStatistics returns the bytes held by the user's trashed files and
+-- by expired open or completing uploads that still have stored parts, plus the count
+-- of those expired uploads.
 -- name: GetStorageCleanupStatistics :one
 SELECT
     COALESCE((
@@ -35,6 +40,9 @@ SELECT
           AND us.expires_at <= now()
     ), 0)::bigint AS stale_uploads;
 
+-- ListStorageGrowth returns the last 30 days, one row per day with the bytes added
+-- that day and the running logical total, which starts from everything created before
+-- the window.
 -- name: ListStorageGrowth :many
 WITH days AS (
     SELECT generate_series(
@@ -71,6 +79,9 @@ CROSS JOIN baseline
 LEFT JOIN daily USING (day)
 ORDER BY days.day;
 
+-- ListStorageChannelStatistics returns each channel of the user with its health and
+-- the number and stored size of the parts it holds for that user's active files,
+-- selected channels first and then by descending stored size.
 -- name: ListStorageChannelStatistics :many
 SELECT
     c.channel_id,
@@ -87,6 +98,8 @@ WHERE c.user_id = sqlc.arg(user_id)
 GROUP BY c.channel_id, c.name, c.selected, c.health, c.last_checked_at
 ORDER BY c.selected DESC, stored_bytes DESC, c.channel_id;
 
+-- ListRecentStorageActivity returns the user's newest file, upload, share and channel
+-- events, up to activity_limit, newest first; other event types are never returned.
 -- name: ListRecentStorageActivity :many
 SELECT id, event_type, resource_type, resource_id, payload, occurred_at
 FROM /* TEMPLATE: schema */user_events

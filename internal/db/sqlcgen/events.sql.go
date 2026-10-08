@@ -22,6 +22,8 @@ type CreateEventStreamTicketParams struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
+// CreateEventStreamTicket stores the SHA-256 hash of a new SSE stream ticket for the
+// user together with its expiry; the plaintext token is never persisted.
 func (q *Queries) CreateEventStreamTicket(ctx context.Context, arg CreateEventStreamTicketParams) error {
 	_, err := q.db.Exec(ctx, createEventStreamTicket, arg.TokenHash, arg.UserID, arg.ExpiresAt)
 	return err
@@ -32,6 +34,8 @@ DELETE FROM /* TEMPLATE: schema */event_stream_tickets
 WHERE expires_at <= now()
 `
 
+// DeleteExpiredEventStreamTickets removes the tickets whose expiry has passed and
+// returns the number of rows deleted.
 func (q *Queries) DeleteExpiredEventStreamTickets(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredEventStreamTickets)
 	if err != nil {
@@ -45,6 +49,8 @@ DELETE FROM /* TEMPLATE: schema */user_events
 WHERE occurred_at < $1
 `
 
+// DeleteUserEventsBefore drops every event that occurred before the cutoff, for all
+// users, and returns how many rows were removed.
 func (q *Queries) DeleteUserEventsBefore(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserEventsBefore, cutoff)
 	if err != nil {
@@ -60,6 +66,8 @@ WHERE token_hash = $1
   AND expires_at > now()
 `
 
+// GetEventStreamTicketUser resolves a presented stream ticket hash to its user while
+// the ticket has not expired; an expired or unknown ticket returns no row.
 func (q *Queries) GetEventStreamTicketUser(ctx context.Context, tokenHash []byte) (int64, error) {
 	row := q.db.QueryRow(ctx, getEventStreamTicketUser, tokenHash)
 	var user_id int64
@@ -98,6 +106,9 @@ type GetUserEventCursorStateRow struct {
 	LastEventID  int64 `json:"last_event_id"`
 }
 
+// GetUserEventCursorState reports whether the given after_id still exists for the
+// user, plus the oldest and newest retained event ids and the stream's high-water
+// mark; every id is 0 when the user has no events yet.
 func (q *Queries) GetUserEventCursorState(ctx context.Context, arg GetUserEventCursorStateParams) (*GetUserEventCursorStateRow, error) {
 	row := q.db.QueryRow(ctx, getUserEventCursorState, arg.CursorUserID, arg.AfterID)
 	var i GetUserEventCursorStateRow
@@ -130,6 +141,8 @@ type ListUserEventsAfterParams struct {
 	EventLimit int32    `json:"event_limit"`
 }
 
+// ListUserEventsAfter returns up to event_limit events of the user with an id above
+// after_id, ascending, so the caller advances its cursor to the last id it saw.
 func (q *Queries) ListUserEventsAfter(ctx context.Context, arg ListUserEventsAfterParams) ([]*UserEvent, error) {
 	rows, err := q.db.Query(ctx, listUserEventsAfter,
 		arg.UserID,

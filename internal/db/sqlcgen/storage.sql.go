@@ -45,6 +45,9 @@ type GetStorageCleanupStatisticsRow struct {
 	StaleUploads     int64 `json:"stale_uploads"`
 }
 
+// GetStorageCleanupStatistics returns the bytes held by the user's trashed files and
+// by expired open or completing uploads that still have stored parts, plus the count
+// of those expired uploads.
 func (q *Queries) GetStorageCleanupStatistics(ctx context.Context, userID int64) (*GetStorageCleanupStatisticsRow, error) {
 	row := q.db.QueryRow(ctx, getStorageCleanupStatistics, userID)
 	var i GetStorageCleanupStatisticsRow
@@ -71,6 +74,8 @@ type GetStorageDashboardTotalsRow struct {
 	TrashBytes    int64 `json:"trash_bytes"`
 }
 
+// GetStorageDashboardTotals returns the user's active byte total with the active
+// file, active folder, trashed file and trash byte counts, zero where nothing matches.
 func (q *Queries) GetStorageDashboardTotals(ctx context.Context, userID int64) (*GetStorageDashboardTotalsRow, error) {
 	row := q.db.QueryRow(ctx, getStorageDashboardTotals, userID)
 	var i GetStorageDashboardTotalsRow
@@ -112,6 +117,8 @@ type ListRecentStorageActivityRow struct {
 	OccurredAt   pgtype.Timestamptz `json:"occurred_at"`
 }
 
+// ListRecentStorageActivity returns the user's newest file, upload, share and channel
+// events, up to activity_limit, newest first; other event types are never returned.
 func (q *Queries) ListRecentStorageActivity(ctx context.Context, arg ListRecentStorageActivityParams) ([]*ListRecentStorageActivityRow, error) {
 	rows, err := q.db.Query(ctx, listRecentStorageActivity, arg.UserID, arg.ActivityLimit)
 	if err != nil {
@@ -166,6 +173,9 @@ type ListStorageChannelStatisticsRow struct {
 	StoredBytes   int64              `json:"stored_bytes"`
 }
 
+// ListStorageChannelStatistics returns each channel of the user with its health and
+// the number and stored size of the parts it holds for that user's active files,
+// selected channels first and then by descending stored size.
 func (q *Queries) ListStorageChannelStatistics(ctx context.Context, userID int64) ([]*ListStorageChannelStatisticsRow, error) {
 	rows, err := q.db.Query(ctx, listStorageChannelStatistics, userID)
 	if err != nil {
@@ -237,6 +247,9 @@ type ListStorageGrowthRow struct {
 	LogicalBytes int64       `json:"logical_bytes"`
 }
 
+// ListStorageGrowth returns the last 30 days, one row per day with the bytes added
+// that day and the running logical total, which starts from everything created before
+// the window.
 func (q *Queries) ListStorageGrowth(ctx context.Context, userID int64) ([]*ListStorageGrowthRow, error) {
 	rows, err := q.db.Query(ctx, listStorageGrowth, userID)
 	if err != nil {

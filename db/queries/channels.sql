@@ -1,3 +1,5 @@
+-- ListChannels returns one page of the user's channels, newest first, keyset-paged
+-- on (created_at, channel_id) so paging stays stable while rows are inserted.
 -- name: ListChannels :many
 SELECT *
 FROM /* TEMPLATE: schema */channels
@@ -12,18 +14,24 @@ WHERE user_id = sqlc.arg(user_id)
 ORDER BY created_at DESC, channel_id DESC
 LIMIT sqlc.arg(page_size);
 
+-- GetChannelForUser returns the user's own channel row, so an id belonging to
+-- another account returns no row.
 -- name: GetChannelForUser :one
 SELECT *
 FROM /* TEMPLATE: schema */channels
 WHERE user_id = sqlc.arg(user_id)
   AND channel_id = sqlc.arg(channel_id);
 
+-- GetSelectedChannel returns the single channel the user selected as the upload
+-- destination; a user without one gets no row.
 -- name: GetSelectedChannel :one
 SELECT *
 FROM /* TEMPLATE: schema */channels
 WHERE user_id = sqlc.arg(user_id)
   AND selected;
 
+-- CreateChannel inserts a channel for the user, always unselected, and returns it;
+-- health stays at its default until the first check.
 -- name: CreateChannel :one
 INSERT INTO /* TEMPLATE: schema */channels (
     channel_id,
@@ -38,6 +46,8 @@ INSERT INTO /* TEMPLATE: schema */channels (
 )
 RETURNING *;
 
+-- ClearSelectedChannel deselects whichever channel the user currently has selected,
+-- which the one-selected-per-user index requires before another can be promoted.
 -- name: ClearSelectedChannel :exec
 UPDATE /* TEMPLATE: schema */channels
 SET selected = FALSE,
@@ -45,6 +55,8 @@ SET selected = FALSE,
 WHERE user_id = sqlc.arg(user_id)
   AND selected;
 
+-- SelectChannel marks one of the user's channels as selected and returns it; the
+-- caller clears the previous selection first, and an unknown id returns no row.
 -- name: SelectChannel :one
 UPDATE /* TEMPLATE: schema */channels
 SET selected = TRUE,
@@ -53,6 +65,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND channel_id = sqlc.arg(channel_id)
 RETURNING *;
 
+-- UpdateChannelHealth stores the latest health verdict and stamps last_checked_at
+-- and updated_at; an unknown channel id returns no row.
 -- name: UpdateChannelHealth :one
 UPDATE /* TEMPLATE: schema */channels
 SET health = sqlc.arg(health),
@@ -62,11 +76,15 @@ WHERE user_id = sqlc.arg(user_id)
   AND channel_id = sqlc.arg(channel_id)
 RETURNING *;
 
+-- DeleteChannel removes one channel of the user and returns the rows deleted,
+-- refusing the selected channel so the upload destination cannot disappear.
 -- name: DeleteChannel :execrows
 DELETE FROM /* TEMPLATE: schema */channels
 WHERE user_id = sqlc.arg(user_id)
   AND channel_id = sqlc.arg(channel_id)
   AND NOT selected;
+-- ListBots returns one page of the user's bots, newest first, keyset-paged on
+-- (created_at, bot_id).
 -- name: ListBots :many
 SELECT *
 FROM /* TEMPLATE: schema */bots
@@ -81,6 +99,8 @@ WHERE user_id = sqlc.arg(user_id)
 ORDER BY created_at DESC, bot_id DESC
 LIMIT sqlc.arg(page_size);
 
+-- InsertPendingBots registers the given bot ids for the user in the pending,
+-- disabled state and returns the stored rows; an existing bot is reused and reset.
 -- name: InsertPendingBots :many
 INSERT INTO /* TEMPLATE: schema */bots AS bot (
     bot_id, user_id, token_ciphertext, enabled
@@ -104,12 +124,15 @@ SET token_ciphertext = EXCLUDED.token_ciphertext,
     updated_at = now()
 RETURNING bot.*;
 
+-- GetBot returns one bot of the user by id, or no row when the user has no such bot.
 -- name: GetBot :one
 SELECT *
 FROM /* TEMPLATE: schema */bots
 WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id);
 
+-- ActivateBot records the username Telegram reported and clears the failure
+-- history, putting the bot back into service; an unknown bot returns no row.
 -- name: ActivateBot :one
 UPDATE /* TEMPLATE: schema */bots
 SET username = sqlc.arg(username),
@@ -122,6 +145,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id)
 RETURNING *;
 
+-- MarkBotProvisionFailure disables the bot, increments its failure counter and
+-- stores the error, returning the rows changed.
 -- name: MarkBotProvisionFailure :execrows
 UPDATE /* TEMPLATE: schema */bots
 SET enabled = FALSE,
@@ -131,11 +156,14 @@ SET enabled = FALSE,
 WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id);
 
+-- DeleteBot removes one bot of the user and returns the rows deleted.
 -- name: DeleteBot :execrows
 DELETE FROM /* TEMPLATE: schema */bots
 WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id);
 
+-- ListEnabledBots returns every enabled bot of the user ordered by id, ignoring
+-- retry_after; callers that must honour the backoff need ListUploadEligibleBots.
 -- name: ListEnabledBots :many
 SELECT *
 FROM /* TEMPLATE: schema */bots
@@ -143,6 +171,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND enabled
 ORDER BY bot_id;
 
+-- ListUploadEligibleBots returns the enabled bots of the user whose retry_after
+-- has passed, ordered by id, which is the pool uploads allocate from.
 -- name: ListUploadEligibleBots :many
 SELECT *
 FROM /* TEMPLATE: schema */bots
@@ -151,6 +181,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND (retry_after IS NULL OR retry_after <= now())
 ORDER BY bot_id;
 
+-- NextBotSelectionValue advances the per-user, per-operation round-robin counter
+-- and returns the value to use, so concurrent allocators get distinct values.
 -- name: NextBotSelectionValue :one
 INSERT INTO /* TEMPLATE: schema */bot_selection_counters (
     user_id,
@@ -165,12 +197,16 @@ ON CONFLICT (user_id, operation) DO UPDATE
 SET next_value = /* TEMPLATE: schema */bot_selection_counters.next_value + 1,
     updated_at = now()
 RETURNING (next_value - 1)::bigint AS selection_value;
+-- CountChannelReferences counts the file parts and upload parts that still point
+-- at the channel for any user, to decide whether it may be forgotten.
 -- name: CountChannelReferences :one
 SELECT (
     (SELECT count(*) FROM /* TEMPLATE: schema */file_parts fp WHERE fp.channel_id = sqlc.arg(target_channel_id)) +
     (SELECT count(*) FROM /* TEMPLATE: schema */upload_parts up WHERE up.channel_id = sqlc.arg(target_channel_id))
 )::bigint AS reference_count;
 
+-- CountChannelStoredMessages counts the distinct Telegram messages referenced by
+-- the channel's file and upload parts, ignoring upload parts without a message.
 -- name: CountChannelStoredMessages :one
 SELECT count(*)::bigint
 FROM (
@@ -184,11 +220,15 @@ FROM (
       AND message_id IS NOT NULL
 ) AS stored_messages;
 
+-- ListChannelsForOrphanCleanup returns every channel of every user ordered by user
+-- and channel id, because the orphan sweep walks the Telegram side per channel.
 -- name: ListChannelsForOrphanCleanup :many
 SELECT *
 FROM /* TEMPLATE: schema */channels
 ORDER BY user_id, channel_id;
 
+-- ListReferencedMessageIDs returns which of the given message ids a file or upload
+-- part still references in the channel, so the rest can be deleted from Telegram.
 -- name: ListReferencedMessageIDs :many
 SELECT message_id
 FROM (
@@ -203,6 +243,8 @@ FROM (
       AND up.message_id = ANY(sqlc.arg(message_ids)::bigint[])
 ) AS referenced_messages;
 
+-- ListChannelReferencedParts lists the channel's parts that belong to active files
+-- of one user with their file name and size, ordered by file name.
 -- name: ListChannelReferencedParts :many
 SELECT fp.message_id::bigint AS message_id, f.id AS file_id, f.name AS file_name, f.size AS file_size
 FROM /* TEMPLATE: schema */file_parts fp
@@ -212,6 +254,8 @@ WHERE fp.channel_id = sqlc.arg(target_channel_id)
   AND f.status = 'active'
 ORDER BY f.name, fp.message_id;
 
+-- UpsertDiscoveredChannels records the channels found by discovery, inserting them
+-- unselected with unknown health and refreshing the name of the existing ones.
 -- name: UpsertDiscoveredChannels :many
 INSERT INTO /* TEMPLATE: schema */channels AS channel (
     channel_id, user_id, name, selected, health
@@ -225,6 +269,8 @@ SET name = EXCLUDED.name,
     updated_at = now()
 RETURNING channel.*;
 
+-- UpdateBotSession stores the serialized Telegram session of one bot and returns
+-- the rows changed, so a stale bot id is reported as zero.
 -- name: UpdateBotSession :execrows
 UPDATE /* TEMPLATE: schema */bots
 SET session = sqlc.arg(session),
@@ -232,6 +278,8 @@ SET session = sqlc.arg(session),
 WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id);
 
+-- MarkBotUploadSuccess clears the failure state of the bot and stamps last_used_at,
+-- which puts it back at the front of the allocation order.
 -- name: MarkBotUploadSuccess :execrows
 UPDATE /* TEMPLATE: schema */bots
 SET consecutive_failures = 0,
@@ -242,6 +290,8 @@ SET consecutive_failures = 0,
 WHERE user_id = sqlc.arg(user_id)
   AND bot_id = sqlc.arg(bot_id);
 
+-- MarkBotUploadFailure increments the bot's failure counter, keeps its last error
+-- and defers the next attempt with an exponential backoff.
 -- name: MarkBotUploadFailure :execrows
 UPDATE /* TEMPLATE: schema */bots
 SET consecutive_failures = consecutive_failures + 1,

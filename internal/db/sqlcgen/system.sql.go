@@ -13,6 +13,8 @@ const acquireAdvisoryLock = `-- name: AcquireAdvisoryLock :exec
 SELECT pg_advisory_lock($1)
 `
 
+// AcquireAdvisoryLock blocks until the session-level advisory lock for lock_id is
+// free and then takes it; the lock stays on the connection until ReleaseAdvisoryLock.
 func (q *Queries) AcquireAdvisoryLock(ctx context.Context, lockID int64) error {
 	_, err := q.db.Exec(ctx, acquireAdvisoryLock, lockID)
 	return err
@@ -22,6 +24,8 @@ const acquireAdvisoryTransactionLock = `-- name: AcquireAdvisoryTransactionLock 
 SELECT pg_advisory_xact_lock($1)
 `
 
+// AcquireAdvisoryTransactionLock takes a transaction-scoped advisory lock, waiting if
+// it is busy; PostgreSQL releases it when the transaction ends.
 func (q *Queries) AcquireAdvisoryTransactionLock(ctx context.Context, lockID int64) error {
 	_, err := q.db.Exec(ctx, acquireAdvisoryTransactionLock, lockID)
 	return err
@@ -31,6 +35,8 @@ const releaseAdvisoryLock = `-- name: ReleaseAdvisoryLock :one
 SELECT pg_advisory_unlock($1)
 `
 
+// ReleaseAdvisoryLock releases a session-level advisory lock and reports whether this
+// connection held it; false means the lock was already gone.
 func (q *Queries) ReleaseAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
 	row := q.db.QueryRow(ctx, releaseAdvisoryLock, lockID)
 	var pg_advisory_unlock bool
@@ -42,6 +48,8 @@ const tryAdvisoryLock = `-- name: TryAdvisoryLock :one
 SELECT pg_try_advisory_lock($1)
 `
 
+// TryAdvisoryLock takes the session-level advisory lock only if it is free and
+// reports whether it got it, without waiting, so a busy lock returns false.
 func (q *Queries) TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error) {
 	row := q.db.QueryRow(ctx, tryAdvisoryLock, lockID)
 	var pg_try_advisory_lock bool
@@ -59,6 +67,8 @@ type TryAdvisoryLocksRow struct {
 	Locked bool  `json:"locked"`
 }
 
+// TryAdvisoryLocks tries every id in lock_ids without waiting and returns one row per
+// id with whether that lock was taken; the caller must release the ones it got.
 func (q *Queries) TryAdvisoryLocks(ctx context.Context, lockIds []int64) ([]*TryAdvisoryLocksRow, error) {
 	rows, err := q.db.Query(ctx, tryAdvisoryLocks, lockIds)
 	if err != nil {

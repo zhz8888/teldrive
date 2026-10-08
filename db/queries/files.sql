@@ -1,9 +1,13 @@
+-- GetFileForUser returns one row of the user's catalogue by id, whatever its kind or
+-- status, so trashed and deletion-pending rows are included.
 -- name: GetFileForUser :one
 SELECT *
 FROM /* TEMPLATE: schema */files
 WHERE id = sqlc.arg(file_id)
   AND user_id = sqlc.arg(user_id);
 
+-- GetActiveFolderForUser returns the user's folder only while it is active, so a
+-- trashed or deletion-pending folder returns no row.
 -- name: GetActiveFolderForUser :one
 SELECT *
 FROM /* TEMPLATE: schema */files
@@ -12,6 +16,10 @@ WHERE id = sqlc.arg(folder_id)
   AND kind = 'folder'
   AND status = 'active';
 
+-- ListFiles returns one page of the user's direct children of parent_id, ordered by
+-- name and keyset-paged on (name, id); a trashed listing with a NULL parent also
+-- surfaces trashed rows whose parent is not trashed, so a trashed subtree is listed
+-- once at its root. Search matches by trigram or by substring.
 -- name: ListFiles :many
 SELECT *
 FROM /* TEMPLATE: schema */files
@@ -45,6 +53,8 @@ WHERE files.user_id = sqlc.arg(user_id)
 ORDER BY name, id
 LIMIT sqlc.arg(page_size);
 
+-- CreateFolder inserts an active folder row with the directory MIME type, no size and
+-- no encryption, and returns it.
 -- name: CreateFolder :one
 INSERT INTO /* TEMPLATE: schema */files (
     id,
@@ -71,6 +81,9 @@ INSERT INTO /* TEMPLATE: schema */files (
 )
 RETURNING *;
 
+-- UpdateFileMetadata applies an optional rename and mod_time to one active file of the
+-- user and bumps its generation; a supplied expected_generation turns it into a
+-- compare-and-set that returns no row when it no longer matches.
 -- name: UpdateFileMetadata :one
 UPDATE /* TEMPLATE: schema */files
 SET name = COALESCE(sqlc.narg(name), name),
@@ -86,6 +99,9 @@ WHERE id = sqlc.arg(file_id)
   )
 RETURNING *;
 
+-- MoveFile re-parents one active file or folder of the user and bumps its generation;
+-- a stale expected_generation makes it a compare-and-set that returns no row, and a
+-- NULL parent_id means the drive root.
 -- name: MoveFile :one
 UPDATE /* TEMPLATE: schema */files
 SET parent_id = sqlc.narg(parent_id),
@@ -100,6 +116,8 @@ WHERE id = sqlc.arg(file_id)
   )
 RETURNING *;
 
+-- TrashFile moves one active file of the user to the trash, stamping deleted_at and
+-- bumping its generation; an already trashed or missing row returns no row.
 -- name: TrashFile :one
 UPDATE /* TEMPLATE: schema */files
 SET status = 'trashed',
@@ -111,6 +129,9 @@ WHERE id = sqlc.arg(file_id)
   AND status = 'active'
 RETURNING *;
 
+-- RestoreFileSubtree restores one trashed file and its trashed descendants to active
+-- and returns every row it changed; the root is accepted only when its parent is
+-- active or gone, so a subtree is never restored under a still-trashed parent.
 -- name: RestoreFileSubtree :many
 WITH RECURSIVE target AS (
   SELECT root.id
@@ -144,6 +165,8 @@ WHERE target_file.user_id = sqlc.arg(user_id)
   AND target_file.id IN (SELECT target.id FROM target)
 RETURNING target_file.*;
 
+-- DeleteFileCatalogRowsByIDs deletes the user's catalogue rows for the given ids but
+-- only where they are already deletion_pending, returning how many rows went away.
 -- name: DeleteFileCatalogRowsByIDs :execrows
 DELETE FROM /* TEMPLATE: schema */files
 WHERE id = ANY(sqlc.arg(file_ids)::uuid[])
@@ -152,18 +175,24 @@ WHERE id = ANY(sqlc.arg(file_ids)::uuid[])
 
 -- Recursive move-cycle validation will be implemented as a hand-reviewed query in the file service.
 
+-- ListFileParts returns every part of a file in part order; the query is not scoped by
+-- user, so callers must have checked access to file_id first.
 -- name: ListFileParts :many
 SELECT *
 FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = sqlc.arg(file_id)
 ORDER BY part_no;
 
+-- ListFilePartsByFileIDs returns the parts of many files in (file_id, part_no) order;
+-- like ListFileParts it trusts the caller for ownership.
 -- name: ListFilePartsByFileIDs :many
 SELECT *
 FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = ANY(sqlc.arg(file_ids)::uuid[])
 ORDER BY file_id, part_no;
 
+-- ResolveActiveChildFolder returns the id of the active folder with this name under
+-- the given parent, NULL meaning the drive root, used to resolve one path component.
 -- name: ResolveActiveChildFolder :one
 SELECT id
 FROM /* TEMPLATE: schema */files
@@ -173,6 +202,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND kind = 'folder'
   AND status = 'active';
 
+-- ResolveActiveChild returns the active file or folder with this name under the given
+-- parent, NULL meaning the drive root; trashed and deletion-pending rows are ignored.
 -- name: ResolveActiveChild :one
 SELECT *
 FROM /* TEMPLATE: schema */files
@@ -181,6 +212,11 @@ WHERE user_id = sqlc.arg(user_id)
   AND name = sqlc.arg(name)
   AND status = 'active';
 
+-- ListFilesAdvanced is the advanced file search: scope selects the direct children of
+-- parent_id ('folder'), the whole drive ('drive') or one folder subtree ('recursive'),
+-- while status, kind, search text or regex, category and update window filter the
+-- rows; paging is a keyset over the requested sort column, and a trashed listing with
+-- a NULL parent also surfaces trashed rows whose parent is not trashed.
 -- name: ListFilesAdvanced :many
 WITH RECURSIVE scope_files AS (
   SELECT root.id
@@ -307,6 +343,8 @@ ORDER BY
   CASE WHEN sqlc.arg(sort_order)::text = 'desc' THEN f.id END DESC
 LIMIT sqlc.arg(page_size);
 
+-- ListFileParentPaths builds the slash-separated path of the folders above each listed
+-- file, from the root down, and returns '/' for a file sitting in the root.
 -- name: ListFileParentPaths :many
 WITH RECURSIVE ancestors AS (
   SELECT f.id AS listed_id, f.parent_id AS ancestor_id, 0 AS depth
@@ -324,6 +362,8 @@ FROM ancestors a
 LEFT JOIN /* TEMPLATE: schema */files node ON node.id = a.ancestor_id AND node.user_id = sqlc.arg(user_id)
 GROUP BY a.listed_id;
 
+-- ListFileCategoryStatistics counts and sums the user's active files per category
+-- (image, audio, video, document, archive, other), ordered by category name.
 -- name: ListFileCategoryStatistics :many
 SELECT category, count(*)::bigint AS total_files, COALESCE(sum(size), 0)::bigint AS total_size
 FROM (
@@ -354,6 +394,8 @@ FROM (
 GROUP BY category
 ORDER BY category;
 
+-- GetDriveStatistics summarises the user's drive in one row: active files and folders,
+-- their total size, trashed files, live shares and open or completing uploads.
 -- name: GetDriveStatistics :one
 SELECT
   count(*) FILTER (WHERE kind = 'file' AND status = 'active')::bigint AS total_files,
@@ -365,6 +407,8 @@ SELECT
 FROM /* TEMPLATE: schema */files
 WHERE user_id = sqlc.arg(user_id);
 
+-- LockActiveFiles row-locks the user's active files with the given ids for the rest of
+-- the transaction and returns them; ids that are not active are not locked.
 -- name: LockActiveFiles :many
 SELECT *
 FROM /* TEMPLATE: schema */files
@@ -373,6 +417,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND status = 'active'
 FOR UPDATE;
 
+-- LockActiveFolder row-locks one active folder of the user for the rest of the
+-- transaction and returns it; a trashed or foreign folder returns no row.
 -- name: LockActiveFolder :one
 SELECT *
 FROM /* TEMPLATE: schema */files
@@ -382,6 +428,8 @@ WHERE id = sqlc.arg(folder_id)
   AND status = 'active'
 FOR UPDATE;
 
+-- LockActiveDestinationEntries row-locks only the active destination children whose
+-- names collide with the requested ones and returns their id and name.
 -- name: LockActiveDestinationEntries :many
 -- Locks only the destination entries the move collides with by name. Locking every
 -- child of the destination held the whole folder for the length of the
@@ -396,6 +444,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND name = ANY(sqlc.arg(names)::text[])
 FOR UPDATE;
 
+-- ListActiveDestinationEntries lists the id and name of every active child of the
+-- destination folder, NULL meaning the drive root, for name-conflict checks.
 -- name: ListActiveDestinationEntries :many
 SELECT id, name
 FROM /* TEMPLATE: schema */files
@@ -403,6 +453,8 @@ WHERE user_id = sqlc.arg(user_id)
   AND parent_id IS NOT DISTINCT FROM sqlc.narg(parent_id)::uuid
   AND status = 'active';
 
+-- ListFileAncestorIDs returns the file and every ancestor above it up to the root,
+-- scoped to the user, as an unordered id list; an unknown file yields no rows.
 -- name: ListFileAncestorIDs :many
 WITH RECURSIVE ancestors AS (
   SELECT file.id, file.parent_id
@@ -417,6 +469,8 @@ WITH RECURSIVE ancestors AS (
 )
 SELECT id FROM ancestors;
 
+-- ListFileSubtreeIDs returns the file and every descendant below it in the user's tree
+-- as an unordered id list, whatever their status.
 -- name: ListFileSubtreeIDs :many
 WITH RECURSIVE subtree AS (
   SELECT root.id FROM /* TEMPLATE: schema */files root WHERE root.id = sqlc.arg(file_id) AND root.user_id = sqlc.arg(user_id)
@@ -425,6 +479,8 @@ WITH RECURSIVE subtree AS (
 )
 SELECT id FROM subtree;
 
+-- TrashFileSubtrees trashes the given active files together with their active
+-- descendants and returns every changed row with its new deleted_at and generation.
 -- name: TrashFileSubtrees :many
 WITH RECURSIVE target AS (
   SELECT root.id
@@ -448,6 +504,8 @@ WHERE target_file.user_id = sqlc.arg(user_id)
   AND target_file.id IN (SELECT target.id FROM target)
 RETURNING target_file.*;
 
+-- RevokeSharesForFileSubtrees revokes the user's live shares on the given files and
+-- all their descendants; shares revoked earlier keep their original timestamp.
 -- name: RevokeSharesForFileSubtrees :exec
 WITH RECURSIVE target AS (
   SELECT root.id FROM /* TEMPLATE: schema */files root WHERE root.user_id = sqlc.arg(user_id) AND root.id = ANY(sqlc.arg(file_ids)::uuid[])
@@ -460,6 +518,9 @@ WHERE share.owner_id = sqlc.arg(user_id)
   AND share.revoked_at IS NULL
   AND share.file_id IN (SELECT target.id FROM target);
 
+-- MarkFileSubtreeDeletionPending moves one active file and its active descendants to
+-- deletion_pending, keeping an earlier deleted_at if there is one; nothing is
+-- returned.
 -- name: MarkFileSubtreeDeletionPending :exec
 WITH RECURSIVE target AS (
   SELECT root.id FROM /* TEMPLATE: schema */files root WHERE root.id = sqlc.arg(file_id) AND root.user_id = sqlc.arg(user_id) AND root.status = 'active'
@@ -473,6 +534,8 @@ SET status = 'deletion_pending',
     updated_at = now()
 WHERE target_file.user_id = sqlc.arg(user_id) AND target_file.id IN (SELECT target.id FROM target);
 
+-- MarkFileSubtreesDeletionPending moves several active files and their active
+-- descendants to deletion_pending, keeping an earlier deleted_at; nothing is returned.
 -- name: MarkFileSubtreesDeletionPending :exec
 WITH RECURSIVE target AS (
   SELECT root.id
@@ -495,6 +558,8 @@ SET status = 'deletion_pending',
 WHERE target_file.user_id = sqlc.arg(user_id)
   AND target_file.id IN (SELECT target.id FROM target);
 
+-- RevokeSharesForFileSubtree revokes the user's live shares on one file and every
+-- descendant of it, leaving already revoked shares untouched.
 -- name: RevokeSharesForFileSubtree :exec
 WITH RECURSIVE target AS (
   SELECT root.id FROM /* TEMPLATE: schema */files root WHERE root.id = sqlc.arg(file_id) AND root.user_id = sqlc.arg(user_id)
@@ -507,6 +572,8 @@ WHERE share.owner_id = sqlc.arg(user_id)
   AND share.revoked_at IS NULL
   AND share.file_id IN (SELECT target.id FROM target);
 
+-- ListActiveNames returns the names of the user's active children of the given parent,
+-- optionally excluding one id, which is the name-conflict check before an insert.
 -- name: ListActiveNames :many
 SELECT name
 FROM /* TEMPLATE: schema */files
@@ -515,6 +582,9 @@ WHERE user_id = sqlc.arg(user_id)
   AND status = 'active'
   AND (sqlc.narg(exclude_id)::uuid IS NULL OR id <> sqlc.narg(exclude_id)::uuid);
 
+-- MoveFilesWithNames re-parents and renames several files in one statement, pairing
+-- file_ids with names by array position and returning the updated rows; a stale
+-- expected_generation leaves that file out of the result.
 -- name: MoveFilesWithNames :many
 WITH arrays AS (
   SELECT sqlc.arg(file_ids)::uuid[] AS file_ids,
@@ -537,6 +607,8 @@ WHERE file.id = input.file_id
   AND (sqlc.narg(expected_generation)::bigint IS NULL OR file.generation = sqlc.narg(expected_generation)::bigint)
 RETURNING file.*;
 
+-- LoadFileSubtree returns the file and its whole subtree, each row carrying its depth,
+-- ordered by depth then id; rows of every status are included.
 -- name: LoadFileSubtree :many
 WITH RECURSIVE tree AS (
     SELECT f.*, 0::integer AS depth
@@ -554,6 +626,8 @@ SELECT id, user_id, parent_id, name, kind, mime_type, size,
 FROM tree
 ORDER BY depth, id;
 
+-- LoadFileSubtrees returns the subtrees of several roots with a depth column, ordered
+-- by depth then id and including rows of every status.
 -- name: LoadFileSubtrees :many
 WITH RECURSIVE tree AS (
     SELECT f.*, 0::integer AS depth
@@ -572,6 +646,8 @@ SELECT id, user_id, parent_id, name, kind, mime_type, size,
 FROM tree
 ORDER BY depth, id;
 
+-- InsertCopiedFiles inserts the file rows of a copy operation from a JSON array,
+-- forcing the active status and generation 1, and returns the created rows.
 -- name: InsertCopiedFiles :many
 INSERT INTO /* TEMPLATE: schema */files AS file (
     id, user_id, parent_id, name, kind, mime_type, size,
@@ -589,6 +665,8 @@ FROM jsonb_to_recordset(sqlc.arg(files)::jsonb) AS input(
 )
 RETURNING file.*;
 
+-- InsertCopiedFileParts inserts the part rows of a copy operation, base64-decoding
+-- their block hashes, and returns the number of rows inserted.
 -- name: InsertCopiedFileParts :execrows
 INSERT INTO /* TEMPLATE: schema */file_parts (
     file_id, part_no, channel_id, message_id, plain_size, stored_size,
@@ -603,6 +681,9 @@ FROM jsonb_to_recordset(sqlc.arg(parts)::jsonb) AS input(
     block_hashes text
 );
 
+-- MarkFileIDsDeletionPending moves the user's files with the given ids to
+-- deletion_pending whatever their status, keeping an earlier deleted_at and bumping
+-- the generation; nothing is returned.
 -- name: MarkFileIDsDeletionPending :exec
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
@@ -612,6 +693,9 @@ SET status = 'deletion_pending',
 WHERE user_id = sqlc.arg(user_id)
   AND id = ANY(sqlc.arg(file_ids)::uuid[]);
 
+-- QueueFileSubtreePurge moves one trashed file and every descendant below it, whatever
+-- their status, to deletion_pending and returns the changed rows; a root that is not
+-- trashed returns nothing.
 -- name: QueueFileSubtreePurge :many
 WITH RECURSIVE target AS (
   SELECT root.id
@@ -634,6 +718,8 @@ WHERE target_file.user_id = sqlc.arg(user_id)
 RETURNING target_file.*;
 
 
+-- MarkAllTrashedDeletionPending empties the user's trash by moving every trashed file
+-- to deletion_pending and returns the affected ids.
 -- name: MarkAllTrashedDeletionPending :many
 UPDATE /* TEMPLATE: schema */files
 SET status = 'deletion_pending',
@@ -644,16 +730,22 @@ WHERE user_id = sqlc.arg(user_id)
   AND status = 'trashed'
 RETURNING id;
 
+-- ListFilePartMessageRefs returns the channel and message of every part of the given
+-- files, ordered by channel, so those Telegram messages can be deleted first.
 -- name: ListFilePartMessageRefs :many
 SELECT channel_id, message_id
 FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = ANY(sqlc.arg(file_ids)::uuid[])
 ORDER BY channel_id, message_id;
 
+-- DeleteFilePartsByFileIDs deletes every part row of the given files; the query is not
+-- scoped by user, so ownership must have been resolved by the caller.
 -- name: DeleteFilePartsByFileIDs :exec
 DELETE FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = ANY(sqlc.arg(file_ids)::uuid[]);
 
+-- ClearUploadSessionParentsByFileIDs detaches the user's upload sessions from the
+-- given parent ids, which keeps them usable after their target folder was removed.
 -- name: ClearUploadSessionParentsByFileIDs :exec
 UPDATE /* TEMPLATE: schema */upload_sessions
 SET parent_id = NULL,
@@ -661,6 +753,8 @@ SET parent_id = NULL,
 WHERE user_id = sqlc.arg(user_id)
   AND parent_id = ANY(sqlc.arg(file_ids)::uuid[]);
 
+-- UpdateFilePartSizes fills in the plain and stored size of one part, but only while
+-- at least one of the two is still NULL, so a known size is never overwritten.
 -- name: UpdateFilePartSizes :execrows
 UPDATE /* TEMPLATE: schema */file_parts
 SET plain_size = sqlc.arg(plain_size),
@@ -669,6 +763,8 @@ WHERE file_id = sqlc.arg(file_id)
   AND part_no = sqlc.arg(part_no)
   AND (plain_size IS NULL OR stored_size IS NULL);
 
+-- UpdateFilePartSizesMany fills in the sizes of many parts of one file from a JSON
+-- array matched by part number, again only where a size is still missing.
 -- name: UpdateFilePartSizesMany :execrows
 UPDATE /* TEMPLATE: schema */file_parts AS part
 SET plain_size = input.plain_size,

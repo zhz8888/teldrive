@@ -35,6 +35,8 @@ type CreateFileAccessGrantParams struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
+// CreateFileAccessGrant grants one user access to one file and returns the row;
+// a second grant while an earlier one is live replaces its permission and expiry.
 func (q *Queries) CreateFileAccessGrant(ctx context.Context, arg CreateFileAccessGrantParams) (*FileAccessGrant, error) {
 	row := q.db.QueryRow(ctx, createFileAccessGrant,
 		arg.ID,
@@ -93,6 +95,8 @@ type CreateFileShareParams struct {
 	Permission   SharePermission    `json:"permission"`
 }
 
+// CreateFileShare stores a new share link for one file and returns it; the password,
+// expiry and download limit are optional, and a NULL limit means unlimited downloads.
 func (q *Queries) CreateFileShare(ctx context.Context, arg CreateFileShareParams) (*FileShare, error) {
 	row := q.db.QueryRow(ctx, createFileShare,
 		arg.ID,
@@ -149,6 +153,9 @@ type GetActiveShareByTokenHashRow struct {
 	FileStatus    FileStatus         `json:"file_status"`
 }
 
+// GetActiveShareByTokenHash resolves a share token to its share plus the file name,
+// kind and status; a revoked, expired or exhausted share, or an inactive file,
+// returns no row.
 func (q *Queries) GetActiveShareByTokenHash(ctx context.Context, tokenHash []byte) (*GetActiveShareByTokenHashRow, error) {
 	row := q.db.QueryRow(ctx, getActiveShareByTokenHash, tokenHash)
 	var i GetActiveShareByTokenHashRow
@@ -183,6 +190,8 @@ type GetFileShareForOwnerParams struct {
 	OwnerID int64       `json:"owner_id"`
 }
 
+// GetFileShareForOwner returns one share by id only when it belongs to the owner, so
+// an id from another account returns no row.
 func (q *Queries) GetFileShareForOwner(ctx context.Context, arg GetFileShareForOwnerParams) (*FileShare, error) {
 	row := q.db.QueryRow(ctx, getFileShareForOwner, arg.ID, arg.OwnerID)
 	var i FileShare
@@ -212,6 +221,8 @@ WHERE id = $1
 RETURNING id, file_id, owner_id, token_hash, password_hash, expires_at, max_downloads, download_count, created_at, revoked_at, permission
 `
 
+// IncrementShareDownloadCount consumes one download of a live share and returns the
+// updated row; an exhausted, expired or revoked share returns no row.
 func (q *Queries) IncrementShareDownloadCount(ctx context.Context, id pgtype.UUID) (*FileShare, error) {
 	row := q.db.QueryRow(ctx, incrementShareDownloadCount, id)
 	var i FileShare
@@ -260,6 +271,8 @@ type ListFileAccessGrantsForOwnerRow struct {
 	GranteeUsername    pgtype.Text        `json:"grantee_username"`
 }
 
+// ListFileAccessGrantsForOwner lists the live grants on one of the owner's files with
+// the grantee's display name and username, newest first.
 func (q *Queries) ListFileAccessGrantsForOwner(ctx context.Context, arg ListFileAccessGrantsForOwnerParams) ([]*ListFileAccessGrantsForOwnerRow, error) {
 	rows, err := q.db.Query(ctx, listFileAccessGrantsForOwner, arg.OwnerID, arg.FileID)
 	if err != nil {
@@ -316,6 +329,8 @@ type ListFileSharesParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListFileShares returns one page of the owner's share links for one file, newest
+// first, keyset-paged on (created_at, id), including revoked and expired ones.
 func (q *Queries) ListFileShares(ctx context.Context, arg ListFileSharesParams) ([]*FileShare, error) {
 	rows, err := q.db.Query(ctx, listFileShares,
 		arg.OwnerID,
@@ -393,6 +408,9 @@ type ListSharedParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListShared lists one page of the owner's active files that are currently shared, by
+// a live grant or a live share link, most recently updated first, keyset-paged on
+// (updated_at, id).
 func (q *Queries) ListShared(ctx context.Context, arg ListSharedParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, listShared,
 		arg.OwnerID,
@@ -482,6 +500,9 @@ type ListSharedWithMeRow struct {
 	GrantID              pgtype.UUID        `json:"grant_id"`
 }
 
+// ListSharedWithMe lists one page of the active files shared with the grantee, each
+// with the grant's permission and id, newest grant update first, keyset-paged on the
+// grant's (updated_at, id).
 // The grant's own timestamp and id are the sort key and the cursor, so both are
 // returned next to the file the grant points at.
 func (q *Queries) ListSharedWithMe(ctx context.Context, arg ListSharedWithMeParams) ([]*ListSharedWithMeRow, error) {
@@ -603,6 +624,10 @@ type ResolveFileAccessManyRow struct {
 	Owned        bool            `json:"owned"`
 }
 
+// ResolveFileAccessMany resolves the actor's access to each requested active file id:
+// ownership counts as edit, a live grant on the file or any ancestor contributes its
+// permission (edit only when require_edit is set), and one best row per file is
+// returned, preferring owned, then edit, then the most recent grant.
 func (q *Queries) ResolveFileAccessMany(ctx context.Context, arg ResolveFileAccessManyParams) ([]*ResolveFileAccessManyRow, error) {
 	rows, err := q.db.Query(ctx, resolveFileAccessMany, arg.FileIds, arg.ActorID, arg.RequireEdit)
 	if err != nil {
@@ -642,6 +667,8 @@ type RevokeFileAccessGrantParams struct {
 	OwnerID int64       `json:"owner_id"`
 }
 
+// RevokeFileAccessGrant revokes one live grant of the owner and returns the rows
+// changed, zero for an unknown, foreign or already revoked grant.
 func (q *Queries) RevokeFileAccessGrant(ctx context.Context, arg RevokeFileAccessGrantParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeFileAccessGrant, arg.ID, arg.OwnerID)
 	if err != nil {
@@ -663,6 +690,8 @@ type RevokeFileShareParams struct {
 	OwnerID int64       `json:"owner_id"`
 }
 
+// RevokeFileShare revokes one live share of the owner and returns the rows changed,
+// which is zero for an unknown, foreign or already revoked share.
 func (q *Queries) RevokeFileShare(ctx context.Context, arg RevokeFileShareParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeFileShare, arg.ID, arg.OwnerID)
 	if err != nil {
@@ -693,6 +722,8 @@ type UpdateFileAccessGrantParams struct {
 	OwnerID        int64               `json:"owner_id"`
 }
 
+// UpdateFileAccessGrant changes the permission or expiry of a live grant of the owner;
+// the flag clears the expiry, and an unknown, revoked or foreign grant returns no row.
 func (q *Queries) UpdateFileAccessGrant(ctx context.Context, arg UpdateFileAccessGrantParams) (*FileAccessGrant, error) {
 	row := q.db.QueryRow(ctx, updateFileAccessGrant,
 		arg.Permission,
@@ -754,6 +785,9 @@ type UpdateFileShareParams struct {
 	OwnerID           int64               `json:"owner_id"`
 }
 
+// UpdateFileShare partially updates a live share of the owner: password, expiry and
+// download limit are each set, cleared or left alone by a pair of arguments, and a new
+// limit may not fall below the downloads already counted.
 func (q *Queries) UpdateFileShare(ctx context.Context, arg UpdateFileShareParams) (*FileShare, error) {
 	row := q.db.QueryRow(ctx, updateFileShare,
 		arg.ClearPassword,

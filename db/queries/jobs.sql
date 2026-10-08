@@ -1,3 +1,6 @@
+-- ListDeletionPendingRoots returns up to 1000 deletion-pending files that are roots
+-- of their pending subtree, meaning no deletion-pending parent above them, oldest
+-- update first, so the purge worker deletes whole subtrees from the top.
 -- name: ListDeletionPendingRoots :many
 SELECT f.user_id, f.id AS file_id
 FROM /* TEMPLATE: schema */files f
@@ -15,6 +18,9 @@ WHERE f.status = 'deletion_pending'
 ORDER BY f.updated_at, f.id
 LIMIT 1000;
 
+-- ListTrashedRootsBefore returns up to 1000 trashed roots deleted at or before the
+-- cutoff, skipping rows whose parent is itself trashed, oldest deletion first, so the
+-- expiry worker purges a whole subtree once instead of walking into it.
 -- name: ListTrashedRootsBefore :many
 SELECT f.user_id, f.id AS file_id
 FROM /* TEMPLATE: schema */files f

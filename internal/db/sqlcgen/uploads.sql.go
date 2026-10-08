@@ -26,6 +26,8 @@ type AbortUploadSessionParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// AbortUploadSession aborts an open or completing session of the user and returns it;
+// a session that already completed, expired or aborted returns no row.
 func (q *Queries) AbortUploadSession(ctx context.Context, arg AbortUploadSessionParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, abortUploadSession, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -100,6 +102,9 @@ type ClaimUploadPartParams struct {
 	LeaseSeconds int32       `json:"lease_seconds"`
 }
 
+// ClaimUploadPart inserts the part or re-claims it for uploading with a new lease and
+// returns the row; a part that is already stored, or whose lease is still running, is
+// not re-claimed and returns no row.
 // The lease is granted from the database clock, which is also the clock the
 // conflict predicate below reads: a lease written from the application clock
 // would already be expired whenever the two drift apart.
@@ -152,6 +157,8 @@ type CompleteUploadSessionParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// CompleteUploadSession marks a 'completing' session of the user as completed, links
+// the file it produced and stamps completed_at; any other state returns no row.
 func (q *Queries) CompleteUploadSession(ctx context.Context, arg CompleteUploadSessionParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, completeUploadSession, arg.FileID, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -200,6 +207,9 @@ type CountInvalidOpenEndedUploadPartsParams struct {
 	PartSize int64       `json:"part_size"`
 }
 
+// CountInvalidOpenEndedUploadParts counts the stored parts before the final one whose
+// plain size is not exactly part_size; a non-zero result means the stored parts do not
+// tile the file, so completion must fail.
 func (q *Queries) CountInvalidOpenEndedUploadParts(ctx context.Context, arg CountInvalidOpenEndedUploadPartsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countInvalidOpenEndedUploadParts, arg.UploadID, arg.PartSize)
 	var column_1 int64
@@ -261,6 +271,9 @@ type CreateUploadSessionParams struct {
 	ExpiresAt             pgtype.Timestamptz `json:"expires_at"`
 }
 
+// CreateUploadSession opens a new upload session in the 'open' state and returns it;
+// parent_id, hashes, MIME type and key version are optional, and a NULL parent means
+// the drive root.
 func (q *Queries) CreateUploadSession(ctx context.Context, arg CreateUploadSessionParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, createUploadSession,
 		arg.ID,
@@ -316,6 +329,9 @@ WHERE part.upload_id = cleanup_part.upload_id
   AND session.state IN ('aborted', 'expired')
 `
 
+// DeleteUploadPartsForCleanup deletes the listed parts of aborted or expired sessions
+// by upload, part number and message id, so a part whose message id changed is left
+// alone.
 func (q *Queries) DeleteUploadPartsForCleanup(ctx context.Context, parts []byte) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUploadPartsForCleanup, parts)
 	if err != nil {
@@ -330,6 +346,8 @@ WHERE id = ANY($1::uuid[])
   AND state IN ('aborted', 'expired')
 `
 
+// DeleteUploadSessionsForCleanup deletes the given aborted or expired sessions and
+// returns the rows removed; their remaining parts go with them by ON DELETE CASCADE.
 // Removing the session also removes its remaining part rows, because
 // upload_parts references the session with ON DELETE CASCADE; the caller has
 // already deleted the Telegram messages of the parts that held one.
@@ -357,6 +375,9 @@ WHERE id IN (
 RETURNING id, user_id, parent_id, name, expected_size, expected_hash_algorithm, expected_hash_value, mime_type, mod_time, encryption, encryption_key_version, conflict_policy, part_size, state, file_id, expires_at, created_at, updated_at, completed_at
 `
 
+// ExpireUploadSessions marks up to 1000 expired open or completing sessions as expired
+// and returns them; the candidates are locked with SKIP LOCKED so parallel sweeps do
+// not collide.
 func (q *Queries) ExpireUploadSessions(ctx context.Context) ([]*UploadSession, error) {
 	rows, err := q.db.Query(ctx, expireUploadSessions)
 	if err != nil {
@@ -414,6 +435,9 @@ type FinalizeUploadExpectedSizeParams struct {
 	UserID       int64       `json:"user_id"`
 }
 
+// FinalizeUploadExpectedSize records the real total size measured from the stored
+// parts when the client opened the session with the unknown-size sentinel -1, and
+// only for an 'open' session of the user.
 func (q *Queries) FinalizeUploadExpectedSize(ctx context.Context, arg FinalizeUploadExpectedSizeParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, finalizeUploadExpectedSize, arg.ExpectedSize, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -471,6 +495,9 @@ type FindResumableUploadSessionsParams struct {
 	ModTime      pgtype.Timestamptz `json:"mod_time"`
 }
 
+// FindResumableUploadSessions finds the user's open, unexpired replace-uploads of the
+// same destination, name, size, encryption and MIME type, newest first; a supplied
+// mod_time must match within one second, which absorbs timestamp rounding.
 func (q *Queries) FindResumableUploadSessions(ctx context.Context, arg FindResumableUploadSessionsParams) ([]*UploadSession, error) {
 	rows, err := q.db.Query(ctx, findResumableUploadSessions,
 		arg.UserID,
@@ -539,6 +566,9 @@ type GetAllUploadPartSummaryRow struct {
 	MaxPartNo       int32 `json:"max_part_no"`
 }
 
+// GetAllUploadPartSummary returns the part count, stored count and stored plain bytes
+// of an upload plus the lowest and highest stored part numbers, which are 0 while
+// nothing is stored yet.
 func (q *Queries) GetAllUploadPartSummary(ctx context.Context, uploadID pgtype.UUID) (*GetAllUploadPartSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getAllUploadPartSummary, uploadID)
 	var i GetAllUploadPartSummaryRow
@@ -564,6 +594,8 @@ type GetUploadPartParams struct {
 	PartNo   int32       `json:"part_no"`
 }
 
+// GetUploadPart returns one part of an upload by number, whatever its state, or no row
+// when the part was never claimed.
 func (q *Queries) GetUploadPart(ctx context.Context, arg GetUploadPartParams) (*UploadPart, error) {
 	row := q.db.QueryRow(ctx, getUploadPart, arg.UploadID, arg.PartNo)
 	var i UploadPart
@@ -593,6 +625,8 @@ FROM /* TEMPLATE: schema */upload_sessions
 WHERE id = $1
 `
 
+// GetUploadSessionAnyOwner returns an upload session by id without checking the owner;
+// callers must authorize against its UserID or its parent file before acting on it.
 func (q *Queries) GetUploadSessionAnyOwner(ctx context.Context, uploadID pgtype.UUID) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, getUploadSessionAnyOwner, uploadID)
 	var i UploadSession
@@ -632,6 +666,8 @@ type GetUploadSessionForUserParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// GetUploadSessionForUser returns one upload session by id only when it belongs to the
+// user, whatever its state.
 func (q *Queries) GetUploadSessionForUser(ctx context.Context, arg GetUploadSessionForUserParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, getUploadSessionForUser, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -704,6 +740,9 @@ type InsertFileFromUploadParams struct {
 	UserID        int64       `json:"user_id"`
 }
 
+// InsertFileFromUpload creates the active file row from a session that is 'completing'
+// and owned by the user, copying its name, parent, size, encryption and mod_time, and
+// returns it; the hash columns come from the caller.
 func (q *Queries) InsertFileFromUpload(ctx context.Context, arg InsertFileFromUploadParams) (*File, error) {
 	row := q.db.QueryRow(ctx, insertFileFromUpload,
 		arg.FileID,
@@ -768,6 +807,8 @@ type InsertFilePartsFromUploadParams struct {
 	UploadID pgtype.UUID `json:"upload_id"`
 }
 
+// InsertFilePartsFromUpload copies the session's stored parts into file_parts in part
+// order and returns the number of rows inserted; unstored parts are skipped.
 func (q *Queries) InsertFilePartsFromUpload(ctx context.Context, arg InsertFilePartsFromUploadParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertFilePartsFromUpload, arg.FileID, arg.UploadID)
 	if err != nil {
@@ -784,6 +825,8 @@ WHERE upload_id = $1
 ORDER BY part_no
 `
 
+// ListStoredUploadPartHashes returns the per-part block hashes of an upload's stored
+// parts in part order, which completion concatenates into the whole-file hash.
 func (q *Queries) ListStoredUploadPartHashes(ctx context.Context, uploadID pgtype.UUID) ([][]byte, error) {
 	rows, err := q.db.Query(ctx, listStoredUploadPartHashes, uploadID)
 	if err != nil {
@@ -839,6 +882,8 @@ type ListUploadDailyStatisticsRow struct {
 	CompletedFiles int64       `json:"completed_files"`
 }
 
+// ListUploadDailyStatistics returns one row per day over the last days days for the
+// user, with the bytes and file count completed that day, zero-filled for empty days.
 func (q *Queries) ListUploadDailyStatistics(ctx context.Context, arg ListUploadDailyStatisticsParams) ([]*ListUploadDailyStatisticsRow, error) {
 	rows, err := q.db.Query(ctx, listUploadDailyStatistics, arg.Days, arg.UserID)
 	if err != nil {
@@ -877,6 +922,8 @@ type ListUploadPartsParams struct {
 	PageSize    int32       `json:"page_size"`
 }
 
+// ListUploadParts returns one page of the upload's parts in part order, starting after
+// after_part_no when given, for clients that poll upload progress.
 func (q *Queries) ListUploadParts(ctx context.Context, arg ListUploadPartsParams) ([]*UploadPart, error) {
 	rows, err := q.db.Query(ctx, listUploadParts, arg.UploadID, arg.AfterPartNo, arg.PageSize)
 	if err != nil {
@@ -920,6 +967,8 @@ WHERE upload_id = ANY($1::uuid[])
 ORDER BY upload_id, part_no
 `
 
+// ListUploadPartsByUploadIDs returns every part of the given uploads in
+// (upload_id, part_no) order.
 func (q *Queries) ListUploadPartsByUploadIDs(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error) {
 	rows, err := q.db.Query(ctx, listUploadPartsByUploadIDs, uploadIds)
 	if err != nil {
@@ -966,6 +1015,8 @@ WHERE us.id = ANY($1::uuid[])
 ORDER BY up.upload_id, up.channel_id, up.part_no
 `
 
+// ListUploadPartsForCleanupMany returns the parts of the given aborted or expired
+// uploads that still hold a Telegram message, ordered by upload, channel and part.
 func (q *Queries) ListUploadPartsForCleanupMany(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error) {
 	rows, err := q.db.Query(ctx, listUploadPartsForCleanupMany, uploadIds)
 	if err != nil {
@@ -1026,6 +1077,8 @@ type ListUploadSessionsParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListUploadSessions returns one page of the user's upload sessions, newest first,
+// optionally limited to a single state, keyset-paged on (created_at, id).
 func (q *Queries) ListUploadSessions(ctx context.Context, arg ListUploadSessionsParams) ([]*UploadSession, error) {
 	rows, err := q.db.Query(ctx, listUploadSessions,
 		arg.UserID,
@@ -1080,6 +1133,8 @@ ORDER BY us.updated_at, us.id
 LIMIT 1000
 `
 
+// ListUploadSessionsPendingCleanup returns up to 1000 aborted or expired sessions,
+// oldest update first, including sessions that have no stored part at all.
 // Every finalized session is listed, not only the ones with a stored part:
 // a session whose parts were claimed but never stored, or that has no parts at
 // all, still has a row to remove.
@@ -1139,6 +1194,8 @@ type LockUploadDestinationConflictParams struct {
 	Name     string      `json:"name"`
 }
 
+// LockUploadDestinationConflict row-locks the active file at the destination with this
+// name, NULL parent meaning the drive root, so the replace decision cannot race.
 func (q *Queries) LockUploadDestinationConflict(ctx context.Context, arg LockUploadDestinationConflictParams) (*File, error) {
 	row := q.db.QueryRow(ctx, lockUploadDestinationConflict, arg.UserID, arg.ParentID, arg.Name)
 	var i File
@@ -1177,6 +1234,8 @@ type LockUploadSessionForCompletionParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// LockUploadSessionForCompletion row-locks one upload session of the user for the
+// transaction that turns it into a file, so two completions cannot run at once.
 func (q *Queries) LockUploadSessionForCompletion(ctx context.Context, arg LockUploadSessionForCompletionParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, lockUploadSessionForCompletion, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -1220,6 +1279,9 @@ type MarkActiveFileDeletionPendingForReplaceParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// MarkActiveFileDeletionPendingForReplace retires the file that a replace upload is
+// about to overwrite and returns the rows changed, which is zero when the file is no
+// longer active.
 func (q *Queries) MarkActiveFileDeletionPendingForReplace(ctx context.Context, arg MarkActiveFileDeletionPendingForReplaceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markActiveFileDeletionPendingForReplace, arg.FileID, arg.UserID)
 	if err != nil {
@@ -1243,6 +1305,8 @@ type MarkUploadCompletingParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// MarkUploadCompleting moves an 'open' session of the user to 'completing' and returns
+// it; a session that is foreign or already past 'open' returns no row.
 func (q *Queries) MarkUploadCompleting(ctx context.Context, arg MarkUploadCompletingParams) (*UploadSession, error) {
 	row := q.db.QueryRow(ctx, markUploadCompleting, arg.UploadID, arg.UserID)
 	var i UploadSession
@@ -1290,6 +1354,8 @@ type MarkUploadPartFailedParams struct {
 	LeaseToken pgtype.UUID `json:"lease_token"`
 }
 
+// MarkUploadPartFailed marks a part the caller still leases as failed, clears its
+// lease and stores the error code; a lease that was lost returns no row.
 func (q *Queries) MarkUploadPartFailed(ctx context.Context, arg MarkUploadPartFailedParams) (*UploadPart, error) {
 	row := q.db.QueryRow(ctx, markUploadPartFailed,
 		arg.ErrorCode,
@@ -1348,6 +1414,9 @@ type MarkUploadPartStoredParams struct {
 	LeaseToken  pgtype.UUID `json:"lease_token"`
 }
 
+// MarkUploadPartStored records the Telegram message, stored size and hashes of a part
+// and clears its lease, but only for the caller that still holds the lease of an
+// 'uploading' part; otherwise it returns no row.
 func (q *Queries) MarkUploadPartStored(ctx context.Context, arg MarkUploadPartStoredParams) (*UploadPart, error) {
 	row := q.db.QueryRow(ctx, markUploadPartStored,
 		arg.MessageID,
@@ -1394,6 +1463,8 @@ type RenameUploadSessionParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// RenameUploadSession changes the destination name of one session of the user and
+// returns the rows changed.
 func (q *Queries) RenameUploadSession(ctx context.Context, arg RenameUploadSessionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, renameUploadSession, arg.Name, arg.UploadID, arg.UserID)
 	if err != nil {
@@ -1419,6 +1490,8 @@ type RenewUploadPartLeaseParams struct {
 	LeaseToken   pgtype.UUID `json:"lease_token"`
 }
 
+// RenewUploadPartLease pushes the part's deadline out by lease_seconds and returns
+// the rows changed, zero once the part was stored, failed or re-claimed elsewhere.
 // The renewed deadline comes from the database clock, matching the claim.
 func (q *Queries) RenewUploadPartLease(ctx context.Context, arg RenewUploadPartLeaseParams) (int64, error) {
 	result, err := q.db.Exec(ctx, renewUploadPartLease,
@@ -1446,6 +1519,8 @@ type RevokeActiveSharesForFileParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// RevokeActiveSharesForFile revokes every live share the user created on one file,
+// which the replace flow does because the file it pointed at is being replaced.
 func (q *Queries) RevokeActiveSharesForFile(ctx context.Context, arg RevokeActiveSharesForFileParams) error {
 	_, err := q.db.Exec(ctx, revokeActiveSharesForFile, arg.FileID, arg.UserID)
 	return err

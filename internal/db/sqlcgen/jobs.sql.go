@@ -34,6 +34,9 @@ type ListDeletionPendingRootsRow struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// ListDeletionPendingRoots returns up to 1000 deletion-pending files that are roots
+// of their pending subtree, meaning no deletion-pending parent above them, oldest
+// update first, so the purge worker deletes whole subtrees from the top.
 func (q *Queries) ListDeletionPendingRoots(ctx context.Context) ([]*ListDeletionPendingRootsRow, error) {
 	rows, err := q.db.Query(ctx, listDeletionPendingRoots)
 	if err != nil {
@@ -79,6 +82,9 @@ type ListTrashedRootsBeforeRow struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// ListTrashedRootsBefore returns up to 1000 trashed roots deleted at or before the
+// cutoff, skipping rows whose parent is itself trashed, oldest deletion first, so the
+// expiry worker purges a whole subtree once instead of walking into it.
 func (q *Queries) ListTrashedRootsBefore(ctx context.Context, deletedBefore pgtype.Timestamptz) ([]*ListTrashedRootsBeforeRow, error) {
 	rows, err := q.db.Query(ctx, listTrashedRootsBefore, deletedBefore)
 	if err != nil {

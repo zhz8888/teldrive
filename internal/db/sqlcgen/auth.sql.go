@@ -15,6 +15,8 @@ const acquireUserBootstrapLock = `-- name: AcquireUserBootstrapLock :exec
 SELECT pg_advisory_xact_lock(846742351)
 `
 
+// AcquireUserBootstrapLock takes the fixed transaction-scoped advisory lock that
+// serializes user bootstrapping, so two logins cannot both create the first owner.
 func (q *Queries) AcquireUserBootstrapLock(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, acquireUserBootstrapLock)
 	return err
@@ -28,6 +30,8 @@ WHERE id = $1
 RETURNING id, method, phone_number_ciphertext, telegram_state_ciphertext, password_required, expires_at, completed_at, created_at
 `
 
+// CompleteTelegramLoginFlow marks a still-pending flow as completed and returns it; a
+// second completion, or an unknown id, returns no row.
 func (q *Queries) CompleteTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error) {
 	row := q.db.QueryRow(ctx, completeTelegramLoginFlow, id)
 	var i TelegramLoginFlow
@@ -72,6 +76,8 @@ type CreateAPIKeyParams struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 }
 
+// CreateAPIKey stores a new API key for the user and returns it; only the secret hash
+// and a display prefix are persisted, and a NULL expiry means the key never expires.
 func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (*ApiKey, error) {
 	row := q.db.QueryRow(ctx, createAPIKey,
 		arg.ID,
@@ -121,6 +127,8 @@ type CreateSessionParams struct {
 	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
 }
 
+// CreateSession stores a refresh session for the user and returns it; telegram_session
+// is the serialized Telegram session used later to act on the user's behalf.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (*Session, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.ID,
@@ -171,6 +179,8 @@ type CreateTelegramLoginFlowParams struct {
 	ExpiresAt               pgtype.Timestamptz  `json:"expires_at"`
 }
 
+// CreateTelegramLoginFlow stores a new pending Telegram login flow and returns it; the
+// phone number is optional because a QR-code flow does not know it yet.
 func (q *Queries) CreateTelegramLoginFlow(ctx context.Context, arg CreateTelegramLoginFlowParams) (*TelegramLoginFlow, error) {
 	row := q.db.QueryRow(ctx, createTelegramLoginFlow,
 		arg.ID,
@@ -199,6 +209,8 @@ DELETE FROM /* TEMPLATE: schema */telegram_login_flows
 WHERE expires_at <= now()
 `
 
+// DeleteExpiredTelegramLoginFlows deletes every flow whose expiry has passed and
+// returns the number of rows removed.
 func (q *Queries) DeleteExpiredTelegramLoginFlows(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredTelegramLoginFlows)
 	if err != nil {
@@ -215,6 +227,8 @@ WHERE secret_hash = $1
   AND (expires_at IS NULL OR expires_at > now())
 `
 
+// GetActiveAPIKeyByHash resolves a presented secret to its key row, ignoring revoked
+// keys and keys whose expiry has passed; a NULL expiry never expires.
 func (q *Queries) GetActiveAPIKeyByHash(ctx context.Context, secretHash []byte) (*ApiKey, error) {
 	row := q.db.QueryRow(ctx, getActiveAPIKeyByHash, secretHash)
 	var i ApiKey
@@ -246,6 +260,8 @@ type GetActiveSessionParams struct {
 	UserID    int64       `json:"user_id"`
 }
 
+// GetActiveSession returns a session only when it belongs to the user and is neither
+// revoked nor expired.
 func (q *Queries) GetActiveSession(ctx context.Context, arg GetActiveSessionParams) (*Session, error) {
 	row := q.db.QueryRow(ctx, getActiveSession, arg.SessionID, arg.UserID)
 	var i Session
@@ -272,6 +288,8 @@ ORDER BY last_used_at DESC NULLS LAST, created_at DESC
 LIMIT 1
 `
 
+// GetLatestActiveSessionForUser returns the user's most recently used live session,
+// ordering sessions that were never used by creation time instead.
 func (q *Queries) GetLatestActiveSessionForUser(ctx context.Context, userID int64) (*Session, error) {
 	row := q.db.QueryRow(ctx, getLatestActiveSessionForUser, userID)
 	var i Session
@@ -296,6 +314,8 @@ WHERE refresh_token_hash = $1
   AND expires_at > now()
 `
 
+// GetSessionByRefreshTokenHash resolves a refresh token hash to its session and
+// returns no row once the session is revoked or expired.
 func (q *Queries) GetSessionByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (*Session, error) {
 	row := q.db.QueryRow(ctx, getSessionByRefreshTokenHash, refreshTokenHash)
 	var i Session
@@ -320,6 +340,8 @@ WHERE id = $1
   AND expires_at > now()
 `
 
+// GetTelegramLoginFlow returns a login flow that is still pending and unexpired; a
+// completed or expired flow, or a reused id, returns no row.
 func (q *Queries) GetTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error) {
 	row := q.db.QueryRow(ctx, getTelegramLoginFlow, id)
 	var i TelegramLoginFlow
@@ -342,6 +364,8 @@ FROM /* TEMPLATE: schema */users
 WHERE user_id = $1
 `
 
+// GetUser returns the full account row of one Telegram user id, including its
+// disabled_at, so callers apply their own policy on a disabled account.
 func (q *Queries) GetUser(ctx context.Context, userID int64) (*User, error) {
 	row := q.db.QueryRow(ctx, getUser, userID)
 	var i User
@@ -380,6 +404,8 @@ type ListAPIKeysParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListAPIKeys returns one page of the user's API keys, newest first, keyset-paged on
+// (created_at, id), including revoked and expired ones.
 func (q *Queries) ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]*ApiKey, error) {
 	rows, err := q.db.Query(ctx, listAPIKeys,
 		arg.UserID,
@@ -439,6 +465,8 @@ type ListSessionsParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListSessions returns one page of the user's live sessions, newest first,
+// keyset-paged on (created_at, id); revoked and expired sessions are never listed.
 func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]*Session, error) {
 	rows, err := q.db.Query(ctx, listSessions,
 		arg.UserID,
@@ -491,6 +519,8 @@ type ListUsersParams struct {
 	PageSize int32       `json:"page_size"`
 }
 
+// ListUsers returns up to page_size accounts ordered by creation time, oldest first;
+// search matches display name or username case-insensitively, or the exact user id.
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]*User, error) {
 	rows, err := q.db.Query(ctx, listUsers, arg.Search, arg.PageSize)
 	if err != nil {
@@ -533,6 +563,8 @@ type RevokeAPIKeyParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// RevokeAPIKey revokes one key of the user and returns the rows changed, which is zero
+// for an unknown, foreign or already revoked key.
 func (q *Queries) RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeAPIKey, arg.ID, arg.UserID)
 	if err != nil {
@@ -548,6 +580,8 @@ WHERE user_id = $1
   AND revoked_at IS NULL
 `
 
+// RevokeAllAPIKeysForUser revokes every live API key of the user and returns the row
+// count, leaving already revoked keys untouched.
 func (q *Queries) RevokeAllAPIKeysForUser(ctx context.Context, userID int64) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeAllAPIKeysForUser, userID)
 	if err != nil {
@@ -563,6 +597,8 @@ WHERE user_id = $1
   AND revoked_at IS NULL
 `
 
+// RevokeAllSessionsForUser revokes every live session of the user and returns the row
+// count, leaving sessions revoked earlier with their original timestamp.
 func (q *Queries) RevokeAllSessionsForUser(ctx context.Context, userID int64) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeAllSessionsForUser, userID)
 	if err != nil {
@@ -583,6 +619,8 @@ type RevokeSessionParams struct {
 	UserID    int64       `json:"user_id"`
 }
 
+// RevokeSession revokes one session of the given user and returns the row count, which
+// is zero when the session belongs to someone else or was already revoked.
 func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, revokeSession, arg.SessionID, arg.UserID)
 	if err != nil {
@@ -608,6 +646,8 @@ type RotateSessionRefreshTokenParams struct {
 	OldRefreshTokenHash []byte      `json:"old_refresh_token_hash"`
 }
 
+// RotateSessionRefreshToken swaps in a new refresh token hash and stamps last_used_at,
+// but only while the old hash still matches a live session, so a replay fails.
 func (q *Queries) RotateSessionRefreshToken(ctx context.Context, arg RotateSessionRefreshTokenParams) (*Session, error) {
 	row := q.db.QueryRow(ctx, rotateSessionRefreshToken, arg.NewRefreshTokenHash, arg.SessionID, arg.OldRefreshTokenHash)
 	var i Session
@@ -644,6 +684,8 @@ type SearchUsersForShareParams struct {
 	PageSize      int32  `json:"page_size"`
 }
 
+// SearchUsersForShare finds share recipients by display name, username or exact
+// user id, excluding the caller and disabled accounts, ordered by username.
 func (q *Queries) SearchUsersForShare(ctx context.Context, arg SearchUsersForShareParams) ([]*User, error) {
 	rows, err := q.db.Query(ctx, searchUsersForShare, arg.ExcludeUserID, arg.Search, arg.PageSize)
 	if err != nil {
@@ -687,6 +729,8 @@ type SetUserDisabledParams struct {
 	UserID   int64 `json:"user_id"`
 }
 
+// SetUserDisabled disables or re-enables a non-owner account, stamping disabled_at on
+// the first disable and clearing it on enable; the owner row is never touched.
 func (q *Queries) SetUserDisabled(ctx context.Context, arg SetUserDisabledParams) (*User, error) {
 	row := q.db.QueryRow(ctx, setUserDisabled, arg.Disabled, arg.UserID)
 	var i User
@@ -709,6 +753,8 @@ SET last_used_at = now()
 WHERE id = $1
 `
 
+// TouchAPIKey records the last use of a key by id, with no owner check and no failure
+// when the id no longer exists.
 func (q *Queries) TouchAPIKey(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchAPIKey, id)
 	return err
@@ -721,6 +767,8 @@ WHERE id = $1
   AND revoked_at IS NULL
 `
 
+// TouchSession stamps last_used_at on a session that is not revoked; an unknown or
+// revoked id is silently ignored.
 func (q *Queries) TouchSession(ctx context.Context, sessionID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchSession, sessionID)
 	return err
@@ -742,6 +790,8 @@ type UpdateSessionTelegramSessionParams struct {
 	UserID          int64       `json:"user_id"`
 }
 
+// UpdateSessionTelegramSession replaces the stored Telegram session of one live
+// session and refreshes last_used_at, returning the rows changed.
 // The write is scoped to the owner as well, so a session id can never be used to
 // rewrite another account's stored Telegram session.
 func (q *Queries) UpdateSessionTelegramSession(ctx context.Context, arg UpdateSessionTelegramSessionParams) (int64, error) {
@@ -768,6 +818,8 @@ type UpdateTelegramLoginFlowStateParams struct {
 	ID                      pgtype.UUID `json:"id"`
 }
 
+// UpdateTelegramLoginFlowState replaces the stored Telegram state of a flow that is
+// still pending and unexpired; a completed or expired flow returns no row.
 func (q *Queries) UpdateTelegramLoginFlowState(ctx context.Context, arg UpdateTelegramLoginFlowStateParams) (*TelegramLoginFlow, error) {
 	row := q.db.QueryRow(ctx, updateTelegramLoginFlowState, arg.TelegramStateCiphertext, arg.PasswordRequired, arg.ID)
 	var i TelegramLoginFlow
@@ -798,6 +850,8 @@ type UpdateUserRoleParams struct {
 	UserID int64    `json:"user_id"`
 }
 
+// UpdateUserRole sets a non-owner account to 'admin' or 'user' and returns the updated
+// row; targeting the owner, or any other role value, returns no row.
 func (q *Queries) UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (*User, error) {
 	row := q.db.QueryRow(ctx, updateUserRole, arg.Role, arg.UserID)
 	var i User
@@ -846,6 +900,8 @@ type UpsertUserParams struct {
 	Premium     bool        `json:"premium"`
 }
 
+// UpsertUser inserts the Telegram profile of one user or refreshes it on the next
+// login and returns the row; the first user ever inserted is granted the owner role.
 func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (*User, error) {
 	row := q.db.QueryRow(ctx, upsertUser,
 		arg.UserID,

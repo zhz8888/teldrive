@@ -30,6 +30,8 @@ type ActivateBotParams struct {
 	BotID    int64       `json:"bot_id"`
 }
 
+// ActivateBot records the username Telegram reported and clears the failure
+// history, putting the bot back into service; an unknown bot returns no row.
 func (q *Queries) ActivateBot(ctx context.Context, arg ActivateBotParams) (*Bot, error) {
 	row := q.db.QueryRow(ctx, activateBot, arg.Username, arg.UserID, arg.BotID)
 	var i Bot
@@ -58,6 +60,8 @@ WHERE user_id = $1
   AND selected
 `
 
+// ClearSelectedChannel deselects whichever channel the user currently has selected,
+// which the one-selected-per-user index requires before another can be promoted.
 func (q *Queries) ClearSelectedChannel(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, clearSelectedChannel, userID)
 	return err
@@ -70,6 +74,8 @@ SELECT (
 )::bigint AS reference_count
 `
 
+// CountChannelReferences counts the file parts and upload parts that still point
+// at the channel for any user, to decide whether it may be forgotten.
 func (q *Queries) CountChannelReferences(ctx context.Context, targetChannelID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countChannelReferences, targetChannelID)
 	var reference_count int64
@@ -91,6 +97,8 @@ FROM (
 ) AS stored_messages
 `
 
+// CountChannelStoredMessages counts the distinct Telegram messages referenced by
+// the channel's file and upload parts, ignoring upload parts without a message.
 func (q *Queries) CountChannelStoredMessages(ctx context.Context, targetChannelID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countChannelStoredMessages, targetChannelID)
 	var column_1 int64
@@ -119,6 +127,8 @@ type CreateChannelParams struct {
 	Name      string `json:"name"`
 }
 
+// CreateChannel inserts a channel for the user, always unselected, and returns it;
+// health stays at its default until the first check.
 func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (*Channel, error) {
 	row := q.db.QueryRow(ctx, createChannel, arg.ChannelID, arg.UserID, arg.Name)
 	var i Channel
@@ -146,6 +156,7 @@ type DeleteBotParams struct {
 	BotID  int64 `json:"bot_id"`
 }
 
+// DeleteBot removes one bot of the user and returns the rows deleted.
 func (q *Queries) DeleteBot(ctx context.Context, arg DeleteBotParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteBot, arg.UserID, arg.BotID)
 	if err != nil {
@@ -166,6 +177,8 @@ type DeleteChannelParams struct {
 	ChannelID int64 `json:"channel_id"`
 }
 
+// DeleteChannel removes one channel of the user and returns the rows deleted,
+// refusing the selected channel so the upload destination cannot disappear.
 func (q *Queries) DeleteChannel(ctx context.Context, arg DeleteChannelParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteChannel, arg.UserID, arg.ChannelID)
 	if err != nil {
@@ -186,6 +199,7 @@ type GetBotParams struct {
 	BotID  int64 `json:"bot_id"`
 }
 
+// GetBot returns one bot of the user by id, or no row when the user has no such bot.
 func (q *Queries) GetBot(ctx context.Context, arg GetBotParams) (*Bot, error) {
 	row := q.db.QueryRow(ctx, getBot, arg.UserID, arg.BotID)
 	var i Bot
@@ -218,6 +232,8 @@ type GetChannelForUserParams struct {
 	ChannelID int64 `json:"channel_id"`
 }
 
+// GetChannelForUser returns the user's own channel row, so an id belonging to
+// another account returns no row.
 func (q *Queries) GetChannelForUser(ctx context.Context, arg GetChannelForUserParams) (*Channel, error) {
 	row := q.db.QueryRow(ctx, getChannelForUser, arg.UserID, arg.ChannelID)
 	var i Channel
@@ -241,6 +257,8 @@ WHERE user_id = $1
   AND selected
 `
 
+// GetSelectedChannel returns the single channel the user selected as the upload
+// destination; a user without one gets no row.
 func (q *Queries) GetSelectedChannel(ctx context.Context, userID int64) (*Channel, error) {
 	row := q.db.QueryRow(ctx, getSelectedChannel, userID)
 	var i Channel
@@ -281,6 +299,8 @@ type InsertPendingBotsParams struct {
 	Bots   []byte `json:"bots"`
 }
 
+// InsertPendingBots registers the given bot ids for the user in the pending,
+// disabled state and returns the stored rows; an existing bot is reused and reset.
 // Registering a token again replaces the stored one and puts the bot back in the
 // pending state, which is the only way a bot that was disabled by a failed
 // provisioning can be tried again: the row is identified by its bot id, so an
@@ -341,6 +361,8 @@ type ListBotsParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListBots returns one page of the user's bots, newest first, keyset-paged on
+// (created_at, bot_id).
 func (q *Queries) ListBots(ctx context.Context, arg ListBotsParams) ([]*Bot, error) {
 	rows, err := q.db.Query(ctx, listBots,
 		arg.UserID,
@@ -401,6 +423,8 @@ type ListChannelReferencedPartsRow struct {
 	FileSize  pgtype.Int8 `json:"file_size"`
 }
 
+// ListChannelReferencedParts lists the channel's parts that belong to active files
+// of one user with their file name and size, ordered by file name.
 func (q *Queries) ListChannelReferencedParts(ctx context.Context, arg ListChannelReferencedPartsParams) ([]*ListChannelReferencedPartsRow, error) {
 	rows, err := q.db.Query(ctx, listChannelReferencedParts, arg.TargetChannelID, arg.TargetUserID)
 	if err != nil {
@@ -448,6 +472,8 @@ type ListChannelsParams struct {
 	PageSize       int32              `json:"page_size"`
 }
 
+// ListChannels returns one page of the user's channels, newest first, keyset-paged
+// on (created_at, channel_id) so paging stays stable while rows are inserted.
 func (q *Queries) ListChannels(ctx context.Context, arg ListChannelsParams) ([]*Channel, error) {
 	rows, err := q.db.Query(ctx, listChannels,
 		arg.UserID,
@@ -488,6 +514,8 @@ FROM /* TEMPLATE: schema */channels
 ORDER BY user_id, channel_id
 `
 
+// ListChannelsForOrphanCleanup returns every channel of every user ordered by user
+// and channel id, because the orphan sweep walks the Telegram side per channel.
 func (q *Queries) ListChannelsForOrphanCleanup(ctx context.Context) ([]*Channel, error) {
 	rows, err := q.db.Query(ctx, listChannelsForOrphanCleanup)
 	if err != nil {
@@ -525,6 +553,8 @@ WHERE user_id = $1
 ORDER BY bot_id
 `
 
+// ListEnabledBots returns every enabled bot of the user ordered by id, ignoring
+// retry_after; callers that must honour the backoff need ListUploadEligibleBots.
 func (q *Queries) ListEnabledBots(ctx context.Context, userID int64) ([]*Bot, error) {
 	rows, err := q.db.Query(ctx, listEnabledBots, userID)
 	if err != nil {
@@ -578,6 +608,8 @@ type ListReferencedMessageIDsParams struct {
 	MessageIds      []int64 `json:"message_ids"`
 }
 
+// ListReferencedMessageIDs returns which of the given message ids a file or upload
+// part still references in the channel, so the rest can be deleted from Telegram.
 func (q *Queries) ListReferencedMessageIDs(ctx context.Context, arg ListReferencedMessageIDsParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, listReferencedMessageIDs, arg.TargetChannelID, arg.MessageIds)
 	if err != nil {
@@ -607,6 +639,8 @@ WHERE user_id = $1
 ORDER BY bot_id
 `
 
+// ListUploadEligibleBots returns the enabled bots of the user whose retry_after
+// has passed, ordered by id, which is the pool uploads allocate from.
 func (q *Queries) ListUploadEligibleBots(ctx context.Context, userID int64) ([]*Bot, error) {
 	rows, err := q.db.Query(ctx, listUploadEligibleBots, userID)
 	if err != nil {
@@ -656,6 +690,8 @@ type MarkBotProvisionFailureParams struct {
 	BotID     int64       `json:"bot_id"`
 }
 
+// MarkBotProvisionFailure disables the bot, increments its failure counter and
+// stores the error, returning the rows changed.
 func (q *Queries) MarkBotProvisionFailure(ctx context.Context, arg MarkBotProvisionFailureParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markBotProvisionFailure, arg.LastError, arg.UserID, arg.BotID)
 	if err != nil {
@@ -684,6 +720,8 @@ type MarkBotUploadFailureParams struct {
 	BotID     int64  `json:"bot_id"`
 }
 
+// MarkBotUploadFailure increments the bot's failure counter, keeps its last error
+// and defers the next attempt with an exponential backoff.
 func (q *Queries) MarkBotUploadFailure(ctx context.Context, arg MarkBotUploadFailureParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markBotUploadFailure, arg.LastError, arg.UserID, arg.BotID)
 	if err != nil {
@@ -708,6 +746,8 @@ type MarkBotUploadSuccessParams struct {
 	BotID  int64 `json:"bot_id"`
 }
 
+// MarkBotUploadSuccess clears the failure state of the bot and stamps last_used_at,
+// which puts it back at the front of the allocation order.
 func (q *Queries) MarkBotUploadSuccess(ctx context.Context, arg MarkBotUploadSuccessParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markBotUploadSuccess, arg.UserID, arg.BotID)
 	if err != nil {
@@ -737,6 +777,8 @@ type NextBotSelectionValueParams struct {
 	Operation string `json:"operation"`
 }
 
+// NextBotSelectionValue advances the per-user, per-operation round-robin counter
+// and returns the value to use, so concurrent allocators get distinct values.
 func (q *Queries) NextBotSelectionValue(ctx context.Context, arg NextBotSelectionValueParams) (int64, error) {
 	row := q.db.QueryRow(ctx, nextBotSelectionValue, arg.UserID, arg.Operation)
 	var selection_value int64
@@ -758,6 +800,8 @@ type SelectChannelParams struct {
 	ChannelID int64 `json:"channel_id"`
 }
 
+// SelectChannel marks one of the user's channels as selected and returns it; the
+// caller clears the previous selection first, and an unknown id returns no row.
 func (q *Queries) SelectChannel(ctx context.Context, arg SelectChannelParams) (*Channel, error) {
 	row := q.db.QueryRow(ctx, selectChannel, arg.UserID, arg.ChannelID)
 	var i Channel
@@ -788,6 +832,8 @@ type UpdateBotSessionParams struct {
 	BotID   int64  `json:"bot_id"`
 }
 
+// UpdateBotSession stores the serialized Telegram session of one bot and returns
+// the rows changed, so a stale bot id is reported as zero.
 func (q *Queries) UpdateBotSession(ctx context.Context, arg UpdateBotSessionParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateBotSession, arg.Session, arg.UserID, arg.BotID)
 	if err != nil {
@@ -812,6 +858,8 @@ type UpdateChannelHealthParams struct {
 	ChannelID int64         `json:"channel_id"`
 }
 
+// UpdateChannelHealth stores the latest health verdict and stamps last_checked_at
+// and updated_at; an unknown channel id returns no row.
 func (q *Queries) UpdateChannelHealth(ctx context.Context, arg UpdateChannelHealthParams) (*Channel, error) {
 	row := q.db.QueryRow(ctx, updateChannelHealth, arg.Health, arg.UserID, arg.ChannelID)
 	var i Channel
@@ -847,6 +895,8 @@ type UpsertDiscoveredChannelsParams struct {
 	Channels []byte `json:"channels"`
 }
 
+// UpsertDiscoveredChannels records the channels found by discovery, inserting them
+// unselected with unknown health and refreshing the name of the existing ones.
 func (q *Queries) UpsertDiscoveredChannels(ctx context.Context, arg UpsertDiscoveredChannelsParams) ([]*Channel, error) {
 	rows, err := q.db.Query(ctx, upsertDiscoveredChannels, arg.UserID, arg.Channels)
 	if err != nil {

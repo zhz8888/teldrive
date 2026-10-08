@@ -22,6 +22,8 @@ type DeleteFileViewStateParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// DeleteFileViewState removes the user's saved state for one file and returns the
+// rows deleted, which is zero when there was nothing saved.
 func (q *Queries) DeleteFileViewState(ctx context.Context, arg DeleteFileViewStateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteFileViewState, arg.UserID, arg.FileID)
 	if err != nil {
@@ -42,6 +44,8 @@ type GetFileViewStateParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// GetFileViewState returns the saved reading or playback state of one file for the
+// user, or no row when the user never opened it.
 func (q *Queries) GetFileViewState(ctx context.Context, arg GetFileViewStateParams) (*FileViewState, error) {
 	row := q.db.QueryRow(ctx, getFileViewState, arg.UserID, arg.FileID)
 	var i FileViewState
@@ -87,6 +91,9 @@ type UpsertFileViewStateParams struct {
 	Bookmarks   []byte      `json:"bookmarks"`
 }
 
+// UpsertFileViewState stores or replaces the user's viewer state for one file and
+// returns it; the insert only fires for an active file of that user, so a folder,
+// a trashed file or another owner's file stores nothing.
 func (q *Queries) UpsertFileViewState(ctx context.Context, arg UpsertFileViewStateParams) (*FileViewState, error) {
 	row := q.db.QueryRow(ctx, upsertFileViewState,
 		arg.UserID,

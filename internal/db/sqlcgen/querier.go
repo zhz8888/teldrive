@@ -11,193 +11,553 @@ import (
 )
 
 type Querier interface {
+	// AbortUploadSession aborts an open or completing session of the user and returns it;
+	// a session that already completed, expired or aborted returns no row.
 	AbortUploadSession(ctx context.Context, arg AbortUploadSessionParams) (*UploadSession, error)
+	// AcquireAdvisoryLock blocks until the session-level advisory lock for lock_id is
+	// free and then takes it; the lock stays on the connection until ReleaseAdvisoryLock.
 	AcquireAdvisoryLock(ctx context.Context, lockID int64) error
+	// AcquireAdvisoryTransactionLock takes a transaction-scoped advisory lock, waiting if
+	// it is busy; PostgreSQL releases it when the transaction ends.
 	AcquireAdvisoryTransactionLock(ctx context.Context, lockID int64) error
+	// AcquireUserBootstrapLock takes the fixed transaction-scoped advisory lock that
+	// serializes user bootstrapping, so two logins cannot both create the first owner.
 	AcquireUserBootstrapLock(ctx context.Context) error
+	// ActivateBot records the username Telegram reported and clears the failure
+	// history, putting the bot back into service; an unknown bot returns no row.
 	ActivateBot(ctx context.Context, arg ActivateBotParams) (*Bot, error)
+	// ClaimUploadPart inserts the part or re-claims it for uploading with a new lease and
+	// returns the row; a part that is already stored, or whose lease is still running, is
+	// not re-claimed and returns no row.
 	// The lease is granted from the database clock, which is also the clock the
 	// conflict predicate below reads: a lease written from the application clock
 	// would already be expired whenever the two drift apart.
 	ClaimUploadPart(ctx context.Context, arg ClaimUploadPartParams) (*UploadPart, error)
+	// ClearSelectedChannel deselects whichever channel the user currently has selected,
+	// which the one-selected-per-user index requires before another can be promoted.
 	ClearSelectedChannel(ctx context.Context, userID int64) error
+	// ClearUploadSessionParentsByFileIDs detaches the user's upload sessions from the
+	// given parent ids, which keeps them usable after their target folder was removed.
 	ClearUploadSessionParentsByFileIDs(ctx context.Context, arg ClearUploadSessionParentsByFileIDsParams) error
+	// CompleteTelegramLoginFlow marks a still-pending flow as completed and returns it; a
+	// second completion, or an unknown id, returns no row.
 	CompleteTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error)
+	// CompleteUploadSession marks a 'completing' session of the user as completed, links
+	// the file it produced and stamps completed_at; any other state returns no row.
 	CompleteUploadSession(ctx context.Context, arg CompleteUploadSessionParams) (*UploadSession, error)
+	// CountChannelReferences counts the file parts and upload parts that still point
+	// at the channel for any user, to decide whether it may be forgotten.
 	CountChannelReferences(ctx context.Context, targetChannelID int64) (int64, error)
+	// CountChannelStoredMessages counts the distinct Telegram messages referenced by
+	// the channel's file and upload parts, ignoring upload parts without a message.
 	CountChannelStoredMessages(ctx context.Context, targetChannelID int64) (int64, error)
+	// CountInvalidOpenEndedUploadParts counts the stored parts before the final one whose
+	// plain size is not exactly part_size; a non-zero result means the stored parts do not
+	// tile the file, so completion must fail.
 	CountInvalidOpenEndedUploadParts(ctx context.Context, arg CountInvalidOpenEndedUploadPartsParams) (int64, error)
+	// CreateAPIKey stores a new API key for the user and returns it; only the secret hash
+	// and a display prefix are persisted, and a NULL expiry means the key never expires.
 	CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (*ApiKey, error)
+	// CreateChannel inserts a channel for the user, always unselected, and returns it;
+	// health stays at its default until the first check.
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (*Channel, error)
+	// CreateEventStreamTicket stores the SHA-256 hash of a new SSE stream ticket for the
+	// user together with its expiry; the plaintext token is never persisted.
 	CreateEventStreamTicket(ctx context.Context, arg CreateEventStreamTicketParams) error
+	// CreateFileAccessGrant grants one user access to one file and returns the row;
+	// a second grant while an earlier one is live replaces its permission and expiry.
 	CreateFileAccessGrant(ctx context.Context, arg CreateFileAccessGrantParams) (*FileAccessGrant, error)
+	// CreateFileShare stores a new share link for one file and returns it; the password,
+	// expiry and download limit are optional, and a NULL limit means unlimited downloads.
 	CreateFileShare(ctx context.Context, arg CreateFileShareParams) (*FileShare, error)
+	// CreateFolder inserts an active folder row with the directory MIME type, no size and
+	// no encryption, and returns it.
 	CreateFolder(ctx context.Context, arg CreateFolderParams) (*File, error)
+	// CreateSession stores a refresh session for the user and returns it; telegram_session
+	// is the serialized Telegram session used later to act on the user's behalf.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (*Session, error)
+	// CreateTelegramLoginFlow stores a new pending Telegram login flow and returns it; the
+	// phone number is optional because a QR-code flow does not know it yet.
 	CreateTelegramLoginFlow(ctx context.Context, arg CreateTelegramLoginFlowParams) (*TelegramLoginFlow, error)
+	// CreateUploadSession opens a new upload session in the 'open' state and returns it;
+	// parent_id, hashes, MIME type and key version are optional, and a NULL parent means
+	// the drive root.
 	CreateUploadSession(ctx context.Context, arg CreateUploadSessionParams) (*UploadSession, error)
+	// DeleteBot removes one bot of the user and returns the rows deleted.
 	DeleteBot(ctx context.Context, arg DeleteBotParams) (int64, error)
+	// DeleteChannel removes one channel of the user and returns the rows deleted,
+	// refusing the selected channel so the upload destination cannot disappear.
 	DeleteChannel(ctx context.Context, arg DeleteChannelParams) (int64, error)
+	// DeleteExpiredEventStreamTickets removes the tickets whose expiry has passed and
+	// returns the number of rows deleted.
 	DeleteExpiredEventStreamTickets(ctx context.Context) (int64, error)
+	// DeleteExpiredTelegramLoginFlows deletes every flow whose expiry has passed and
+	// returns the number of rows removed.
 	DeleteExpiredTelegramLoginFlows(ctx context.Context) (int64, error)
+	// DeleteFileCatalogRowsByIDs deletes the user's catalogue rows for the given ids but
+	// only where they are already deletion_pending, returning how many rows went away.
 	DeleteFileCatalogRowsByIDs(ctx context.Context, arg DeleteFileCatalogRowsByIDsParams) (int64, error)
+	// DeleteFilePartsByFileIDs deletes every part row of the given files; the query is not
+	// scoped by user, so ownership must have been resolved by the caller.
 	DeleteFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) error
+	// DeleteFileViewState removes the user's saved state for one file and returns the
+	// rows deleted, which is zero when there was nothing saved.
 	DeleteFileViewState(ctx context.Context, arg DeleteFileViewStateParams) (int64, error)
+	// DeleteUploadPartsForCleanup deletes the listed parts of aborted or expired sessions
+	// by upload, part number and message id, so a part whose message id changed is left
+	// alone.
 	DeleteUploadPartsForCleanup(ctx context.Context, parts []byte) (int64, error)
+	// DeleteUploadSessionsForCleanup deletes the given aborted or expired sessions and
+	// returns the rows removed; their remaining parts go with them by ON DELETE CASCADE.
 	// Removing the session also removes its remaining part rows, because
 	// upload_parts references the session with ON DELETE CASCADE; the caller has
 	// already deleted the Telegram messages of the parts that held one.
 	DeleteUploadSessionsForCleanup(ctx context.Context, uploadIds []pgtype.UUID) (int64, error)
+	// DeleteUserEventsBefore drops every event that occurred before the cutoff, for all
+	// users, and returns how many rows were removed.
 	DeleteUserEventsBefore(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error)
+	// ExpireUploadSessions marks up to 1000 expired open or completing sessions as expired
+	// and returns them; the candidates are locked with SKIP LOCKED so parallel sweeps do
+	// not collide.
 	ExpireUploadSessions(ctx context.Context) ([]*UploadSession, error)
+	// FinalizeUploadExpectedSize records the real total size measured from the stored
+	// parts when the client opened the session with the unknown-size sentinel -1, and
+	// only for an 'open' session of the user.
 	FinalizeUploadExpectedSize(ctx context.Context, arg FinalizeUploadExpectedSizeParams) (*UploadSession, error)
+	// FindResumableUploadSessions finds the user's open, unexpired replace-uploads of the
+	// same destination, name, size, encryption and MIME type, newest first; a supplied
+	// mod_time must match within one second, which absorbs timestamp rounding.
 	FindResumableUploadSessions(ctx context.Context, arg FindResumableUploadSessionsParams) ([]*UploadSession, error)
+	// GetActiveAPIKeyByHash resolves a presented secret to its key row, ignoring revoked
+	// keys and keys whose expiry has passed; a NULL expiry never expires.
 	GetActiveAPIKeyByHash(ctx context.Context, secretHash []byte) (*ApiKey, error)
+	// GetActiveFolderForUser returns the user's folder only while it is active, so a
+	// trashed or deletion-pending folder returns no row.
 	GetActiveFolderForUser(ctx context.Context, arg GetActiveFolderForUserParams) (*File, error)
+	// GetActiveSession returns a session only when it belongs to the user and is neither
+	// revoked nor expired.
 	GetActiveSession(ctx context.Context, arg GetActiveSessionParams) (*Session, error)
+	// GetActiveShareByTokenHash resolves a share token to its share plus the file name,
+	// kind and status; a revoked, expired or exhausted share, or an inactive file,
+	// returns no row.
 	GetActiveShareByTokenHash(ctx context.Context, tokenHash []byte) (*GetActiveShareByTokenHashRow, error)
+	// GetAllUploadPartSummary returns the part count, stored count and stored plain bytes
+	// of an upload plus the lowest and highest stored part numbers, which are 0 while
+	// nothing is stored yet.
 	GetAllUploadPartSummary(ctx context.Context, uploadID pgtype.UUID) (*GetAllUploadPartSummaryRow, error)
+	// GetBot returns one bot of the user by id, or no row when the user has no such bot.
 	GetBot(ctx context.Context, arg GetBotParams) (*Bot, error)
+	// GetChannelForUser returns the user's own channel row, so an id belonging to
+	// another account returns no row.
 	GetChannelForUser(ctx context.Context, arg GetChannelForUserParams) (*Channel, error)
+	// GetDriveStatistics summarises the user's drive in one row: active files and folders,
+	// their total size, trashed files, live shares and open or completing uploads.
 	GetDriveStatistics(ctx context.Context, userID int64) (*GetDriveStatisticsRow, error)
+	// GetEventStreamTicketUser resolves a presented stream ticket hash to its user while
+	// the ticket has not expired; an expired or unknown ticket returns no row.
 	GetEventStreamTicketUser(ctx context.Context, tokenHash []byte) (int64, error)
+	// GetFileForUser returns one row of the user's catalogue by id, whatever its kind or
+	// status, so trashed and deletion-pending rows are included.
 	GetFileForUser(ctx context.Context, arg GetFileForUserParams) (*File, error)
+	// GetFileShareForOwner returns one share by id only when it belongs to the owner, so
+	// an id from another account returns no row.
 	GetFileShareForOwner(ctx context.Context, arg GetFileShareForOwnerParams) (*FileShare, error)
+	// GetFileViewState returns the saved reading or playback state of one file for the
+	// user, or no row when the user never opened it.
 	GetFileViewState(ctx context.Context, arg GetFileViewStateParams) (*FileViewState, error)
+	// GetLatestActiveSessionForUser returns the user's most recently used live session,
+	// ordering sessions that were never used by creation time instead.
 	GetLatestActiveSessionForUser(ctx context.Context, userID int64) (*Session, error)
+	// GetSelectedChannel returns the single channel the user selected as the upload
+	// destination; a user without one gets no row.
 	GetSelectedChannel(ctx context.Context, userID int64) (*Channel, error)
+	// GetSessionByRefreshTokenHash resolves a refresh token hash to its session and
+	// returns no row once the session is revoked or expired.
 	GetSessionByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (*Session, error)
+	// GetStorageCleanupStatistics returns the bytes held by the user's trashed files and
+	// by expired open or completing uploads that still have stored parts, plus the count
+	// of those expired uploads.
 	GetStorageCleanupStatistics(ctx context.Context, userID int64) (*GetStorageCleanupStatisticsRow, error)
+	// GetStorageDashboardTotals returns the user's active byte total with the active
+	// file, active folder, trashed file and trash byte counts, zero where nothing matches.
 	GetStorageDashboardTotals(ctx context.Context, userID int64) (*GetStorageDashboardTotalsRow, error)
+	// GetTelegramLoginFlow returns a login flow that is still pending and unexpired; a
+	// completed or expired flow, or a reused id, returns no row.
 	GetTelegramLoginFlow(ctx context.Context, id pgtype.UUID) (*TelegramLoginFlow, error)
+	// GetUploadPart returns one part of an upload by number, whatever its state, or no row
+	// when the part was never claimed.
 	GetUploadPart(ctx context.Context, arg GetUploadPartParams) (*UploadPart, error)
+	// GetUploadSessionAnyOwner returns an upload session by id without checking the owner;
+	// callers must authorize against its UserID or its parent file before acting on it.
 	GetUploadSessionAnyOwner(ctx context.Context, uploadID pgtype.UUID) (*UploadSession, error)
+	// GetUploadSessionForUser returns one upload session by id only when it belongs to the
+	// user, whatever its state.
 	GetUploadSessionForUser(ctx context.Context, arg GetUploadSessionForUserParams) (*UploadSession, error)
+	// GetUser returns the full account row of one Telegram user id, including its
+	// disabled_at, so callers apply their own policy on a disabled account.
 	GetUser(ctx context.Context, userID int64) (*User, error)
+	// GetUserEventCursorState reports whether the given after_id still exists for the
+	// user, plus the oldest and newest retained event ids and the stream's high-water
+	// mark; every id is 0 when the user has no events yet.
 	GetUserEventCursorState(ctx context.Context, arg GetUserEventCursorStateParams) (*GetUserEventCursorStateRow, error)
+	// IncrementShareDownloadCount consumes one download of a live share and returns the
+	// updated row; an exhausted, expired or revoked share returns no row.
 	IncrementShareDownloadCount(ctx context.Context, id pgtype.UUID) (*FileShare, error)
+	// InsertCopiedFileParts inserts the part rows of a copy operation, base64-decoding
+	// their block hashes, and returns the number of rows inserted.
 	InsertCopiedFileParts(ctx context.Context, parts []byte) (int64, error)
+	// InsertCopiedFiles inserts the file rows of a copy operation from a JSON array,
+	// forcing the active status and generation 1, and returns the created rows.
 	InsertCopiedFiles(ctx context.Context, files []byte) ([]*File, error)
+	// InsertFileFromUpload creates the active file row from a session that is 'completing'
+	// and owned by the user, copying its name, parent, size, encryption and mod_time, and
+	// returns it; the hash columns come from the caller.
 	InsertFileFromUpload(ctx context.Context, arg InsertFileFromUploadParams) (*File, error)
+	// InsertFilePartsFromUpload copies the session's stored parts into file_parts in part
+	// order and returns the number of rows inserted; unstored parts are skipped.
 	InsertFilePartsFromUpload(ctx context.Context, arg InsertFilePartsFromUploadParams) (int64, error)
+	// InsertPendingBots registers the given bot ids for the user in the pending,
+	// disabled state and returns the stored rows; an existing bot is reused and reset.
 	// Registering a token again replaces the stored one and puts the bot back in the
 	// pending state, which is the only way a bot that was disabled by a failed
 	// provisioning can be tried again: the row is identified by its bot id, so an
 	// existing row has to be reused rather than inserted next to. The failure history
 	// is cleared with it, because the new attempt starts from nothing.
 	InsertPendingBots(ctx context.Context, arg InsertPendingBotsParams) ([]*Bot, error)
+	// ListAPIKeys returns one page of the user's API keys, newest first, keyset-paged on
+	// (created_at, id), including revoked and expired ones.
 	ListAPIKeys(ctx context.Context, arg ListAPIKeysParams) ([]*ApiKey, error)
+	// ListActiveDestinationEntries lists the id and name of every active child of the
+	// destination folder, NULL meaning the drive root, for name-conflict checks.
 	ListActiveDestinationEntries(ctx context.Context, arg ListActiveDestinationEntriesParams) ([]*ListActiveDestinationEntriesRow, error)
+	// ListActiveNames returns the names of the user's active children of the given parent,
+	// optionally excluding one id, which is the name-conflict check before an insert.
 	ListActiveNames(ctx context.Context, arg ListActiveNamesParams) ([]string, error)
+	// ListBots returns one page of the user's bots, newest first, keyset-paged on
+	// (created_at, bot_id).
 	ListBots(ctx context.Context, arg ListBotsParams) ([]*Bot, error)
+	// ListChannelReferencedParts lists the channel's parts that belong to active files
+	// of one user with their file name and size, ordered by file name.
 	ListChannelReferencedParts(ctx context.Context, arg ListChannelReferencedPartsParams) ([]*ListChannelReferencedPartsRow, error)
+	// ListChannels returns one page of the user's channels, newest first, keyset-paged
+	// on (created_at, channel_id) so paging stays stable while rows are inserted.
 	ListChannels(ctx context.Context, arg ListChannelsParams) ([]*Channel, error)
+	// ListChannelsForOrphanCleanup returns every channel of every user ordered by user
+	// and channel id, because the orphan sweep walks the Telegram side per channel.
 	ListChannelsForOrphanCleanup(ctx context.Context) ([]*Channel, error)
+	// ListDeletionPendingRoots returns up to 1000 deletion-pending files that are roots
+	// of their pending subtree, meaning no deletion-pending parent above them, oldest
+	// update first, so the purge worker deletes whole subtrees from the top.
 	ListDeletionPendingRoots(ctx context.Context) ([]*ListDeletionPendingRootsRow, error)
+	// ListEnabledBots returns every enabled bot of the user ordered by id, ignoring
+	// retry_after; callers that must honour the backoff need ListUploadEligibleBots.
 	ListEnabledBots(ctx context.Context, userID int64) ([]*Bot, error)
+	// ListFileAccessGrantsForOwner lists the live grants on one of the owner's files with
+	// the grantee's display name and username, newest first.
 	ListFileAccessGrantsForOwner(ctx context.Context, arg ListFileAccessGrantsForOwnerParams) ([]*ListFileAccessGrantsForOwnerRow, error)
+	// ListFileAncestorIDs returns the file and every ancestor above it up to the root,
+	// scoped to the user, as an unordered id list; an unknown file yields no rows.
 	ListFileAncestorIDs(ctx context.Context, arg ListFileAncestorIDsParams) ([]pgtype.UUID, error)
+	// ListFileCategoryStatistics counts and sums the user's active files per category
+	// (image, audio, video, document, archive, other), ordered by category name.
 	ListFileCategoryStatistics(ctx context.Context, userID int64) ([]*ListFileCategoryStatisticsRow, error)
+	// ListFileParentPaths builds the slash-separated path of the folders above each listed
+	// file, from the root down, and returns '/' for a file sitting in the root.
 	ListFileParentPaths(ctx context.Context, arg ListFileParentPathsParams) ([]*ListFileParentPathsRow, error)
+	// ListFilePartMessageRefs returns the channel and message of every part of the given
+	// files, ordered by channel, so those Telegram messages can be deleted first.
 	ListFilePartMessageRefs(ctx context.Context, fileIds []pgtype.UUID) ([]*ListFilePartMessageRefsRow, error)
 	// Recursive move-cycle validation will be implemented as a hand-reviewed query in the file service.
+	// ListFileParts returns every part of a file in part order; the query is not scoped by
+	// user, so callers must have checked access to file_id first.
 	ListFileParts(ctx context.Context, fileID pgtype.UUID) ([]*FilePart, error)
+	// ListFilePartsByFileIDs returns the parts of many files in (file_id, part_no) order;
+	// like ListFileParts it trusts the caller for ownership.
 	ListFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) ([]*FilePart, error)
+	// ListFileShares returns one page of the owner's share links for one file, newest
+	// first, keyset-paged on (created_at, id), including revoked and expired ones.
 	ListFileShares(ctx context.Context, arg ListFileSharesParams) ([]*FileShare, error)
+	// ListFileSubtreeIDs returns the file and every descendant below it in the user's tree
+	// as an unordered id list, whatever their status.
 	ListFileSubtreeIDs(ctx context.Context, arg ListFileSubtreeIDsParams) ([]pgtype.UUID, error)
+	// ListFiles returns one page of the user's direct children of parent_id, ordered by
+	// name and keyset-paged on (name, id); a trashed listing with a NULL parent also
+	// surfaces trashed rows whose parent is not trashed, so a trashed subtree is listed
+	// once at its root. Search matches by trigram or by substring.
 	ListFiles(ctx context.Context, arg ListFilesParams) ([]*File, error)
+	// ListFilesAdvanced is the advanced file search: scope selects the direct children of
+	// parent_id ('folder'), the whole drive ('drive') or one folder subtree ('recursive'),
+	// while status, kind, search text or regex, category and update window filter the
+	// rows; paging is a keyset over the requested sort column, and a trashed listing with
+	// a NULL parent also surfaces trashed rows whose parent is not trashed.
 	ListFilesAdvanced(ctx context.Context, arg ListFilesAdvancedParams) ([]*File, error)
+	// ListRecentStorageActivity returns the user's newest file, upload, share and channel
+	// events, up to activity_limit, newest first; other event types are never returned.
 	ListRecentStorageActivity(ctx context.Context, arg ListRecentStorageActivityParams) ([]*ListRecentStorageActivityRow, error)
+	// ListReferencedMessageIDs returns which of the given message ids a file or upload
+	// part still references in the channel, so the rest can be deleted from Telegram.
 	ListReferencedMessageIDs(ctx context.Context, arg ListReferencedMessageIDsParams) ([]int64, error)
+	// ListSessions returns one page of the user's live sessions, newest first,
+	// keyset-paged on (created_at, id); revoked and expired sessions are never listed.
 	ListSessions(ctx context.Context, arg ListSessionsParams) ([]*Session, error)
+	// ListShared lists one page of the owner's active files that are currently shared, by
+	// a live grant or a live share link, most recently updated first, keyset-paged on
+	// (updated_at, id).
 	ListShared(ctx context.Context, arg ListSharedParams) ([]*File, error)
+	// ListSharedWithMe lists one page of the active files shared with the grantee, each
+	// with the grant's permission and id, newest grant update first, keyset-paged on the
+	// grant's (updated_at, id).
 	// The grant's own timestamp and id are the sort key and the cursor, so both are
 	// returned next to the file the grant points at.
 	ListSharedWithMe(ctx context.Context, arg ListSharedWithMeParams) ([]*ListSharedWithMeRow, error)
+	// ListStorageChannelStatistics returns each channel of the user with its health and
+	// the number and stored size of the parts it holds for that user's active files,
+	// selected channels first and then by descending stored size.
 	ListStorageChannelStatistics(ctx context.Context, userID int64) ([]*ListStorageChannelStatisticsRow, error)
+	// ListStorageGrowth returns the last 30 days, one row per day with the bytes added
+	// that day and the running logical total, which starts from everything created before
+	// the window.
 	ListStorageGrowth(ctx context.Context, userID int64) ([]*ListStorageGrowthRow, error)
+	// ListStoredUploadPartHashes returns the per-part block hashes of an upload's stored
+	// parts in part order, which completion concatenates into the whole-file hash.
 	ListStoredUploadPartHashes(ctx context.Context, uploadID pgtype.UUID) ([][]byte, error)
+	// ListTrashedRootsBefore returns up to 1000 trashed roots deleted at or before the
+	// cutoff, skipping rows whose parent is itself trashed, oldest deletion first, so the
+	// expiry worker purges a whole subtree once instead of walking into it.
 	ListTrashedRootsBefore(ctx context.Context, deletedBefore pgtype.Timestamptz) ([]*ListTrashedRootsBeforeRow, error)
+	// ListUploadDailyStatistics returns one row per day over the last days days for the
+	// user, with the bytes and file count completed that day, zero-filled for empty days.
 	ListUploadDailyStatistics(ctx context.Context, arg ListUploadDailyStatisticsParams) ([]*ListUploadDailyStatisticsRow, error)
+	// ListUploadEligibleBots returns the enabled bots of the user whose retry_after
+	// has passed, ordered by id, which is the pool uploads allocate from.
 	ListUploadEligibleBots(ctx context.Context, userID int64) ([]*Bot, error)
+	// ListUploadParts returns one page of the upload's parts in part order, starting after
+	// after_part_no when given, for clients that poll upload progress.
 	ListUploadParts(ctx context.Context, arg ListUploadPartsParams) ([]*UploadPart, error)
+	// ListUploadPartsByUploadIDs returns every part of the given uploads in
+	// (upload_id, part_no) order.
 	ListUploadPartsByUploadIDs(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error)
+	// ListUploadPartsForCleanupMany returns the parts of the given aborted or expired
+	// uploads that still hold a Telegram message, ordered by upload, channel and part.
 	ListUploadPartsForCleanupMany(ctx context.Context, uploadIds []pgtype.UUID) ([]*UploadPart, error)
+	// ListUploadSessions returns one page of the user's upload sessions, newest first,
+	// optionally limited to a single state, keyset-paged on (created_at, id).
 	ListUploadSessions(ctx context.Context, arg ListUploadSessionsParams) ([]*UploadSession, error)
+	// ListUploadSessionsPendingCleanup returns up to 1000 aborted or expired sessions,
+	// oldest update first, including sessions that have no stored part at all.
 	// Every finalized session is listed, not only the ones with a stored part:
 	// a session whose parts were claimed but never stored, or that has no parts at
 	// all, still has a row to remove.
 	ListUploadSessionsPendingCleanup(ctx context.Context) ([]*UploadSession, error)
+	// ListUserEventsAfter returns up to event_limit events of the user with an id above
+	// after_id, ascending, so the caller advances its cursor to the last id it saw.
 	ListUserEventsAfter(ctx context.Context, arg ListUserEventsAfterParams) ([]*UserEvent, error)
+	// ListUsers returns up to page_size accounts ordered by creation time, oldest first;
+	// search matches display name or username case-insensitively, or the exact user id.
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]*User, error)
+	// LoadFileSubtree returns the file and its whole subtree, each row carrying its depth,
+	// ordered by depth then id; rows of every status are included.
 	LoadFileSubtree(ctx context.Context, arg LoadFileSubtreeParams) ([]*LoadFileSubtreeRow, error)
+	// LoadFileSubtrees returns the subtrees of several roots with a depth column, ordered
+	// by depth then id and including rows of every status.
 	LoadFileSubtrees(ctx context.Context, arg LoadFileSubtreesParams) ([]*LoadFileSubtreesRow, error)
+	// LockActiveDestinationEntries row-locks only the active destination children whose
+	// names collide with the requested ones and returns their id and name.
 	// Locks only the destination entries the move collides with by name. Locking every
 	// child of the destination held the whole folder for the length of the
 	// transaction, which in a large folder contended with every other writer of that
 	// folder. A name that appears after this statement is still caught by the unique
 	// index on active child names.
 	LockActiveDestinationEntries(ctx context.Context, arg LockActiveDestinationEntriesParams) ([]*LockActiveDestinationEntriesRow, error)
+	// LockActiveFiles row-locks the user's active files with the given ids for the rest of
+	// the transaction and returns them; ids that are not active are not locked.
 	LockActiveFiles(ctx context.Context, arg LockActiveFilesParams) ([]*File, error)
+	// LockActiveFolder row-locks one active folder of the user for the rest of the
+	// transaction and returns it; a trashed or foreign folder returns no row.
 	LockActiveFolder(ctx context.Context, arg LockActiveFolderParams) (*File, error)
+	// LockUploadDestinationConflict row-locks the active file at the destination with this
+	// name, NULL parent meaning the drive root, so the replace decision cannot race.
 	LockUploadDestinationConflict(ctx context.Context, arg LockUploadDestinationConflictParams) (*File, error)
+	// LockUploadSessionForCompletion row-locks one upload session of the user for the
+	// transaction that turns it into a file, so two completions cannot run at once.
 	LockUploadSessionForCompletion(ctx context.Context, arg LockUploadSessionForCompletionParams) (*UploadSession, error)
+	// MarkActiveFileDeletionPendingForReplace retires the file that a replace upload is
+	// about to overwrite and returns the rows changed, which is zero when the file is no
+	// longer active.
 	MarkActiveFileDeletionPendingForReplace(ctx context.Context, arg MarkActiveFileDeletionPendingForReplaceParams) (int64, error)
+	// MarkAllTrashedDeletionPending empties the user's trash by moving every trashed file
+	// to deletion_pending and returns the affected ids.
 	MarkAllTrashedDeletionPending(ctx context.Context, userID int64) ([]pgtype.UUID, error)
+	// MarkBotProvisionFailure disables the bot, increments its failure counter and
+	// stores the error, returning the rows changed.
 	MarkBotProvisionFailure(ctx context.Context, arg MarkBotProvisionFailureParams) (int64, error)
+	// MarkBotUploadFailure increments the bot's failure counter, keeps its last error
+	// and defers the next attempt with an exponential backoff.
 	MarkBotUploadFailure(ctx context.Context, arg MarkBotUploadFailureParams) (int64, error)
+	// MarkBotUploadSuccess clears the failure state of the bot and stamps last_used_at,
+	// which puts it back at the front of the allocation order.
 	MarkBotUploadSuccess(ctx context.Context, arg MarkBotUploadSuccessParams) (int64, error)
+	// MarkFileIDsDeletionPending moves the user's files with the given ids to
+	// deletion_pending whatever their status, keeping an earlier deleted_at and bumping
+	// the generation; nothing is returned.
 	MarkFileIDsDeletionPending(ctx context.Context, arg MarkFileIDsDeletionPendingParams) error
+	// MarkFileSubtreeDeletionPending moves one active file and its active descendants to
+	// deletion_pending, keeping an earlier deleted_at if there is one; nothing is
+	// returned.
 	MarkFileSubtreeDeletionPending(ctx context.Context, arg MarkFileSubtreeDeletionPendingParams) error
+	// MarkFileSubtreesDeletionPending moves several active files and their active
+	// descendants to deletion_pending, keeping an earlier deleted_at; nothing is returned.
 	MarkFileSubtreesDeletionPending(ctx context.Context, arg MarkFileSubtreesDeletionPendingParams) error
+	// MarkUploadCompleting moves an 'open' session of the user to 'completing' and returns
+	// it; a session that is foreign or already past 'open' returns no row.
 	MarkUploadCompleting(ctx context.Context, arg MarkUploadCompletingParams) (*UploadSession, error)
+	// MarkUploadPartFailed marks a part the caller still leases as failed, clears its
+	// lease and stores the error code; a lease that was lost returns no row.
 	MarkUploadPartFailed(ctx context.Context, arg MarkUploadPartFailedParams) (*UploadPart, error)
+	// MarkUploadPartStored records the Telegram message, stored size and hashes of a part
+	// and clears its lease, but only for the caller that still holds the lease of an
+	// 'uploading' part; otherwise it returns no row.
 	MarkUploadPartStored(ctx context.Context, arg MarkUploadPartStoredParams) (*UploadPart, error)
+	// MoveFile re-parents one active file or folder of the user and bumps its generation;
+	// a stale expected_generation makes it a compare-and-set that returns no row, and a
+	// NULL parent_id means the drive root.
 	MoveFile(ctx context.Context, arg MoveFileParams) (*File, error)
+	// MoveFilesWithNames re-parents and renames several files in one statement, pairing
+	// file_ids with names by array position and returning the updated rows; a stale
+	// expected_generation leaves that file out of the result.
 	MoveFilesWithNames(ctx context.Context, arg MoveFilesWithNamesParams) ([]*File, error)
+	// NextBotSelectionValue advances the per-user, per-operation round-robin counter
+	// and returns the value to use, so concurrent allocators get distinct values.
 	NextBotSelectionValue(ctx context.Context, arg NextBotSelectionValueParams) (int64, error)
+	// QueueFileSubtreePurge moves one trashed file and every descendant below it, whatever
+	// their status, to deletion_pending and returns the changed rows; a root that is not
+	// trashed returns nothing.
 	QueueFileSubtreePurge(ctx context.Context, arg QueueFileSubtreePurgeParams) ([]*File, error)
+	// ReleaseAdvisoryLock releases a session-level advisory lock and reports whether this
+	// connection held it; false means the lock was already gone.
 	ReleaseAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
+	// RenameUploadSession changes the destination name of one session of the user and
+	// returns the rows changed.
 	RenameUploadSession(ctx context.Context, arg RenameUploadSessionParams) (int64, error)
+	// RenewUploadPartLease pushes the part's deadline out by lease_seconds and returns
+	// the rows changed, zero once the part was stored, failed or re-claimed elsewhere.
 	// The renewed deadline comes from the database clock, matching the claim.
 	RenewUploadPartLease(ctx context.Context, arg RenewUploadPartLeaseParams) (int64, error)
+	// ResolveActiveChild returns the active file or folder with this name under the given
+	// parent, NULL meaning the drive root; trashed and deletion-pending rows are ignored.
 	ResolveActiveChild(ctx context.Context, arg ResolveActiveChildParams) (*File, error)
+	// ResolveActiveChildFolder returns the id of the active folder with this name under
+	// the given parent, NULL meaning the drive root, used to resolve one path component.
 	ResolveActiveChildFolder(ctx context.Context, arg ResolveActiveChildFolderParams) (pgtype.UUID, error)
+	// ResolveFileAccessMany resolves the actor's access to each requested active file id:
+	// ownership counts as edit, a live grant on the file or any ancestor contributes its
+	// permission (edit only when require_edit is set), and one best row per file is
+	// returned, preferring owned, then edit, then the most recent grant.
 	ResolveFileAccessMany(ctx context.Context, arg ResolveFileAccessManyParams) ([]*ResolveFileAccessManyRow, error)
+	// RestoreFileSubtree restores one trashed file and its trashed descendants to active
+	// and returns every row it changed; the root is accepted only when its parent is
+	// active or gone, so a subtree is never restored under a still-trashed parent.
 	RestoreFileSubtree(ctx context.Context, arg RestoreFileSubtreeParams) ([]*File, error)
+	// RevokeAPIKey revokes one key of the user and returns the rows changed, which is zero
+	// for an unknown, foreign or already revoked key.
 	RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (int64, error)
+	// RevokeActiveSharesForFile revokes every live share the user created on one file,
+	// which the replace flow does because the file it pointed at is being replaced.
 	RevokeActiveSharesForFile(ctx context.Context, arg RevokeActiveSharesForFileParams) error
+	// RevokeAllAPIKeysForUser revokes every live API key of the user and returns the row
+	// count, leaving already revoked keys untouched.
 	RevokeAllAPIKeysForUser(ctx context.Context, userID int64) (int64, error)
+	// RevokeAllSessionsForUser revokes every live session of the user and returns the row
+	// count, leaving sessions revoked earlier with their original timestamp.
 	RevokeAllSessionsForUser(ctx context.Context, userID int64) (int64, error)
+	// RevokeFileAccessGrant revokes one live grant of the owner and returns the rows
+	// changed, zero for an unknown, foreign or already revoked grant.
 	RevokeFileAccessGrant(ctx context.Context, arg RevokeFileAccessGrantParams) (int64, error)
+	// RevokeFileShare revokes one live share of the owner and returns the rows changed,
+	// which is zero for an unknown, foreign or already revoked share.
 	RevokeFileShare(ctx context.Context, arg RevokeFileShareParams) (int64, error)
+	// RevokeSession revokes one session of the given user and returns the row count, which
+	// is zero when the session belongs to someone else or was already revoked.
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
+	// RevokeSharesForFileSubtree revokes the user's live shares on one file and every
+	// descendant of it, leaving already revoked shares untouched.
 	RevokeSharesForFileSubtree(ctx context.Context, arg RevokeSharesForFileSubtreeParams) error
+	// RevokeSharesForFileSubtrees revokes the user's live shares on the given files and
+	// all their descendants; shares revoked earlier keep their original timestamp.
 	RevokeSharesForFileSubtrees(ctx context.Context, arg RevokeSharesForFileSubtreesParams) error
+	// RotateSessionRefreshToken swaps in a new refresh token hash and stamps last_used_at,
+	// but only while the old hash still matches a live session, so a replay fails.
 	RotateSessionRefreshToken(ctx context.Context, arg RotateSessionRefreshTokenParams) (*Session, error)
+	// SearchUsersForShare finds share recipients by display name, username or exact
+	// user id, excluding the caller and disabled accounts, ordered by username.
 	SearchUsersForShare(ctx context.Context, arg SearchUsersForShareParams) ([]*User, error)
+	// SelectChannel marks one of the user's channels as selected and returns it; the
+	// caller clears the previous selection first, and an unknown id returns no row.
 	SelectChannel(ctx context.Context, arg SelectChannelParams) (*Channel, error)
+	// SetUserDisabled disables or re-enables a non-owner account, stamping disabled_at on
+	// the first disable and clearing it on enable; the owner row is never touched.
 	SetUserDisabled(ctx context.Context, arg SetUserDisabledParams) (*User, error)
+	// TouchAPIKey records the last use of a key by id, with no owner check and no failure
+	// when the id no longer exists.
 	TouchAPIKey(ctx context.Context, id pgtype.UUID) error
+	// TouchSession stamps last_used_at on a session that is not revoked; an unknown or
+	// revoked id is silently ignored.
 	TouchSession(ctx context.Context, sessionID pgtype.UUID) error
+	// TrashFile moves one active file of the user to the trash, stamping deleted_at and
+	// bumping its generation; an already trashed or missing row returns no row.
 	TrashFile(ctx context.Context, arg TrashFileParams) (*File, error)
+	// TrashFileSubtrees trashes the given active files together with their active
+	// descendants and returns every changed row with its new deleted_at and generation.
 	TrashFileSubtrees(ctx context.Context, arg TrashFileSubtreesParams) ([]*File, error)
+	// TryAdvisoryLock takes the session-level advisory lock only if it is free and
+	// reports whether it got it, without waiting, so a busy lock returns false.
 	TryAdvisoryLock(ctx context.Context, lockID int64) (bool, error)
+	// TryAdvisoryLocks tries every id in lock_ids without waiting and returns one row per
+	// id with whether that lock was taken; the caller must release the ones it got.
 	TryAdvisoryLocks(ctx context.Context, lockIds []int64) ([]*TryAdvisoryLocksRow, error)
+	// UpdateBotSession stores the serialized Telegram session of one bot and returns
+	// the rows changed, so a stale bot id is reported as zero.
 	UpdateBotSession(ctx context.Context, arg UpdateBotSessionParams) (int64, error)
+	// UpdateChannelHealth stores the latest health verdict and stamps last_checked_at
+	// and updated_at; an unknown channel id returns no row.
 	UpdateChannelHealth(ctx context.Context, arg UpdateChannelHealthParams) (*Channel, error)
+	// UpdateFileAccessGrant changes the permission or expiry of a live grant of the owner;
+	// the flag clears the expiry, and an unknown, revoked or foreign grant returns no row.
 	UpdateFileAccessGrant(ctx context.Context, arg UpdateFileAccessGrantParams) (*FileAccessGrant, error)
+	// UpdateFileMetadata applies an optional rename and mod_time to one active file of the
+	// user and bumps its generation; a supplied expected_generation turns it into a
+	// compare-and-set that returns no row when it no longer matches.
 	UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) (*File, error)
+	// UpdateFilePartSizes fills in the plain and stored size of one part, but only while
+	// at least one of the two is still NULL, so a known size is never overwritten.
 	UpdateFilePartSizes(ctx context.Context, arg UpdateFilePartSizesParams) (int64, error)
+	// UpdateFilePartSizesMany fills in the sizes of many parts of one file from a JSON
+	// array matched by part number, again only where a size is still missing.
 	UpdateFilePartSizesMany(ctx context.Context, arg UpdateFilePartSizesManyParams) (int64, error)
+	// UpdateFileShare partially updates a live share of the owner: password, expiry and
+	// download limit are each set, cleared or left alone by a pair of arguments, and a new
+	// limit may not fall below the downloads already counted.
 	UpdateFileShare(ctx context.Context, arg UpdateFileShareParams) (*FileShare, error)
+	// UpdateSessionTelegramSession replaces the stored Telegram session of one live
+	// session and refreshes last_used_at, returning the rows changed.
 	// The write is scoped to the owner as well, so a session id can never be used to
 	// rewrite another account's stored Telegram session.
 	UpdateSessionTelegramSession(ctx context.Context, arg UpdateSessionTelegramSessionParams) (int64, error)
+	// UpdateTelegramLoginFlowState replaces the stored Telegram state of a flow that is
+	// still pending and unexpired; a completed or expired flow returns no row.
 	UpdateTelegramLoginFlowState(ctx context.Context, arg UpdateTelegramLoginFlowStateParams) (*TelegramLoginFlow, error)
+	// UpdateUserRole sets a non-owner account to 'admin' or 'user' and returns the updated
+	// row; targeting the owner, or any other role value, returns no row.
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (*User, error)
+	// UpsertDiscoveredChannels records the channels found by discovery, inserting them
+	// unselected with unknown health and refreshing the name of the existing ones.
 	UpsertDiscoveredChannels(ctx context.Context, arg UpsertDiscoveredChannelsParams) ([]*Channel, error)
+	// UpsertFileViewState stores or replaces the user's viewer state for one file and
+	// returns it; the insert only fires for an active file of that user, so a folder,
+	// a trashed file or another owner's file stores nothing.
 	UpsertFileViewState(ctx context.Context, arg UpsertFileViewStateParams) (*FileViewState, error)
+	// UpsertUser inserts the Telegram profile of one user or refreshes it on the next
+	// login and returns the row; the first user ever inserted is granted the owner role.
 	UpsertUser(ctx context.Context, arg UpsertUserParams) (*User, error)
 }
 

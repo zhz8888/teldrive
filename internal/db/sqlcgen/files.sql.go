@@ -24,6 +24,8 @@ type ClearUploadSessionParentsByFileIDsParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// ClearUploadSessionParentsByFileIDs detaches the user's upload sessions from the
+// given parent ids, which keeps them usable after their target folder was removed.
 func (q *Queries) ClearUploadSessionParentsByFileIDs(ctx context.Context, arg ClearUploadSessionParentsByFileIDsParams) error {
 	_, err := q.db.Exec(ctx, clearUploadSessionParentsByFileIDs, arg.UserID, arg.FileIds)
 	return err
@@ -64,6 +66,8 @@ type CreateFolderParams struct {
 	ModTime  pgtype.Timestamptz `json:"mod_time"`
 }
 
+// CreateFolder inserts an active folder row with the directory MIME type, no size and
+// no encryption, and returns it.
 func (q *Queries) CreateFolder(ctx context.Context, arg CreateFolderParams) (*File, error) {
 	row := q.db.QueryRow(ctx, createFolder,
 		arg.ID,
@@ -107,6 +111,8 @@ type DeleteFileCatalogRowsByIDsParams struct {
 	UserID  int64         `json:"user_id"`
 }
 
+// DeleteFileCatalogRowsByIDs deletes the user's catalogue rows for the given ids but
+// only where they are already deletion_pending, returning how many rows went away.
 func (q *Queries) DeleteFileCatalogRowsByIDs(ctx context.Context, arg DeleteFileCatalogRowsByIDsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteFileCatalogRowsByIDs, arg.FileIds, arg.UserID)
 	if err != nil {
@@ -120,6 +126,8 @@ DELETE FROM /* TEMPLATE: schema */file_parts
 WHERE file_id = ANY($1::uuid[])
 `
 
+// DeleteFilePartsByFileIDs deletes every part row of the given files; the query is not
+// scoped by user, so ownership must have been resolved by the caller.
 func (q *Queries) DeleteFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteFilePartsByFileIDs, fileIds)
 	return err
@@ -139,6 +147,8 @@ type GetActiveFolderForUserParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// GetActiveFolderForUser returns the user's folder only while it is active, so a
+// trashed or deletion-pending folder returns no row.
 func (q *Queries) GetActiveFolderForUser(ctx context.Context, arg GetActiveFolderForUserParams) (*File, error) {
 	row := q.db.QueryRow(ctx, getActiveFolderForUser, arg.FolderID, arg.UserID)
 	var i File
@@ -185,6 +195,8 @@ type GetDriveStatisticsRow struct {
 	OpenUploads  int64 `json:"open_uploads"`
 }
 
+// GetDriveStatistics summarises the user's drive in one row: active files and folders,
+// their total size, trashed files, live shares and open or completing uploads.
 func (q *Queries) GetDriveStatistics(ctx context.Context, userID int64) (*GetDriveStatisticsRow, error) {
 	row := q.db.QueryRow(ctx, getDriveStatistics, userID)
 	var i GetDriveStatisticsRow
@@ -211,6 +223,8 @@ type GetFileForUserParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// GetFileForUser returns one row of the user's catalogue by id, whatever its kind or
+// status, so trashed and deletion-pending rows are included.
 func (q *Queries) GetFileForUser(ctx context.Context, arg GetFileForUserParams) (*File, error) {
 	row := q.db.QueryRow(ctx, getFileForUser, arg.FileID, arg.UserID)
 	var i File
@@ -251,6 +265,8 @@ FROM jsonb_to_recordset($1::jsonb) AS input(
 )
 `
 
+// InsertCopiedFileParts inserts the part rows of a copy operation, base64-decoding
+// their block hashes, and returns the number of rows inserted.
 func (q *Queries) InsertCopiedFileParts(ctx context.Context, parts []byte) (int64, error) {
 	result, err := q.db.Exec(ctx, insertCopiedFileParts, parts)
 	if err != nil {
@@ -277,6 +293,8 @@ FROM jsonb_to_recordset($1::jsonb) AS input(
 RETURNING file.id, file.user_id, file.parent_id, file.name, file.kind, file.mime_type, file.size, file.hash_algorithm, file.hash_value, file.encryption, file.encryption_key_version, file.status, file.mod_time, file.generation, file.created_at, file.updated_at, file.deleted_at
 `
 
+// InsertCopiedFiles inserts the file rows of a copy operation from a JSON array,
+// forcing the active status and generation 1, and returns the created rows.
 func (q *Queries) InsertCopiedFiles(ctx context.Context, files []byte) ([]*File, error) {
 	rows, err := q.db.Query(ctx, insertCopiedFiles, files)
 	if err != nil {
@@ -333,6 +351,8 @@ type ListActiveDestinationEntriesRow struct {
 	Name string      `json:"name"`
 }
 
+// ListActiveDestinationEntries lists the id and name of every active child of the
+// destination folder, NULL meaning the drive root, for name-conflict checks.
 func (q *Queries) ListActiveDestinationEntries(ctx context.Context, arg ListActiveDestinationEntriesParams) ([]*ListActiveDestinationEntriesRow, error) {
 	rows, err := q.db.Query(ctx, listActiveDestinationEntries, arg.UserID, arg.ParentID)
 	if err != nil {
@@ -368,6 +388,8 @@ type ListActiveNamesParams struct {
 	ExcludeID pgtype.UUID `json:"exclude_id"`
 }
 
+// ListActiveNames returns the names of the user's active children of the given parent,
+// optionally excluding one id, which is the name-conflict check before an insert.
 func (q *Queries) ListActiveNames(ctx context.Context, arg ListActiveNamesParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listActiveNames, arg.UserID, arg.ParentID, arg.ExcludeID)
 	if err != nil {
@@ -408,6 +430,8 @@ type ListFileAncestorIDsParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// ListFileAncestorIDs returns the file and every ancestor above it up to the root,
+// scoped to the user, as an unordered id list; an unknown file yields no rows.
 func (q *Queries) ListFileAncestorIDs(ctx context.Context, arg ListFileAncestorIDsParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, listFileAncestorIDs, arg.FileID, arg.UserID)
 	if err != nil {
@@ -465,6 +489,8 @@ type ListFileCategoryStatisticsRow struct {
 	TotalSize  int64  `json:"total_size"`
 }
 
+// ListFileCategoryStatistics counts and sums the user's active files per category
+// (image, audio, video, document, archive, other), ordered by category name.
 func (q *Queries) ListFileCategoryStatistics(ctx context.Context, userID int64) ([]*ListFileCategoryStatisticsRow, error) {
 	rows, err := q.db.Query(ctx, listFileCategoryStatistics, userID)
 	if err != nil {
@@ -513,6 +539,8 @@ type ListFileParentPathsRow struct {
 	ParentPath string      `json:"parent_path"`
 }
 
+// ListFileParentPaths builds the slash-separated path of the folders above each listed
+// file, from the root down, and returns '/' for a file sitting in the root.
 func (q *Queries) ListFileParentPaths(ctx context.Context, arg ListFileParentPathsParams) ([]*ListFileParentPathsRow, error) {
 	rows, err := q.db.Query(ctx, listFileParentPaths, arg.UserID, arg.FileIds)
 	if err != nil {
@@ -545,6 +573,8 @@ type ListFilePartMessageRefsRow struct {
 	MessageID int64 `json:"message_id"`
 }
 
+// ListFilePartMessageRefs returns the channel and message of every part of the given
+// files, ordered by channel, so those Telegram messages can be deleted first.
 func (q *Queries) ListFilePartMessageRefs(ctx context.Context, fileIds []pgtype.UUID) ([]*ListFilePartMessageRefsRow, error) {
 	rows, err := q.db.Query(ctx, listFilePartMessageRefs, fileIds)
 	if err != nil {
@@ -574,6 +604,8 @@ ORDER BY part_no
 `
 
 // Recursive move-cycle validation will be implemented as a hand-reviewed query in the file service.
+// ListFileParts returns every part of a file in part order; the query is not scoped by
+// user, so callers must have checked access to file_id first.
 func (q *Queries) ListFileParts(ctx context.Context, fileID pgtype.UUID) ([]*FilePart, error) {
 	rows, err := q.db.Query(ctx, listFileParts, fileID)
 	if err != nil {
@@ -612,6 +644,8 @@ WHERE file_id = ANY($1::uuid[])
 ORDER BY file_id, part_no
 `
 
+// ListFilePartsByFileIDs returns the parts of many files in (file_id, part_no) order;
+// like ListFileParts it trusts the caller for ownership.
 func (q *Queries) ListFilePartsByFileIDs(ctx context.Context, fileIds []pgtype.UUID) ([]*FilePart, error) {
 	rows, err := q.db.Query(ctx, listFilePartsByFileIDs, fileIds)
 	if err != nil {
@@ -657,6 +691,8 @@ type ListFileSubtreeIDsParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// ListFileSubtreeIDs returns the file and every descendant below it in the user's tree
+// as an unordered id list, whatever their status.
 func (q *Queries) ListFileSubtreeIDs(ctx context.Context, arg ListFileSubtreeIDsParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, listFileSubtreeIDs, arg.FileID, arg.UserID)
 	if err != nil {
@@ -722,6 +758,10 @@ type ListFilesParams struct {
 	PageSize  int32        `json:"page_size"`
 }
 
+// ListFiles returns one page of the user's direct children of parent_id, ordered by
+// name and keyset-paged on (name, id); a trashed listing with a NULL parent also
+// surfaces trashed rows whose parent is not trashed, so a trashed subtree is listed
+// once at its root. Search matches by trigram or by substring.
 func (q *Queries) ListFiles(ctx context.Context, arg ListFilesParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, listFiles,
 		arg.UserID,
@@ -917,6 +957,11 @@ type ListFilesAdvancedParams struct {
 	ScopeFolder    pgtype.UUID        `json:"scope_folder"`
 }
 
+// ListFilesAdvanced is the advanced file search: scope selects the direct children of
+// parent_id ('folder'), the whole drive ('drive') or one folder subtree ('recursive'),
+// while status, kind, search text or regex, category and update window filter the
+// rows; paging is a keyset over the requested sort column, and a trashed listing with
+// a NULL parent also surfaces trashed rows whose parent is not trashed.
 func (q *Queries) ListFilesAdvanced(ctx context.Context, arg ListFilesAdvancedParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, listFilesAdvanced,
 		arg.UserID,
@@ -1018,6 +1063,8 @@ type LoadFileSubtreeRow struct {
 	Depth                int32              `json:"depth"`
 }
 
+// LoadFileSubtree returns the file and its whole subtree, each row carrying its depth,
+// ordered by depth then id; rows of every status are included.
 func (q *Queries) LoadFileSubtree(ctx context.Context, arg LoadFileSubtreeParams) ([]*LoadFileSubtreeRow, error) {
 	rows, err := q.db.Query(ctx, loadFileSubtree, arg.RootID, arg.UserID)
 	if err != nil {
@@ -1102,6 +1149,8 @@ type LoadFileSubtreesRow struct {
 	Depth                int32              `json:"depth"`
 }
 
+// LoadFileSubtrees returns the subtrees of several roots with a depth column, ordered
+// by depth then id and including rows of every status.
 func (q *Queries) LoadFileSubtrees(ctx context.Context, arg LoadFileSubtreesParams) ([]*LoadFileSubtreesRow, error) {
 	rows, err := q.db.Query(ctx, loadFileSubtrees, arg.RootIds, arg.UserID)
 	if err != nil {
@@ -1162,6 +1211,8 @@ type LockActiveDestinationEntriesRow struct {
 	Name string      `json:"name"`
 }
 
+// LockActiveDestinationEntries row-locks only the active destination children whose
+// names collide with the requested ones and returns their id and name.
 // Locks only the destination entries the move collides with by name. Locking every
 // child of the destination held the whole folder for the length of the
 // transaction, which in a large folder contended with every other writer of that
@@ -1201,6 +1252,8 @@ type LockActiveFilesParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// LockActiveFiles row-locks the user's active files with the given ids for the rest of
+// the transaction and returns them; ids that are not active are not locked.
 func (q *Queries) LockActiveFiles(ctx context.Context, arg LockActiveFilesParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, lockActiveFiles, arg.UserID, arg.FileIds)
 	if err != nil {
@@ -1254,6 +1307,8 @@ type LockActiveFolderParams struct {
 	UserID   int64       `json:"user_id"`
 }
 
+// LockActiveFolder row-locks one active folder of the user for the rest of the
+// transaction and returns it; a trashed or foreign folder returns no row.
 func (q *Queries) LockActiveFolder(ctx context.Context, arg LockActiveFolderParams) (*File, error) {
 	row := q.db.QueryRow(ctx, lockActiveFolder, arg.FolderID, arg.UserID)
 	var i File
@@ -1290,6 +1345,8 @@ WHERE user_id = $1
 RETURNING id
 `
 
+// MarkAllTrashedDeletionPending empties the user's trash by moving every trashed file
+// to deletion_pending and returns the affected ids.
 func (q *Queries) MarkAllTrashedDeletionPending(ctx context.Context, userID int64) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, markAllTrashedDeletionPending, userID)
 	if err != nil {
@@ -1325,6 +1382,9 @@ type MarkFileIDsDeletionPendingParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// MarkFileIDsDeletionPending moves the user's files with the given ids to
+// deletion_pending whatever their status, keeping an earlier deleted_at and bumping
+// the generation; nothing is returned.
 func (q *Queries) MarkFileIDsDeletionPending(ctx context.Context, arg MarkFileIDsDeletionPendingParams) error {
 	_, err := q.db.Exec(ctx, markFileIDsDeletionPending, arg.UserID, arg.FileIds)
 	return err
@@ -1349,6 +1409,9 @@ type MarkFileSubtreeDeletionPendingParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// MarkFileSubtreeDeletionPending moves one active file and its active descendants to
+// deletion_pending, keeping an earlier deleted_at if there is one; nothing is
+// returned.
 func (q *Queries) MarkFileSubtreeDeletionPending(ctx context.Context, arg MarkFileSubtreeDeletionPendingParams) error {
 	_, err := q.db.Exec(ctx, markFileSubtreeDeletionPending, arg.UserID, arg.FileID)
 	return err
@@ -1382,6 +1445,8 @@ type MarkFileSubtreesDeletionPendingParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// MarkFileSubtreesDeletionPending moves several active files and their active
+// descendants to deletion_pending, keeping an earlier deleted_at; nothing is returned.
 func (q *Queries) MarkFileSubtreesDeletionPending(ctx context.Context, arg MarkFileSubtreesDeletionPendingParams) error {
 	_, err := q.db.Exec(ctx, markFileSubtreesDeletionPending, arg.UserID, arg.FileIds)
 	return err
@@ -1409,6 +1474,9 @@ type MoveFileParams struct {
 	ExpectedGeneration pgtype.Int8 `json:"expected_generation"`
 }
 
+// MoveFile re-parents one active file or folder of the user and bumps its generation;
+// a stale expected_generation makes it a compare-and-set that returns no row, and a
+// NULL parent_id means the drive root.
 func (q *Queries) MoveFile(ctx context.Context, arg MoveFileParams) (*File, error) {
 	row := q.db.QueryRow(ctx, moveFile,
 		arg.ParentID,
@@ -1470,6 +1538,9 @@ type MoveFilesWithNamesParams struct {
 	Names              []string      `json:"names"`
 }
 
+// MoveFilesWithNames re-parents and renames several files in one statement, pairing
+// file_ids with names by array position and returning the updated rows; a stale
+// expected_generation leaves that file out of the result.
 func (q *Queries) MoveFilesWithNames(ctx context.Context, arg MoveFilesWithNamesParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, moveFilesWithNames,
 		arg.ParentID,
@@ -1541,6 +1612,9 @@ type QueueFileSubtreePurgeParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// QueueFileSubtreePurge moves one trashed file and every descendant below it, whatever
+// their status, to deletion_pending and returns the changed rows; a root that is not
+// trashed returns nothing.
 func (q *Queries) QueueFileSubtreePurge(ctx context.Context, arg QueueFileSubtreePurgeParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, queueFileSubtreePurge, arg.UserID, arg.FileID)
 	if err != nil {
@@ -1594,6 +1668,8 @@ type ResolveActiveChildParams struct {
 	Name     string      `json:"name"`
 }
 
+// ResolveActiveChild returns the active file or folder with this name under the given
+// parent, NULL meaning the drive root; trashed and deletion-pending rows are ignored.
 func (q *Queries) ResolveActiveChild(ctx context.Context, arg ResolveActiveChildParams) (*File, error) {
 	row := q.db.QueryRow(ctx, resolveActiveChild, arg.UserID, arg.ParentID, arg.Name)
 	var i File
@@ -1635,6 +1711,8 @@ type ResolveActiveChildFolderParams struct {
 	Name     string      `json:"name"`
 }
 
+// ResolveActiveChildFolder returns the id of the active folder with this name under
+// the given parent, NULL meaning the drive root, used to resolve one path component.
 func (q *Queries) ResolveActiveChildFolder(ctx context.Context, arg ResolveActiveChildFolderParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, resolveActiveChildFolder, arg.UserID, arg.ParentID, arg.Name)
 	var id pgtype.UUID
@@ -1681,6 +1759,9 @@ type RestoreFileSubtreeParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// RestoreFileSubtree restores one trashed file and its trashed descendants to active
+// and returns every row it changed; the root is accepted only when its parent is
+// active or gone, so a subtree is never restored under a still-trashed parent.
 func (q *Queries) RestoreFileSubtree(ctx context.Context, arg RestoreFileSubtreeParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, restoreFileSubtree, arg.UserID, arg.FileID)
 	if err != nil {
@@ -1737,6 +1818,8 @@ type RevokeSharesForFileSubtreeParams struct {
 	FileID pgtype.UUID `json:"file_id"`
 }
 
+// RevokeSharesForFileSubtree revokes the user's live shares on one file and every
+// descendant of it, leaving already revoked shares untouched.
 func (q *Queries) RevokeSharesForFileSubtree(ctx context.Context, arg RevokeSharesForFileSubtreeParams) error {
 	_, err := q.db.Exec(ctx, revokeSharesForFileSubtree, arg.UserID, arg.FileID)
 	return err
@@ -1760,6 +1843,8 @@ type RevokeSharesForFileSubtreesParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// RevokeSharesForFileSubtrees revokes the user's live shares on the given files and
+// all their descendants; shares revoked earlier keep their original timestamp.
 func (q *Queries) RevokeSharesForFileSubtrees(ctx context.Context, arg RevokeSharesForFileSubtreesParams) error {
 	_, err := q.db.Exec(ctx, revokeSharesForFileSubtrees, arg.UserID, arg.FileIds)
 	return err
@@ -1782,6 +1867,8 @@ type TrashFileParams struct {
 	UserID int64       `json:"user_id"`
 }
 
+// TrashFile moves one active file of the user to the trash, stamping deleted_at and
+// bumping its generation; an already trashed or missing row returns no row.
 func (q *Queries) TrashFile(ctx context.Context, arg TrashFileParams) (*File, error) {
 	row := q.db.QueryRow(ctx, trashFile, arg.FileID, arg.UserID)
 	var i File
@@ -1836,6 +1923,8 @@ type TrashFileSubtreesParams struct {
 	FileIds []pgtype.UUID `json:"file_ids"`
 }
 
+// TrashFileSubtrees trashes the given active files together with their active
+// descendants and returns every changed row with its new deleted_at and generation.
 func (q *Queries) TrashFileSubtrees(ctx context.Context, arg TrashFileSubtreesParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, trashFileSubtrees, arg.UserID, arg.FileIds)
 	if err != nil {
@@ -1898,6 +1987,9 @@ type UpdateFileMetadataParams struct {
 	ExpectedGeneration pgtype.Int8        `json:"expected_generation"`
 }
 
+// UpdateFileMetadata applies an optional rename and mod_time to one active file of the
+// user and bumps its generation; a supplied expected_generation turns it into a
+// compare-and-set that returns no row when it no longer matches.
 func (q *Queries) UpdateFileMetadata(ctx context.Context, arg UpdateFileMetadataParams) (*File, error) {
 	row := q.db.QueryRow(ctx, updateFileMetadata,
 		arg.Name,
@@ -1945,6 +2037,8 @@ type UpdateFilePartSizesParams struct {
 	PartNo     int32       `json:"part_no"`
 }
 
+// UpdateFilePartSizes fills in the plain and stored size of one part, but only while
+// at least one of the two is still NULL, so a known size is never overwritten.
 func (q *Queries) UpdateFilePartSizes(ctx context.Context, arg UpdateFilePartSizesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateFilePartSizes,
 		arg.PlainSize,
@@ -1975,6 +2069,8 @@ type UpdateFilePartSizesManyParams struct {
 	Parts  []byte      `json:"parts"`
 }
 
+// UpdateFilePartSizesMany fills in the sizes of many parts of one file from a JSON
+// array matched by part number, again only where a size is still missing.
 func (q *Queries) UpdateFilePartSizesMany(ctx context.Context, arg UpdateFilePartSizesManyParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateFilePartSizesMany, arg.FileID, arg.Parts)
 	if err != nil {
