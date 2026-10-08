@@ -437,6 +437,17 @@ type fileCursor struct {
 	// ID is the UUID of the last item on the page and is required: the zero UUID
 	// means no usable cursor was supplied.
 	ID uuid.UUID `json:"id"`
+	// Scope is the listing scope the page was produced with, one of "folder",
+	// "drive" or "recursive". A cursor is refused when the request asks for
+	// another scope, so a page cannot be continued under different rules.
+	Scope string `json:"scope,omitempty"`
+	// Fingerprint is a digest of the listing parameters the page was produced
+	// with — scope, folder, search text and type, sort, filters and windows — so
+	// a cursor stops working as soon as any of them changes.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// FolderID is the folder a recursive listing was rooted at, and stays empty
+	// for the folder and drive scopes.
+	FolderID string `json:"folder_id,omitempty"`
 }
 
 // uploadCursor is the decoded form of an upload listing cursor. Both fields come

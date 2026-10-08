@@ -373,6 +373,16 @@ func (s *Service) UpdatePartSizesMany(ctx context.Context, fileID uuid.UUID, siz
 type ListInput struct {
 	// UserID is the owner whose entries are listed and must be positive.
 	UserID int64
+	// Scope selects what the listing covers. "folder" (the default) lists one
+	// folder or the drive root, "drive" lists every active entry the owner has
+	// anywhere in the drive, and "recursive" does the same below
+	// ScopeFolderID. The two wider scopes list active entries only and reject
+	// Status, ParentID and Path.
+	Scope string
+	// ScopeFolderID roots a "recursive" listing at one folder, which must be an
+	// active folder of the owner; nil lists everything below the drive roots.
+	// It is rejected for the "drive" scope and unused by "folder".
+	ScopeFolderID *uuid.UUID
 	// ParentID restricts the listing to one folder; nil means the drive root.
 	// With Status set to trashed it means "every trashed entry whose parent is
 	// not itself trashed", which is how the trash view lists its roots.
@@ -433,6 +443,32 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]*sqlcgen.File, erro
 	if in.ParentID != nil && strings.TrimSpace(in.Path) != "" {
 		return nil, ErrInvalidFilter
 	}
+	if in.Scope == "" {
+		in.Scope = "folder"
+	}
+	if in.Scope != "folder" && in.Scope != "drive" && in.Scope != "recursive" {
+		return nil, ErrInvalidFilter
+	}
+	if in.Scope != "folder" {
+		// The wider scopes list active entries of the whole drive, so a status,
+		// parent or path beside them describes a listing that cannot exist.
+		if in.Status != "" && in.Status != sqlcgen.FileStatusActive || in.ParentID != nil || strings.TrimSpace(in.Path) != "" {
+			return nil, ErrInvalidFilter
+		}
+		if in.Scope == "drive" && in.ScopeFolderID != nil {
+			return nil, ErrInvalidFilter
+		}
+		// A recursive listing may be rooted at one folder, which has to be an
+		// active folder of the owner; anything else is an unresolvable parent.
+		if in.Scope == "recursive" && in.ScopeFolderID != nil {
+			if _, err := s.queries.GetActiveFolderForUser(ctx, sqlcgen.GetActiveFolderForUserParams{FolderID: dbtypes.UUID(*in.ScopeFolderID), UserID: in.UserID}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, ErrInvalidParent
+				}
+				return nil, fmt.Errorf("validate recursive folder: %w", err)
+			}
+		}
+	}
 	if strings.TrimSpace(in.Path) != "" {
 		resolved, err := s.ResolveFolderPath(ctx, in.UserID, nil, in.Path)
 		if err != nil {
@@ -458,7 +494,7 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]*sqlcgen.File, erro
 	if in.Order == "" {
 		in.Order = "asc"
 	}
-	if len(in.Categories) > 0 || in.UpdatedAfter != nil || in.UpdatedBefore != nil || in.SearchType != "text" || in.Sort != "name" || in.Order != "asc" || in.AfterValue != "" {
+	if in.Scope != "folder" || len(in.Categories) > 0 || in.UpdatedAfter != nil || in.UpdatedBefore != nil || in.SearchType != "text" || in.Sort != "name" || in.Order != "asc" || in.AfterValue != "" {
 		return s.listAdvanced(ctx, in)
 	}
 	var kind sqlcgen.NullFileKind
