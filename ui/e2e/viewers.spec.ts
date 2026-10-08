@@ -2,12 +2,19 @@ import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
 
+// The fixed instant the fixture rows are created and modified at.
 const now = "2026-08-01T12:00:00Z";
+// The two-page PDF fixture, whose content route counts requests.
 const pdfId = "71111111-1111-4111-8111-111111111111";
+// The EPUB fixture built from ./fixtures/viewers/epub-src at load time.
 const epubId = "72222222-2222-4222-8222-222222222222";
+// The 120-page PDF fixture used for the lazily filled thumbnail panel.
 const longPdfId = "73333333-3333-4333-8333-333333333333";
+// The committed PDF bytes, served verbatim as the file content.
 const pdf = readFileSync(new URL("./fixtures/viewers/sample.pdf", import.meta.url));
+// The 120-page PDF bytes, used to prove the thumbnail panel fills lazily.
 const longPdf = readFileSync(new URL("./fixtures/viewers/sample-long.pdf", import.meta.url));
+// The generated EPUB bytes, zipped once so every test serves the same file.
 const epub = makeEpub();
 
 // foliate-view is a custom element: the DOM types only know it as an element,
@@ -18,14 +25,18 @@ type FoliateView = HTMLElement & {
   renderer?: Element | null;
 };
 
+// The listing the viewer API serves: both PDFs and the EPUB, sized from their
+// bytes so the interface sees the real fixture lengths.
 const files = [
   file(pdfId, "reader-sample.pdf", "application/pdf", pdf.byteLength),
   file(epubId, "reader-sample.epub", "application/epub+zip", epub.byteLength),
   file(longPdfId, "reader-long.pdf", "application/pdf", longPdf.byteLength),
 ];
 
+/** Counters a test passes in to observe how often a reader fetches content. */
 type ViewerApiStats = { pdfContentRequests: number };
 
+/** Builds one listing entry for a viewer fixture. */
 function file(id: string, name: string, mimeType: string, size: number) {
   return {
     id,
@@ -42,6 +53,10 @@ function file(id: string, name: string, mimeType: string, size: number) {
   };
 }
 
+/**
+ * Waits for two animation frames, the point where the browser has applied the
+ * layout a reader just triggered in its iframes.
+ */
 async function settleBrowserLayout(page: Page) {
   await page.evaluate(
     () =>
@@ -51,6 +66,11 @@ async function settleBrowserLayout(page: Page) {
   );
 }
 
+/**
+ * Zips the unpacked fixture under ./fixtures/viewers/epub-src into the EPUB
+ * served on the wire; the mimetype entry stays uncompressed (level 0) as the
+ * format requires.
+ */
 function makeEpub() {
   const fixture = (path: string) =>
     readFileSync(new URL(`./fixtures/viewers/epub-src/${path}`, import.meta.url));
@@ -66,6 +86,13 @@ function makeEpub() {
   );
 }
 
+/**
+ * Serves the reader fixtures: the profile, the three-item listing, drive
+ * statistics and each file's content route, which answers with the fixture
+ * bytes and the matching content type. Everything else is a 404. The optional
+ * stats object counts requests to the sample PDF, which is how the tests prove
+ * that navigation and zoom do not refetch the document.
+ */
 async function installViewerApi(page: Page, stats?: ViewerApiStats) {
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -116,6 +143,7 @@ async function installViewerApi(page: Page, stats?: ViewerApiStats) {
   });
 }
 
+/** Focuses the row of the named file and opens it with Enter. */
 async function openFile(page: Page, name: string) {
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible();

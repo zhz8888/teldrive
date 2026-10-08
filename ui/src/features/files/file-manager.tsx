@@ -37,21 +37,34 @@ import {
   type SearchState,
 } from "./search-state";
 
+/** Layout of a pane's entry list; the same two values the route accepts. */
 type FileBrowserView = "list" | "grid";
+/** Which of the two panes an action applies to; both are shown in the split view. */
 type PaneId = "primary" | "secondary";
 
+/** Route state of one pane; the secondary pane mirrors the primary one when unsplit. */
 type PaneLocation = {
+  /** Path the pane lists, or the folder a search was scoped to. */
   path: string;
+  /** Id of the folder at `path`; absent at the drive root or before the path is resolved. */
   parentId?: string;
+  /** Text the pane filters its listing by. */
   query: string;
+  /** Layout of this pane; the two panes may use different layouts. */
   view: FileBrowserView;
 };
 
+/** Everything the route encodes about the file manager, split view included. */
 export type FilesLocation = PaneLocation & {
+  /** Whether the second pane is shown at all. */
   split?: boolean;
+  /** Path of the secondary pane; only read while `split` is set. */
   secondaryPath?: string;
+  /** Id of the folder the secondary pane lists. */
   secondaryParentId?: string;
+  /** Search text of the secondary pane. */
   secondaryQuery?: string;
+  /** Layout of the secondary pane; falls back to the primary pane's layout. */
   secondaryView?: FileBrowserView;
 };
 
@@ -1095,6 +1108,10 @@ export function FileManagerPage({
   );
 }
 
+/**
+ * Expands a react-aria selection into entry ids. "all" is the library's select-everything
+ * sentinel rather than a set, so it is resolved against the rows currently listed.
+ */
 function selectionIds(selection: Selection, files: FileEntry[]) {
   return selection === "all" ? files.map((file) => file.id) : Array.from(selection, String);
 }
@@ -1105,10 +1122,16 @@ function normalizeFolderPath(path: string) {
   return trimmed === "" ? "/" : trimmed;
 }
 
+/** Appends a folder name to a path and collapses repeated slashes; root stays "/". */
 function joinPath(parent: string, name: string) {
   return `${parent === "/" ? "" : parent}/${name}`.replace(/\/+/g, "/") || "/";
 }
 
+/**
+ * Whether a key event came from somewhere the user is typing. The shortcut handler skips
+ * those events, so Delete or F2 pressed inside a text field edits the text instead of the
+ * file selection.
+ */
 function isEditableTarget(target: EventTarget | null) {
   return (
     target instanceof HTMLElement &&

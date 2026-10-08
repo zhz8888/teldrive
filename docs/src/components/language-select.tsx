@@ -33,6 +33,11 @@ export function LocaleSwitcher({ pathname }: { pathname: string }) {
   );
 }
 
+/**
+ * Reads the locale from the first segment of a site pathname; an unprefixed
+ * path (every English page) falls back to English. Mirrors localeFromPath in
+ * lib/i18n.ts.
+ */
 function currentLocale(pathname: string): LocaleCode {
   const [, first] = pathname.replace(/^\//, '').split('/');
   return first in locales ? (first as LocaleCode) : 'en';

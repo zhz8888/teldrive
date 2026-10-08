@@ -8,6 +8,7 @@
 import type { AreaMessages } from "../../types";
 import type { routes as enRoutes } from "../en/routes";
 
+/** Wording of the route screens and their dialogs, grouped per screen. */
 export const routes: AreaMessages<typeof enRoutes> = {
   // 应用外壳（`__root.tsx`）：侧边导航、页面标题与账户菜单。
   "routes.root.brand.tagline": "云盘",

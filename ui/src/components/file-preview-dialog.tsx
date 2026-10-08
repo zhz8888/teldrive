@@ -5,6 +5,7 @@ import type { FileEntry } from "@/api/types";
 import { fileContentUrl, startFileDownload } from "@/features/files/download";
 import { previewMedia, supportsCodePreview } from "@/features/files/preview-support";
 import { readerKind } from "@/features/files/reader-support";
+/** The preview surfaces the dialog can choose from for a file. */
 type ViewerKind = "image" | "video" | "audio" | "pdf" | "ebook" | "text";
 import { type MessageKey, useI18n } from "@/lib/i18n";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
@@ -13,16 +14,26 @@ import ZoomOutIcon from "~icons/gravity-ui/magnifier-minus";
 import ZoomInIcon from "~icons/gravity-ui/magnifier-plus";
 import CloseIcon from "~icons/gravity-ui/xmark";
 
+// The three heavy viewers are loaded on demand: the player and the two reader
+// engines would otherwise be part of the bundle every page loads.
+/** Lazily loaded video player. */
 const VideoViewer = lazy(() =>
   import("@/components/viewers/video-viewer").then((module) => ({ default: module.VideoViewer })),
 );
+/** Lazily loaded pdf.js reader. */
 const PdfReader = lazy(() =>
   import("@/components/viewers/pdf-reader").then((module) => ({ default: module.PdfReader })),
 );
+/** Lazily loaded foliate reader for EPUB files. */
 const EpubReader = lazy(() =>
   import("@/components/viewers/epub-reader").then((module) => ({ default: module.EpubReader })),
 );
 
+/**
+ * Full-screen preview of one file. `file` selects the surface through
+ * {@link viewerKind}; without a file, or for a type nothing can render, the
+ * dialog renders nothing at all and the caller's `onOpenChange` is not called.
+ */
 export function FilePreviewDialog({
   file,
   onOpenChange,
@@ -30,6 +41,9 @@ export function FilePreviewDialog({
   file?: FileEntry;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Closing a reader is deferred by two animation frames, and the id of the
+  // pending frame is held here so a second close request cancels the first
+  // instead of reporting the close twice.
   const closeFrame = useRef<number>(undefined);
   const { t } = useI18n();
   const contentUrl = file ? fileContentUrl(file) : "";
@@ -38,6 +52,9 @@ export function FilePreviewDialog({
 
   if (!file || !kind) return null;
 
+  // Closing a reader is deferred by two animation frames: unmounting one
+  // destroys a rendering engine, and doing that inside the dismiss event tears
+  // it down mid-render. An opening close, or a plain viewer, passes through.
   const changeOpen = (open: boolean) => {
     if (open || !isReader) {
       onOpenChange(open);
@@ -173,6 +190,7 @@ export function FilePreviewDialog({
   );
 }
 
+/** Image surface with zoom in 25 % steps (0.25x-5x) and 90° rotation. */
 function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
   const { t } = useI18n();
   const [zoom, setZoom] = useState(1);
@@ -222,6 +240,7 @@ function ImageViewer({ file, url }: { file: FileEntry; url: string }) {
   );
 }
 
+/** Audio surface: the browser's own transport under the file name. */
 function AudioViewer({ file, url }: { file: FileEntry; url: string }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -237,6 +256,10 @@ function AudioViewer({ file, url }: { file: FileEntry; url: string }) {
   );
 }
 
+/**
+ * Fetches the file as text and shows it in a monospaced block, truncated to the
+ * first million characters so a huge log cannot lock up the tab.
+ */
 function TextViewer({ url }: { url: string }) {
   const { t } = useI18n();
   const [text, setText] = useState<string>();
@@ -270,6 +293,7 @@ function TextViewer({ url }: { url: string }) {
     </div>
   );
 }
+/** Centred spinner shown while a viewer or its engine is still loading. */
 function ViewerLoading({ label }: { label: string }) {
   return (
     <div className="grid h-full place-items-center">
@@ -280,6 +304,7 @@ function ViewerLoading({ label }: { label: string }) {
     </div>
   );
 }
+/** Failure surface for a viewer that could not load its content. */
 function ViewerError({ message }: { message: string }) {
   const { t } = useI18n();
   return (
@@ -291,6 +316,11 @@ function ViewerError({ message }: { message: string }) {
     </div>
   );
 }
+/**
+ * Picks the surface for a file: the reader kind wins where the readers apply,
+ * then the media kind, then the code/text preview. Undefined means nothing can
+ * render the file.
+ */
 function viewerKind(file: FileEntry): ViewerKind | undefined {
   const reader = readerKind(file);
   if (reader) return reader;
@@ -308,9 +338,11 @@ const KIND_LABEL_KEYS = {
   text: "components.filePreview.kindText",
 } as const;
 
+/** Maps a viewer kind to its catalog key; the map covers every kind. */
 function formatLabelKey(kind: ViewerKind): MessageKey {
   return KIND_LABEL_KEYS[kind];
 }
+/** Formats a byte count in binary units; a falsy value renders as "0 B". */
 function formatBytes(value: number) {
   if (!value) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -318,6 +350,7 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+/** Whether the preview dialog has a surface for this file. */
 export function isPreviewable(file: FileEntry) {
   return viewerKind(file) !== undefined;
 }

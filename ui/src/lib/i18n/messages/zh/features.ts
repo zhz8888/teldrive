@@ -6,6 +6,7 @@
 import type { AreaMessages } from "../../types";
 import type { features as enFeatures } from "../en/features";
 
+/** Wording of the feature areas: file browser, uploads, shares and viewers. */
 export const features: AreaMessages<typeof enFeatures> = {
   // 文件浏览器外壳（`features/files/file-browser.tsx`）。
   "features.fileBrowser.upOneFolder": "上一级文件夹",

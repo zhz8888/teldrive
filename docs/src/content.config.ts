@@ -1,6 +1,9 @@
 import { glob } from 'astro/loaders';
 import { defineCollection, z } from 'astro:content';
 
+// The page collection: every .md/.mdx file under content/docs, both locales
+// included, since lib/source.ts filters them per locale. Frontmatter carries a
+// required title and an optional description and icon.
 const docs = defineCollection({
   loader: glob({ pattern: '**/*.{md,mdx}', base: './content/docs' }),
   schema: z.object({
@@ -10,6 +13,8 @@ const docs = defineCollection({
   }),
 });
 
+// The folder-metadata collection: the JSON/YAML files that label and order the
+// sidebar folders. Every field is optional.
 const meta = defineCollection({
   loader: glob({ pattern: '**/*.{json,yaml}', base: './content/docs' }),
   schema: z.object({
@@ -20,6 +25,7 @@ const meta = defineCollection({
   }),
 });
 
+/** Collection registry Astro reads; both collections must be listed here. */
 export const collections = {
   docs,
   meta,

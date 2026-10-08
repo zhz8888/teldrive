@@ -12,9 +12,15 @@ import {
   remarkStructure,
 } from 'fumadocs-core/mdx-plugins';
 
+// site and base are injected by the deploy workflow: DOCS_SITE is the canonical
+// URL the pages are built for, DOCS_BASE the sub-path the site is served under
+// (Cloudflare Pages uses a sub-path for previews, so both must stay configurable).
 const site = process.env.DOCS_SITE ?? 'http://localhost:4321';
 const base = process.env.DOCS_BASE ?? '/';
 
+// The Fumadocs remark plugins build the heading anchors, the package-manager tabs
+// and the structured data the search index is generated from; rehypeCode applies
+// the syntax highlighting.
 const remarkPlugins = [
   remarkHeading,
   remarkCodeTab,

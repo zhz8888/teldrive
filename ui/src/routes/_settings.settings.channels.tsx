@@ -12,6 +12,7 @@ import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
 import CheckIcon from "~icons/gravity-ui/check";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 
+/** `/settings/channels` — the Telegram channels that hold encrypted file parts. */
 export const Route = createFileRoute("/_settings/settings/channels")({
   component: ChannelsSettings,
   pendingComponent: () => (
@@ -21,9 +22,15 @@ export const Route = createFileRoute("/_settings/settings/channels")({
   ),
 });
 
+/**
+ * Manages the storage channels: creation, discovery, selecting the active one and
+ * deletion. At most one channel is selected per user and the server owns that choice, so
+ * the listing is re-fetched after every mutation instead of being patched locally.
+ */
 function ChannelsSettings() {
   const { t } = useI18n();
   const [name, setName] = useState("");
+  // Channel the confirmation dialog is asking about; null keeps it closed.
   const [deleteChannel, setDeleteChannel] = useState<{ id: number; name: string } | null>(null);
   const query = $api.useSuspenseQuery(
     "get",
@@ -96,6 +103,8 @@ function ChannelsSettings() {
               onPress={async () => {
                 if (!name.trim()) return;
                 try {
+                  // `selected: false` creates the channel without also switching the
+                  // active storage to it; "Use channel" does that explicitly.
                   await create.mutateAsync({
                     body: { name: name.trim(), selected: false },
                   });
@@ -171,6 +180,8 @@ function ChannelsSettings() {
       <ConfirmDialog
         open={deleteChannel !== null}
         onOpenChange={(open) => {
+          // Dismissal is ignored while the delete is in flight, so the dialog cannot
+          // close before the request that it started has settled.
           if (!open && !remove.isPending) setDeleteChannel(null);
         }}
         title={t("settings.channels.delete.title")}

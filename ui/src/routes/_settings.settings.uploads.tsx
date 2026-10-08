@@ -5,8 +5,13 @@ import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/s
 import { MAX_PART_SIZE_MIB, normalizePartSizeMiB, useUploadStore } from "@/features/uploads/store";
 import { useI18n } from "@/lib/i18n";
 
+/** `/settings/uploads` — browser-local defaults for new upload batches. */
 export const Route = createFileRoute("/_settings/settings/uploads")({ component: UploadSettings });
 
+/**
+ * Edits the upload preferences directly in the persistable upload store, so every change
+ * is saved and picked up by the running queue without a form-level save step.
+ */
 function UploadSettings() {
   const { t } = useI18n();
   const settings = useUploadStore((state) => state.settings);
@@ -79,6 +84,8 @@ function UploadSettings() {
             minValue={1}
             maxValue={12}
             onChange={(value) =>
+              // Re-clamped here as well as by the field's own bounds: the number input can
+              // still emit an out-of-range value when it is typed rather than stepped.
               setSettings({ concurrency: Math.max(1, Math.min(12, value ?? 1)) })
             }
           >
@@ -101,17 +108,25 @@ function UploadSettings() {
   );
 }
 
+/**
+ * Part-size input, edited in MiB and committed on blur rather than per keystroke: each
+ * commit re-normalises the number (16 MiB steps, 16 MiB..`MAX_PART_SIZE_MIB`), and doing
+ * that mid-typing would rewrite the digits under the cursor.
+ */
 function PartSizeField() {
   const { t } = useI18n();
   const preferredPartSize = useUploadStore((state) => state.settings.preferredPartSize);
   const setSettings = useUploadStore((state) => state.setSettings);
   const [value, setValue] = useState(preferredPartSize / 1024 / 1024);
+  // Mirrors the displayed value so `commit` normalises the number last typed, not the one
+  // from the render that produced the blur handler.
   const valueRef = useRef(value);
 
   const commit = () => {
     const normalized = normalizePartSizeMiB(valueRef.current);
     valueRef.current = normalized;
     setValue(normalized);
+    // The store keeps bytes; the field and the normaliser work in MiB.
     setSettings({ preferredPartSize: normalized * 1024 * 1024 });
   };
 
@@ -121,6 +136,8 @@ function PartSizeField() {
       value={value}
       maxValue={MAX_PART_SIZE_MIB}
       onChange={(next) => {
+        // An emptied field counts as the 512 MiB default; nothing reaches the store until
+        // the field is blurred.
         valueRef.current = next ?? 512;
         setValue(valueRef.current);
       }}

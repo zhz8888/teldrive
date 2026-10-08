@@ -9,6 +9,13 @@ import SearchDialog from './search';
 import { LocaleSwitcher } from './language-select';
 import { localizedPath } from '../lib/i18n';
 
+/**
+ * Docs is the documentation shell for one rendered page: it supplies fumadocs'
+ * root context (theme, Astro router bridge, search dialog), the docs layout
+ * with the sidebar tree and GitHub link, and the locale switcher. The `tree`,
+ * `pathname` and `params` all come from the route, so navigation between pages
+ * stays client-side.
+ */
 export function Docs({
   tree,
   children,

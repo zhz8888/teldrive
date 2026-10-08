@@ -1,5 +1,7 @@
 import type { FileEntry } from "@/api/types";
 
+// Extensions rendered with syntax highlighting by the code viewer; "dockerfile" is listed
+// because it is matched as a bare name, without a dot.
 const previewExtensions = new Set([
   "bash",
   "c",
@@ -37,6 +39,8 @@ const previewExtensions = new Set([
   "yml",
 ]);
 
+// Fallback MIME types for files whose stored mimeType is missing or does not start with
+// image/, video/ or audio/, so the extension is what decides the media type.
 const mediaTypes: Record<string, string> = {
   aac: "audio/aac",
   avif: "image/avif",
@@ -63,8 +67,14 @@ const mediaTypes: Record<string, string> = {
   webp: "image/webp",
 };
 
+/** Top-level media family the inline preview should render the file with. */
 export type PreviewMediaKind = "image" | "video" | "audio";
 
+/**
+ * Resolves the media kind and MIME type an inline `<img>`/`<video>`/`<audio>` needs,
+ * preferring the stored mimeType and otherwise deriving the type from the file extension.
+ * Returns undefined for anything that is not image, video or audio.
+ */
 export function previewMedia(
   file: FileEntry,
 ): { kind: PreviewMediaKind; type: string } | undefined {
@@ -78,6 +88,10 @@ export function previewMedia(
   return { kind: type.split("/", 1)[0] as PreviewMediaKind, type };
 }
 
+/**
+ * True when the file should open in the code/text viewer: only active files (never folders
+ * or trashed entries) whose extension or MIME type is recognised as source or markup.
+ */
 export function supportsCodePreview(file: FileEntry) {
   if (file.kind !== "file" || file.status !== "active") return false;
   const lower = file.name.toLowerCase();

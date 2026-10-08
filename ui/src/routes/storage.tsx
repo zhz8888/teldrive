@@ -9,10 +9,17 @@ import { LinkButton } from "@/components/link-button";
 import { Page, PageHeader } from "@/components/page";
 import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
 
+/** One entry of the recent-activity feed, as the storage endpoint returns it. */
 type StorageActivity = components["schemas"]["StorageActivity"];
+/** One day of the storage-growth series, carrying the total logical size at that day. */
 type StorageGrowthPoint = components["schemas"]["StorageGrowthPoint"];
+/** Translator signature for helpers that format outside a component body. */
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/**
+ * File categories to their labels. A category the server reports but this table does not
+ * know falls back to the raw value instead of rendering nothing.
+ */
 const CATEGORY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
   archive: "routes.storage.category.archive",
   audio: "routes.storage.category.audio",
@@ -22,6 +29,7 @@ const CATEGORY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
   other: "routes.storage.category.other",
 };
 
+/** Activity event types to their labels; unknown types are shown verbatim, as above. */
 const ACTIVITY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
   "file.created": "routes.storage.activityType.fileCreated",
   "file.trashed": "routes.storage.activityType.fileTrashed",
@@ -37,6 +45,11 @@ const ACTIVITY_LABEL_KEYS: Record<string, MessageKey | undefined> = {
   "channel.deleted": "routes.storage.activityType.channelDeleted",
 };
 
+/**
+ * `/storage` — one screen of drive statistics. The loader warms the single stats query so
+ * the numbers are already cached by the time the component reads them, and the whole page
+ * shares that one response.
+ */
 export const Route = createFileRoute("/storage")({
   component: StoragePage,
   pendingComponent: () => (
@@ -47,12 +60,18 @@ export const Route = createFileRoute("/storage")({
   loader: () => queryClient.ensureQueryData($api.queryOptions("get", "/v1/storage/stats")),
 });
 
+/**
+ * Renders the stats payload: headline counters, the growth chart, the composition and
+ * channel breakdowns, and the cleanup and activity lists. Every figure is a server-side
+ * aggregate — nothing is computed here beyond the per-row percentages.
+ */
 function StoragePage() {
   const { t } = useI18n();
   const { data } = $api.useSuspenseQuery("get", "/v1/storage/stats");
   const summary = data.summary;
   const configuredChannels = data.channels.length;
   const selectedChannels = data.channels.filter((channel) => channel.selected).length;
+  // Parts across every channel, used as the denominator of each channel's share.
   const totalChannelParts = data.channels.reduce((total, channel) => total + channel.partCount, 0);
 
   return (
@@ -266,6 +285,10 @@ function StoragePage() {
   );
 }
 
+/**
+ * Horizontal bar for a percentage that may be fractional or slightly out of range: the
+ * drawn width is clamped to 0-100% while `aria-valuenow` reports the rounded real value.
+ */
 function ProgressTrack({ value, label }: { value: number; label: string }) {
   const width = `${Math.max(0, Math.min(100, value))}%`;
   return (
@@ -282,6 +305,7 @@ function ProgressTrack({ value, label }: { value: number; label: string }) {
   );
 }
 
+/** Headline tile: a label, the primary figure and one line of context under it. */
 function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <Card className="gap-1 p-4">
@@ -294,6 +318,7 @@ function StatCard({ label, value, detail }: { label: string; value: string; deta
   );
 }
 
+/** Label/value line of the cleanup panel; `strong` marks the total row. */
 function MetricRow({
   label,
   value,
@@ -318,6 +343,7 @@ function MetricRow({
   );
 }
 
+/** One activity-feed line: the event label, its subject, and how long ago it happened. */
 function ActivityRow({ activity }: { activity: StorageActivity }) {
   const { t } = useI18n();
   const labelKey = ACTIVITY_LABEL_KEYS[activity.type];
@@ -334,6 +360,11 @@ function ActivityRow({ activity }: { activity: StorageActivity }) {
   );
 }
 
+/**
+ * Line chart of the growth series, drawn straight into an SVG viewBox rather than through
+ * a chart library. The y-scale is relative to the series' own minimum and maximum, so the
+ * chart shows the shape of the change; a flat series still divides by a range of 1.
+ */
 function StorageGrowthChart({ points }: { points: StorageGrowthPoint[] }) {
   const { t } = useI18n();
   if (points.length === 0) return <EmptyCopy>{t("routes.storage.growth.empty")}</EmptyCopy>;
@@ -345,6 +376,7 @@ function StorageGrowthChart({ points }: { points: StorageGrowthPoint[] }) {
   const max = Math.max(...values);
   const range = Math.max(1, max - min);
   const coordinates = points.map((point, index) => {
+    // `Math.max(1, ...)` guards the divisor when the series holds a single point.
     const x = padding + (index / Math.max(1, points.length - 1)) * (width - padding * 2);
     const y = height - padding - ((point.logicalBytes - min) / range) * (height - padding * 2);
     return [x, y] as const;
@@ -401,10 +433,15 @@ function StorageGrowthChart({ points }: { points: StorageGrowthPoint[] }) {
   );
 }
 
+/** Placeholder line shown in place of a chart, list or breakdown that has no data. */
 function EmptyCopy({ children }: { children: React.ReactNode }) {
   return <div className="px-4 py-8 text-center text-sm text-muted">{children}</div>;
 }
 
+/**
+ * Formats a byte count with binary units. Unlike the settings page's version the decimal
+ * count adapts to the magnitude: none at or above 100, one at or above 10, two below.
+ */
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -413,6 +450,11 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 100 || power === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[power]}`;
 }
 
+/**
+ * Renders an instant as "just now", a bucket of elapsed minutes/hours/days, or a plain
+ * date once it is a week old. A timestamp in the future counts as "just now" rather than
+ * producing a negative age.
+ */
 function formatRelative(value: string, t: Translate) {
   const delta = Math.max(0, Date.now() - new Date(value).getTime());
   const minutes = Math.floor(delta / 60_000);

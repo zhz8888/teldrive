@@ -11,35 +11,46 @@ import type { TOCItemType } from 'fumadocs-core/toc';
 import { findNeighbour } from 'fumadocs-core/page-tree';
 
 interface Props {
+  /** The documentation entry this page renders. */
   page: CollectionEntry<'docs'>;
+  /** Locale the page is served in, which selects the tree and translations. */
   locale: LocaleCode;
 }
 
 const { page, locale } = Astro.props;
 
+// The locale's own page tree, so navigation stays inside one language.
 const { source, tree } = await getLocaleSource(locale);
+// The compiled MDX body and the headings that become the table of contents.
 const { Content, headings } = await render(page);
 const mdxComponents = getMdxComponents(locale);
 
+// Slug segments of the request, which identify the page inside the tree.
 const slugs = typeof Astro.params.slug === 'string' ? Astro.params.slug.split('/') : [];
 const docsPage = source.getPage(slugs)!;
+// Social preview image for this page, resolved per locale.
 const image = getPageImageUrl(docsPage, locale).url;
 
+// Adjacent pages in tree order; the footer links to them.
 const neighbours = findNeighbour(tree, docsPage.url);
+// withLocale rewrites a neighbour's URL so it points at the current locale.
 const withLocale = <T extends { url: string } | undefined>(item: T): T => {
   if (item === undefined) return item;
   return { ...item, url: localizedURL(locale, item.url) } as T;
 };
 
+// Source path inside the repository, needed for the "edit this page" link.
 const sourceFile = slugs.length > 0 ? `${slugs.join('/')}.mdx` : 'index.mdx';
 const editUrl = `https://github.com/zhz8888/teldrive/edit/v2/docs/content/docs/${locale}/${sourceFile}`;
 
+// The heading list the layout renders next to the article.
 const toc: TOCItemType[] = headings.map((heading) => ({
   depth: heading.depth,
   title: heading.text,
   url: '#' + heading.slug,
 }));
 
+// Drives the document language and the wording of the edit link.
 const isChinese = locale === 'zh';
 ---
 

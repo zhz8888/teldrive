@@ -9,6 +9,7 @@ import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import LogoutIcon from "~icons/gravity-ui/arrow-right-from-square";
 
+/** `/settings` — the account overview: identity, role, and drive-wide counters. */
 export const Route = createFileRoute("/_settings/settings/")({
   component: AccountSettings,
   pendingComponent: () => (
@@ -18,6 +19,10 @@ export const Route = createFileRoute("/_settings/settings/")({
   ),
 });
 
+/**
+ * Formats a byte count with binary units. A non-finite or non-positive input reads as
+ * "0 B" rather than "NaN B", and the unit is capped at PB so the exponent stays in range.
+ */
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -25,6 +30,11 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** power).toFixed(power === 0 ? 0 : 1)} ${units[power]}`;
 }
 
+/**
+ * Renders the signed-in user's profile and drive totals. The statistics are suspenseful,
+ * so the route's `pendingComponent` covers the first load, and the 30-second stale time
+ * keeps a revisit inside that window from showing the spinner again.
+ */
 function AccountSettings() {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -37,6 +47,8 @@ function AccountSettings() {
   );
   const logout = $api.useMutation("post", "/v1/auth/cookie/logout");
 
+  // Like the sidebar's sign-out: the cache survives the session, so it is emptied before
+  // the login screen can render it for the next user.
   const logOut = async () => {
     try {
       await logout.mutateAsync({});

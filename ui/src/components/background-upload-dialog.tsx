@@ -19,21 +19,34 @@ import { type MessageKey, type MessageParams, useI18n } from "@/lib/i18n";
 import { newClientId } from "@/features/shared/client-id";
 import { AppDialog } from "./dialogs/app-dialog";
 
+/** One entry of the import request's `sources` array. */
 type ImportSource = components["schemas"]["UploadImportSource"];
+/** Request body of `POST /v1/uploads/imports`. */
 type ImportRequest = components["schemas"]["UploadImportRequest"];
 
 /** Translator shape, so the module-level header parser can receive one. */
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/**
+ * Editable import source. `type` decides which field is sent (`path` for local,
+ * `url` for http); `exclude` and `headers` stay text until the request is built.
+ */
 type SourceDraft = {
+  /** Row identity for patching and removing it; never sent to the API. */
   id: string;
+  /** Source kind; switching it clears `location`, which is validated per kind. */
   type: "local" | "http";
+  /** Absolute server path or remote URL, depending on `type`. */
   location: string;
+  /** Optional sub-path created inside the destination folder. */
   destinationPath: string;
+  /** Exclude globs, one per line. */
   exclude: string;
+  /** HTTP headers, one `Name: value` per line; ignored for local sources. */
   headers: string;
 };
 
+/** A blank local source row with a fresh id. */
 const newSource = (): SourceDraft => ({
   id: newClientId(),
   type: "local",
@@ -43,6 +56,12 @@ const newSource = (): SourceDraft => ({
   headers: "",
 });
 
+/**
+ * Dialog that queues a batch import of local paths or remote URLs. `currentPath`
+ * seeds the destination each time the dialog opens, and the form keeps whatever
+ * was entered while the request is in flight: closing is blocked until it
+ * settles, so a queued batch cannot be lost by a stray backdrop press.
+ */
 export function BackgroundUploadDialog({
   open,
   onOpenChange,
@@ -59,11 +78,17 @@ export function BackgroundUploadDialog({
   const [headers, setHeaders] = useState("");
   const [minSize, setMinSize] = useState("");
   const [maxSize, setMaxSize] = useState("");
+  // Part size in MiB, sent as bytes: the 64-2000 range is what the backend
+  // accepts, and 512 MiB is its default.
   const [chunkSizeMiB, setChunkSizeMiB] = useState(512);
+  // Parallel parts per file; the backend rejects a request above 16 and
+  // defaults to 4.
   const [partConcurrency, setPartConcurrency] = useState(4);
   const [encryption, setEncryption] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Re-seed on every open: the dialog stays mounted while the browsed folder
+  // keeps changing underneath it.
   useEffect(() => {
     if (open) setDestination(currentPath);
   }, [currentPath, open]);
@@ -403,6 +428,10 @@ export function BackgroundUploadDialog({
   );
 }
 
+/**
+ * Splits a textarea value into trimmed, non-empty lines. Returns undefined when
+ * nothing is left, which is how the request omits the optional list fields.
+ */
 function lines(value: string) {
   const result = value
     .split(/\r?\n/)
@@ -411,6 +440,11 @@ function lines(value: string) {
   return result.length ? result : undefined;
 }
 
+/**
+ * Parses `Name: value` lines into a header map. A line without a colon, or with
+ * an empty name or value, throws a translated error the caller shows in the
+ * failure toast. Returns undefined when there is no header to send.
+ */
 function parseHeaders(value: string, t: Translate) {
   const result: Record<string, string> = {};
   for (const line of lines(value) ?? []) {
@@ -425,6 +459,7 @@ function parseHeaders(value: string, t: Translate) {
   return Object.keys(result).length ? result : undefined;
 }
 
+/** Whether the destination text is shaped like a folder UUID rather than a path. */
 function isUUID(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

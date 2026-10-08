@@ -18,19 +18,32 @@ import { queryClient } from "@/api/query-client";
 import { invalidateTaskQueries } from "@/api/tasks";
 import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
 
+/** One job as the jobs endpoint returns it. */
 type TaskOut = components["schemas"]["Job"];
+/** Per-status job counters, used for the tab badges and the cleanup confirmation. */
 type TaskCounts = components["schemas"]["JobStatistics"];
+/** One River queue with its pause state and pending/running counts. */
 type TaskQueueOut = components["schemas"]["JobQueue"];
+/** Validated `/tasks` URL state: which status is listed and the client-side text filter. */
 type TaskSearch = {
+  /** Status whose jobs are listed; the server filters on it. */
   status: string;
+  /** Free-text filter applied to the rows already loaded, not sent to the server. */
   query: string;
 };
 
+/** Translator signature for helpers that format outside a component body. */
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/** Jobs per page. The loader's prefetch has to ask for the same limit to hit its cache entry. */
 const PAGE_SIZE = 20;
+/**
+ * Statuses that are still owned by the worker, where the row's destructive action means
+ * "cancel" rather than "delete". Anything else is finished and can be removed outright.
+ */
 const CANCELLABLE_STATUSES = ["pending", "scheduled", "available", "running", "retryable"];
 
+/** Status filter options in display order; doubles as the allow-list in `validateSearch`. */
 const STATUS_TABS = [
   { key: "pending", labelKey: "routes.tasks.status.pending" },
   { key: "scheduled", labelKey: "routes.tasks.status.scheduled" },
@@ -42,8 +55,16 @@ const STATUS_TABS = [
   { key: "completed", labelKey: "routes.tasks.status.completed" },
 ] as const satisfies readonly { key: string; labelKey: MessageKey }[];
 
+/**
+ * `/tasks` — the job console. The status lives in the URL, so a filtered view can be
+ * linked and reloaded; the text filter does not, because it only narrows the rows already
+ * fetched. The loader warms the running page plus the counters and queue list, and the
+ * middleware drops parameters that equal their defaults to keep the URL short.
+ */
 export const Route = createFileRoute("/tasks")({
   validateSearch: (search: Record<string, unknown>): TaskSearch => ({
+    // An unknown status falls back to "running" rather than listing everything: the
+    // endpoint requires a status, and the default tab is the one that shows live work.
     status:
       typeof search.status === "string" &&
       [
@@ -62,6 +83,8 @@ export const Route = createFileRoute("/tasks")({
   }),
   search: {
     middlewares: [
+      // Removes `status=running` and `query=` from the URL once they hold the defaults,
+      // so the canonical `/tasks` link never carries redundant parameters.
       stripSearchParams({
         status: "running" as components["schemas"]["JobState"],
         query: "",
@@ -76,6 +99,8 @@ export const Route = createFileRoute("/tasks")({
   ),
   loader: async () => {
     const qc = queryClient;
+    // Prefetches exactly the three queries the page renders on entry — the default status
+    // tab's first page, the counters and the queues — so the first paint has no spinners.
     await Promise.all([
       qc.ensureQueryData(
         api.queryOptions("get", "/v1/jobs", {
@@ -90,11 +115,19 @@ export const Route = createFileRoute("/tasks")({
   },
 });
 
+/**
+ * Job console: a status-filtered, cursor-paginated list of jobs with per-row retry,
+ * cancel/delete and a queue pause/resume panel. The list and the counters are polled, so
+ * the page shows work progressing without a manual refresh.
+ */
 function TasksPage() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const { t } = useI18n();
   const qc = queryClient;
+  // Keyset pagination state: the cursor of the page on screen, and the stack of cursors
+  // that preceded it, which is what makes going back possible at all (the API has no
+  // offset paging). Both are reset whenever the status changes.
   const [cursor, setCursor] = useState<string | undefined>();
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([]);
   const { data } = api.useSuspenseQuery("get", "/v1/jobs", {
@@ -111,9 +144,12 @@ function TasksPage() {
   const _queuesQuery = api.queryOptions("get", "/v1/jobs/queues");
   const { data: queuesData } = api.useSuspenseQuery("get", "/v1/jobs/queues");
 
+  // Whether the job composer dialog is open.
   const [composerOpen, setComposerOpen] = useState(false);
+  // Rows with an in-flight action; only the matching row shows a pending button.
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Status whose finished jobs the confirmation dialog offers to purge; null closes it.
   const [cleanupStatus, setCleanupStatus] = useState<
     "completed" | "retryable" | "discarded" | null
   >(null);
@@ -123,6 +159,7 @@ function TasksPage() {
   const meta = data.meta;
   const taskStats = statesData;
   const taskQueues = queuesData.queues ?? [];
+  // Drives both the live indicator and the polling rate below.
   const hasActiveTasks =
     (taskStats?.scheduled ?? 0) +
       (taskStats?.available ?? 0) +
@@ -130,6 +167,10 @@ function TasksPage() {
       (taskStats?.retryable ?? 0) >
     0;
 
+  // Polling of the three queries on screen. It runs every 2 seconds while work is
+  // outstanding and backs off to 10 seconds once nothing is queued or running, so an idle
+  // console is not a busy one. The effect re-registers when the cursor or status changes,
+  // which retargets the listing invalidation at the page actually being viewed.
   useEffect(() => {
     const interval = window.setInterval(
       () => {
@@ -156,6 +197,8 @@ function TasksPage() {
     return () => window.clearInterval(interval);
   }, [cursor, hasActiveTasks, qc, search.status]);
 
+  // The text filter is applied to the loaded page only: the endpoint has no free-text
+  // parameter, so it narrows what is on screen rather than asking for other matches.
   const normalizedQuery = search.query.trim().toLowerCase();
   const filteredTasks = tasks.filter((task) => {
     const statusMatches = task.status === search.status;
@@ -173,6 +216,11 @@ function TasksPage() {
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     return statusMatches && textMatches;
   });
+  /**
+   * Writes a new filter into the URL. Switching status waits for that status' first page
+   * first, so the table is not replaced by the route's pending component while the new
+   * listing loads; the cursor is reset either way, since it belongs to the old listing.
+   */
   const setSearch = async (next: Partial<TaskSearch>) => {
     const nextSearch = { ...search, ...next };
 
@@ -194,12 +242,14 @@ function TasksPage() {
     await navigate({ search: nextSearch, replace: true });
   };
 
+  /** Pushes the current cursor onto the stack and moves to the next page. */
   const goNext = () => {
     if (!meta?.nextCursor) return;
     setCursorHistory((history) => [...history, cursor]);
     setCursor(meta.nextCursor);
   };
 
+  /** Pops the stack; its depth is also the page number shown between the two buttons. */
   const goPrevious = () => {
     setCursorHistory((history) => {
       const previous = history.at(-1);
@@ -208,10 +258,12 @@ function TasksPage() {
     });
   };
 
+  /** Invalidates the listing, counters and queues after any change to the jobs. */
   const refreshTasks = () => {
     void invalidateTaskQueries(qc);
   };
 
+  /** Requeues one job. The row stays pending until the request settles, not until it runs. */
   const retryTask = async (task: TaskOut) => {
     setRetryingId(task.id);
     try {
@@ -228,6 +280,10 @@ function TasksPage() {
     refreshTasks();
   };
 
+  /**
+   * The row's destructive action: a job still owned by a worker is cancelled, so the
+   * worker can stop it; a finished one is deleted. The same test picks the toast copy.
+   */
   const deleteTask = async (task: TaskOut) => {
     setDeletingId(task.id);
     try {
@@ -262,6 +318,7 @@ function TasksPage() {
     refreshTasks();
   };
 
+  /** Purges every job in one finished status; the pagination restarts on the new listing. */
   const cleanTasks = async () => {
     if (!cleanupStatus) return;
     setCleaning(true);
@@ -326,6 +383,8 @@ function TasksPage() {
             />
             <QueueManager queues={taskQueues} onChanged={refreshTasks} />
             <div className="w-[4.75rem] shrink-0">
+              {/* The purge button only exists for a status whose jobs are finished, and it
+                  is an inline IIFE so that narrowing stays local to the JSX. */}
               {(() => {
                 const purgeStatus = ["completed", "retryable", "discarded"].includes(search.status)
                   ? (search.status as "completed" | "retryable" | "discarded")
@@ -422,6 +481,11 @@ function TasksPage() {
   );
 }
 
+/**
+ * One job line: identity, queue, duration and age, plus the retry and cancel/delete
+ * actions. The pending flags come from the page so that only the row being acted on
+ * shows a spinner.
+ */
 function TaskRow({
   task,
   onRetry,
@@ -437,6 +501,8 @@ function TaskRow({
 }) {
   const { t } = useI18n();
   const title = `${task.type} #${task.id}`;
+  // Only runs that did not finish successfully offer a retry: cancelled, discarded and
+  // retryable.
   const canRetry = ["cancelled", "discarded", "retryable"].includes(task.status);
 
   return (
@@ -532,6 +598,10 @@ function TaskRow({
   );
 }
 
+/**
+ * Status filter as a select whose trigger shows the count for the chosen status. An
+ * unrecognised value falls back to the first tab, matching `validateSearch`.
+ */
 function TaskStatusSelect({
   value,
   counts,
@@ -578,8 +648,13 @@ function TaskStatusSelect({
   );
 }
 
+/**
+ * Queue pause/resume popover. Pausing a queue stops new work from being picked up while
+ * jobs already running finish; the caller refreshes the listing afterwards.
+ */
 function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged: () => void }) {
   const { t } = useI18n();
+  // Name of the queue whose toggle is in flight, so only that row shows a pending button.
   const [pendingQueue, setPendingQueue] = useState<string | null>(null);
 
   const toggleQueue = async (queue: TaskQueueOut) => {
@@ -668,9 +743,14 @@ function QueueManager({ queues, onChanged }: { queues: TaskQueueOut[]; onChanged
   );
 }
 
+/** Full local date-time, used as the `title` of the relative timestamp. */
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
+/**
+ * Age of an instant as "just now", minutes, hours or days, falling back to a plain date
+ * after a week. A future timestamp reads as "just now" instead of a negative age.
+ */
 function formatRelativeDate(value: string, t: Translate) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
   if (seconds < 60) return t("routes.tasks.relative.justNow");
@@ -684,6 +764,11 @@ function formatRelativeDate(value: string, t: Translate) {
     : new Date(value).toLocaleDateString();
 }
 
+/**
+ * How long the job has been going, or took. Start is the first attempt's timestamp when
+ * there is one and the creation time otherwise; end is the completion time, or now for a
+ * job that has not finished, so the figure grows as the polls re-render the row.
+ */
 function taskDuration(task: TaskOut) {
   const start = task.startedAt
     ? new Date(task.startedAt).getTime()

@@ -2,6 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { $api } from "@/api/client";
 import type { FileEntry, NameConflictPolicy } from "@/api/types";
 
+/**
+ * File-tree mutations for the browser and the trash page. Every action invalidates the
+ * affected queries before it resolves, so a caller that awaits one does not have to refresh
+ * the tree itself. `pending` and `error` are derived from the mutation objects below and
+ * therefore cover exactly these actions.
+ */
 export function useFileActions() {
   const queryClient = useQueryClient();
   const createFolderMutation = $api.useMutation("post", "/v1/folders");
@@ -16,6 +22,11 @@ export function useFileActions() {
   const bulkMoveMutation = $api.useMutation("post", "/v1/files/bulk/move");
   const bulkTrashMutation = $api.useMutation("post", "/v1/files/bulk/trash");
 
+  /**
+   * Drops every cached query a file mutation can invalidate: the listings, the single-file
+   * query and the drive statistics the sidebar shows. Awaited so the refresh has been
+   * scheduled before the action resolves.
+   */
   async function invalidateFiles() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["get", "/v1/files"] }),
@@ -24,6 +35,7 @@ export function useFileActions() {
     ]);
   }
 
+  /** Creates a folder under `parentId` (drive root when omitted); an existing name fails. */
   async function createFolder(name: string, parentId?: string) {
     const result = await createFolderMutation.mutateAsync({
       body: { parentId, name, conflictPolicy: "fail" },
@@ -32,6 +44,10 @@ export function useFileActions() {
     return result;
   }
 
+  /**
+   * Renames a file or folder. The `If-Match` header carries the generation the row was
+   * rendered from, so a concurrent change fails the request instead of being overwritten.
+   */
   async function rename(file: FileEntry, name: string) {
     const result = await renameMutation.mutateAsync({
       params: {
@@ -44,6 +60,11 @@ export function useFileActions() {
     return result;
   }
 
+  /**
+   * Moves one entry into `parentId` (drive root when omitted), guarded by the same
+   * generation precondition as {@link rename}. `conflictPolicy` decides what a name clash
+   * in the destination does; the default fails the request.
+   */
   async function move(
     file: FileEntry,
     parentId?: string,
@@ -62,6 +83,11 @@ export function useFileActions() {
     return result;
   }
 
+  /**
+   * Copies one entry, optionally under a new name ("name copy" is what the duplicate
+   * action passes). Unlike move there is no precondition: a copy overwrites nothing
+   * unless `conflictPolicy` says to.
+   */
   async function copy(
     file: FileEntry,
     parentId?: string,
@@ -78,6 +104,11 @@ export function useFileActions() {
     return result;
   }
 
+  /**
+   * Copies several entries into one destination. The copies run as one request per file in
+   * parallel, so a failure part-way leaves the already-copied entries in place and rejects
+   * with the first error.
+   */
   async function copyMany(
     files: FileEntry[],
     parentId?: string,
@@ -97,12 +128,14 @@ export function useFileActions() {
     return results;
   }
 
+  /** Moves one entry to the trash; addressed by id, so no generation is required. */
   async function trash(fileId: string) {
     const result = await trashMutation.mutateAsync({ params: { path: { fileId } } });
     await invalidateFiles();
     return result;
   }
 
+  /** Restores one trashed entry and its trashed descendants; the parent must be active. */
   async function restore(fileId: string) {
     const result = await restoreMutation.mutateAsync({
       params: {
@@ -113,18 +146,28 @@ export function useFileActions() {
     return result;
   }
 
+  /** Permanently deletes one trashed entry from the catalog; this cannot be undone. */
   async function purge(fileId: string) {
     const result = await purgeMutation.mutateAsync({ params: { path: { fileId } } });
     await invalidateFiles();
     return result;
   }
 
+  /**
+   * Moves the caller's whole trash to deletion pending in one request. The entries leave
+   * the trash listing as soon as it refetches; the actual purge happens server-side.
+   */
   async function cleanTrash() {
     const result = await cleanTrashMutation.mutateAsync({});
     await invalidateFiles();
     return result;
   }
 
+  /**
+   * Moves many entries into one destination in a single transactional request, which
+   * (unlike {@link copyMany}) is all-or-nothing. No generation precondition is sent, so a
+   * concurrent edit of one of the entries does not fail the move.
+   */
   async function bulkMove(
     fileIds: string[],
     parentId?: string,
@@ -137,6 +180,7 @@ export function useFileActions() {
     return result;
   }
 
+  /** Moves many entries to the trash in one transactional request. */
   async function bulkTrash(fileIds: string[]) {
     const result = await bulkTrashMutation.mutateAsync({
       body: { fileIds },
@@ -145,6 +189,10 @@ export function useFileActions() {
     return result;
   }
 
+  /**
+   * Restores many entries by fanning out one request per id, because the API has no bulk
+   * restore; a failure part-way leaves the already-restored entries restored.
+   */
   async function bulkRestore(fileIds: string[]) {
     await Promise.all(
       fileIds.map((fileId) =>
@@ -158,6 +206,8 @@ export function useFileActions() {
     await invalidateFiles();
   }
 
+  // The mutation objects `pending` and `error` aggregate. `bulkRestore` is absent because
+  // it reuses `restoreMutation`, which is already listed.
   const mutations = [
     createFolderMutation,
     renameMutation,
@@ -192,4 +242,5 @@ export function useFileActions() {
   };
 }
 
+/** The action callbacks plus the aggregate `pending`/`error` state, as returned above. */
 export type ReturnTypeUseFileActions = ReturnType<typeof useFileActions>;

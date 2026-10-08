@@ -108,6 +108,7 @@ export function translate(locale: Locale, key: MessageKey, params?: MessageParam
   return interpolate(params?.count === 1 ? entry.one : entry.other, params);
 }
 
+/** What `useI18n` hands to a component: the locale being rendered, the switcher and the lookup. */
 type I18nValue = {
   /** Locale currently rendered. */
   locale: Locale;
@@ -144,6 +145,10 @@ export function t(key: MessageKey, params?: MessageParams): string {
   return translate(activeLocale, key, params);
 }
 
+/**
+ * Null outside a provider, which is what lets `useI18n` fail loudly instead of
+ * rendering raw message keys.
+ */
 const I18nContext = createContext<I18nValue | null>(null);
 
 /**

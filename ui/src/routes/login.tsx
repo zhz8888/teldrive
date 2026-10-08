@@ -12,19 +12,42 @@ import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import { currentUserQueryOptions } from "@/auth/queries";
 
+/** Stage of the phone flow: ask for the number, for the Telegram code, or for the 2FA password. */
 type Step = "phone" | "code" | "password";
+/**
+ * Server-side login flow, in whichever shape the current step returns. The start and QR
+ * calls answer with the flow fields; the verify calls answer with a `CookieSession`
+ * instead, which is what `isSession` tells apart.
+ */
 type Flow = {
+  /** Id the subsequent verify/poll calls must quote; a flow expires on its own. */
   flowId: string;
+  /** When the flow dies and its id becomes unusable. */
   expiresAt: string;
+  /** Set by the start call when the account has two-step verification enabled. */
   passwordRequired?: boolean;
+  /** QR poll result: `password_required` means the scan needs the 2FA password too. */
   state?: string;
+  /** QR payload to render; absent while the poll returns no new code. */
   qrUrl?: string;
+  /** When the shown QR code stops being scannable, which is sooner than the flow itself. */
   qrExpiresAt?: string;
 };
+/**
+ * Answer of a verify/poll call that established a session; it replaces the `Flow` shape.
+ * `authenticated` is always true — the call returns this shape only once the session cookie
+ * has been set — and `expiresAt` is when that cookie stops being accepted.
+ */
 type CookieSession = { authenticated: true; expiresAt: string };
 
+/**
+ * `/login` — phone or QR sign-in. `redirect` is validated to a same-origin path so a
+ * crafted link cannot bounce the user to another host after a successful sign-in.
+ */
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
+    // Absolute and protocol-relative targets are dropped rather than followed, so the
+    // parameter cannot be used as an open redirect; the drive is the fallback.
     redirect:
       typeof search.redirect === "string" && search.redirect.startsWith("/")
         ? search.redirect
@@ -33,10 +56,16 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+/** Narrows a verify or poll response to the session shape, i.e. "this call signed the user in". */
 function isSession(value: unknown): value is CookieSession {
   return Boolean(value && typeof value === "object" && "authenticated" in value);
 }
 
+/**
+ * Drives both sign-in methods against the same three-stage phone flow. Nothing here is a
+ * form library: each stage owns one input, the mutations are called directly, and a
+ * successful verification lands on the `redirect` parameter.
+ */
 function LoginPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -49,6 +78,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [qrUrl, setQrUrl] = useState("");
   const [qrExpiry, setQrExpiry] = useState("");
+  // Ticks once a second while a QR code is on screen; only used to derive the countdown.
   const [clock, setClock] = useState(() => Date.now());
 
   const startPhone = $api.useMutation("post", "/v1/auth/telegram/start");
@@ -56,8 +86,14 @@ function LoginPage() {
   const verifyPassword = $api.useMutation("post", "/v1/auth/cookie/telegram/verify-password");
   const startQr = $api.useMutation("post", "/v1/auth/telegram/qr/start");
   const pollQr = $api.useMutation("post", "/v1/auth/cookie/telegram/qr/poll");
+  // Only the submit-driven mutations: the QR poll runs on its own interval and must not
+  // disable the phone form's button.
   const pending = startPhone.isPending || verifyCode.isPending || verifyPassword.isPending;
 
+  /**
+   * Refreshes the cached current user before navigating on, so the root route's guard
+   * sees a signed-in session instead of bouncing the freshly authenticated user back here.
+   */
   const finish = async () => {
     const query = currentUserQueryOptions();
     const qc = getQueryClient();
@@ -67,6 +103,12 @@ function LoginPage() {
     await navigate({ to: redirect, replace: true });
   };
 
+  /**
+   * Advances the phone flow by one stage: the start call decides whether a code or the
+   * 2FA password comes next, and a verify call that returns a session finishes the login.
+   * An account with two-step verification reaches the password stage either from the start
+   * call's flag or from a code that was accepted but not enough on its own.
+   */
   const submitPhone = async () => {
     try {
       if (step === "phone") {
@@ -107,6 +149,8 @@ function LoginPage() {
         setFlowId(flow.flowId);
         setQrUrl(flow.qrUrl ?? "");
         setQrExpiry(flow.qrExpiresAt ?? flow.expiresAt);
+        // Polls every 2.5 seconds until the flow resolves; the guard inside the callback
+        // skips a tick whose previous round trip has not returned yet.
         timer = window.setInterval(async () => {
           // A Telegram round trip regularly outlives the interval, so skip the
           // tick instead of stacking overlapping polls: every poll exports a new
@@ -166,6 +210,7 @@ function LoginPage() {
     return () => window.clearInterval(tick);
   }, [qrExpiry]);
 
+  // Seconds until the shown QR code stops working; null while no code has been received.
   const qrSecondsLeft = qrExpiry
     ? Math.max(0, Math.ceil((new Date(qrExpiry).getTime() - clock) / 1000))
     : null;

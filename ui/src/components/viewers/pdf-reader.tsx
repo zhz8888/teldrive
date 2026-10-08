@@ -60,37 +60,65 @@ import PencilIcon from "~icons/gravity-ui/pencil";
 import TextIcon from "~icons/gravity-ui/text";
 import CloseIcon from "~icons/gravity-ui/xmark";
 
+// pdf.js loads its worker from a URL rather than importing it into the bundle,
+// so the `?url` import is what makes the bundler emit it as a separate asset.
 GlobalWorkerOptions.workerSrc = workerSrc;
 
+/** Props of {@link PdfReader}; the parent mounts it only while it is shown. */
 type PdfReaderProps = {
+  /** Entry shown in the toolbar and sidebar header. */
   file: FileEntry;
+  /** Authenticated content URL the document is fetched from. */
   url: string;
+  /** Called to close the reader, from the toolbar and from Escape. */
   onClose: () => void;
 };
 
+/** Which of the two sidebar panels is showing. */
 type SidebarTab = "thumbnails" | "outline";
+/** Annotation tool the toolbar has selected; `select` keeps the text layer live. */
 type AnnotationTool = "select" | "highlight" | "text" | "ink";
+/** One outline row as pdf.js reports it, nested through `items`. */
 type OutlineItem = {
+  /** Section title; empty for the sections that have none. */
   title: string;
+  /** Named or explicit destination inside the document. */
   dest: string | unknown[] | null;
+  /** External address, when the section points outside the document. */
   url?: string | null;
+  /** Nested subsections. */
   items?: OutlineItem[];
 };
 
+/**
+ * The pdf.js objects that must stay alive together for one loaded document.
+ * They are created once per file and reached through a ref, because the toolbar
+ * acts on them directly instead of through React state.
+ */
 type PdfRuntime = {
+  /** Carries the viewer's events, including the find and annotation dispatches. */
   eventBus: EventBus;
+  /** Resolves outline destinations and internal links to pages. */
   linkService: PDFLinkService;
+  /** Runs the find controller behind the search bar. */
   findController: PDFFindController;
+  /** The viewer that renders pages into the container. */
   viewer: PDFViewer;
+  /** The loaded document itself, needed for page counts and saving. */
   document: PDFDocumentProxy;
 };
 
+/** Search progress shown next to the query: match number and match count. */
 type FindCount = { current: number; total: number };
+/** Password prompt state while pdf.js waits for a protected document's password. */
 type PasswordChallenge = {
+  /** True when pdf.js rejected the previous attempt. */
   incorrect: boolean;
+  /** Hands the entered password back to the pending loading task. */
   submit: (password: string) => void;
 };
 
+/** Annotation colours offered by the colour picker, in display order. */
 const HIGHLIGHT_COLORS = ["#facc15", "#4ade80", "#60a5fa", "#f472b6"] as const;
 
 /** Zoom presets offered by the zoom menu, in display order. */
@@ -99,12 +127,27 @@ const SCALE_PRESETS: ReadonlyArray<{ labelKey: MessageKey; value: string }> = [
   { labelKey: "components.pdfReader.fitPage", value: "page-fit" },
   { labelKey: "components.pdfReader.actualSize", value: "page-actual" },
 ];
+// Same palette as HIGHLIGHT_COLORS, in the `name=#hex` form pdf.js expects for
+// `annotationEditorHighlightColors`.
 const PDFJS_HIGHLIGHT_COLORS = "yellow=#facc15,green=#4ade80,blue=#60a5fa,pink=#f472b6";
 
+/**
+ * Full-screen PDF reader: pdf.js viewer, sidebar with page thumbnails and the
+ * outline, find bar, annotation tools, zoom and rotation, and saving a copy
+ * with the annotations baked in.
+ *
+ * The pdf.js viewer is imperative, so one effect builds it for the current
+ * `url`, publishes it through `runtimeRef` for the toolbar, and tears it down
+ * again on unmount: the loading task is destroyed and the viewer cleaned up so
+ * the document and its worker resources do not outlive the reader.
+ */
 export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
+  // The pdf.js objects of the loaded document; null until one is ready.
   const runtimeRef = useRef<PdfRuntime | null>(null);
+  // Kept current so the key handler can close the reader without re-registering
+  // every time the parent renders.
   const closeRef = useRef(onClose);
   const drawerState = useOverlayState();
   // The sidebar is an aside on a wide viewport and a drawer on a narrow one. Only
@@ -114,6 +157,9 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const { t } = useI18n();
 
+  // Starting view state. The loader re-applies it to the viewer once
+  // `pagesinit` fires, because pdf.js starts every new document on its own
+  // defaults rather than on the state the previous one left behind.
   const initialPage = 1;
   const initialScaleValue = "page-width";
   const initialRotation = 0;
@@ -124,12 +170,21 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   const [outline, setOutline] = useState<OutlineItem[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string>();
+  // Download percentage while the document loads; undefined until pdf.js
+  // reports a total size it can measure against.
   const [loadingProgress, setLoadingProgress] = useState<number>();
   const [pageNumber, setPageNumber] = useState(initialPage);
+  // Text of the page box. It is committed on blur or Enter only, so typing a
+  // number does not jump the document on the first digit.
   const [pageDraft, setPageDraft] = useState(String(initialPage));
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1);
+  // Named zoom preset ("page-width", "page-fit", "page-actual") or "custom"
+  // once the viewer reports a numeric scale; `scale` is what is shown as a
+  // percentage.
   const [scaleValue, setScaleValue] = useState(initialScaleValue);
+  // Rotation is owned by the viewer: only the setter is used, to mirror its
+  // `rotationchanging` event, and the stored value is never read.
   const [_rotation, setRotation] = useState(initialRotation);
   const [sidebarOpen, setSidebarOpen] = useState(initialSidebarOpen);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(initialSidebarTab);
@@ -138,18 +193,29 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [findCount, setFindCount] = useState<FindCount>({ current: 0, total: 0 });
+  // pdf.js FindState of the last search, which is what tells "no matches" apart
+  // from "nothing searched yet".
   const [findState, setFindState] = useState<number>(FindState.FOUND);
   const [annotationTool, setAnnotationTool] = useState<AnnotationTool>("select");
+  // Mirrors `annotationTool` for the Escape handler, whose effect does not
+  // re-run when the tool changes.
   const annotationToolRef = useRef<AnnotationTool>("select");
+  // The state setter is the plain one; `setAnnotationColor` below sets the
+  // colour and also tells pdf.js about it.
   const [annotationColor, setAnnotationColorState] = useState<(typeof HIGHLIGHT_COLORS)[number]>(
     HIGHLIGHT_COLORS[0],
   );
   const [saving, setSaving] = useState(false);
+  // Set while pdf.js waits for a password: `submit` is what resumes the pending
+  // loading task, and `incorrect` marks a rejected attempt.
   const [passwordChallenge, setPasswordChallenge] = useState<PasswordChallenge>();
   const [passwordDraft, setPasswordDraft] = useState("");
 
   closeRef.current = onClose;
 
+  // One effect owns the pdf.js viewer for the current `url`. The event handlers
+  // below only mirror viewer events into React state; the viewer is the source
+  // of truth for the page, scale and rotation.
   useEffect(() => {
     const container = containerRef.current;
     const viewerElement = viewerRef.current;
@@ -205,6 +271,10 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       setLoadingProgress(undefined);
       setPasswordChallenge(undefined);
       setPasswordDraft("");
+      // The content URL is authenticated by the session cookie, and the asset
+      // URLs point at the `pdfjs/{cmaps,standard_fonts,wasm,iccs}` tree the Vite
+      // build emits: pdf.js fetches cmaps, standard fonts, the wasm decoders and
+      // ICC profiles from there instead of bundling them.
       loadingTask = getDocument({
         url,
         withCredentials: true,
@@ -213,6 +283,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
         wasmUrl: "/pdfjs/wasm/",
         iccUrl: "/pdfjs/iccs/",
       });
+      // pdf.js asks for a password instead of rejecting a protected document;
+      // `updatePassword` is the only way to let the pending promise continue.
       loadingTask.onPassword = (updatePassword: (password: string) => void, reason: number) => {
         if (!active) return;
         setPasswordDraft("");
@@ -237,6 +309,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       const loadedOutline = await pdf.getOutline();
       if (active) setOutline((loadedOutline || []) as OutlineItem[]);
 
+      // The listener is attached before `setDocument`, because `pagesinit` fires
+      // during that call and a listener attached afterwards would miss it.
       const pagesInitialized = new Promise<void>((resolve) => {
         eventBus.on("pagesinit", () => resolve(), { once: true });
       });
@@ -244,6 +318,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       await pagesInitialized;
       if (!active) return;
 
+      // Re-apply the starting view: pdf.js resets page, scale and rotation for
+      // every document.
       viewer.pagesRotation = initialRotation;
       viewer.currentScaleValue = initialScaleValue;
       viewer.currentPageNumber = Math.min(Math.max(initialPage, 1), pdf.numPages);
@@ -273,6 +349,9 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       eventBus.off("rotationchanging", onRotationChanging);
       eventBus.off("updatefindmatchescount", onFindCount);
       eventBus.off("updatefindcontrolstate", onFindState);
+      // `cleanup` releases this viewer's page resources and `destroy` stops the
+      // worker and its network requests; without both, the document outlives the
+      // reader that opened it.
       viewer.cleanup();
       runtimeRef.current = null;
       setDocument(undefined);
@@ -280,6 +359,9 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     };
   }, [file.id, url]);
 
+  // Forwards the search settings to pdf.js: `type` is "" for a new search and
+  // "again" for the next or previous match, and an empty query closes the find
+  // controller so its highlights disappear.
   const dispatchFind = useCallback(
     (type: "" | "again" | "highlightallchange" = "", previous = false) => {
       const eventBus = runtimeRef.current?.eventBus;
@@ -304,12 +386,16 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     [caseSensitive, query, wholeWord],
   );
 
+  // Search runs while the user types: the delay batches keystrokes into one
+  // dispatch instead of one per character.
   useEffect(() => {
     if (!ready || !searchOpen) return;
     const timer = window.setTimeout(() => dispatchFind(""), 180);
     return () => window.clearTimeout(timer);
   }, [dispatchFind, ready, searchOpen]);
 
+  // Registered on capture, and the keys it consumes are stopped, so the reader
+  // sees them before the modal's own dismissal handling does.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
@@ -374,6 +460,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [searchOpen]);
 
+  // Zoom is applied to the viewer instead of to state: the `scalechanging`
+  // event writes `scale` back, and the clamp holds it inside 0.25x-5x.
   const setPdfScale = (next: number) => {
     const viewer = runtimeRef.current?.viewer;
     if (!viewer) return;
@@ -395,6 +483,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     );
   };
 
+  // Commit the page box: a value that is not a number reverts to the page the
+  // viewer is actually on.
   const commitPageDraft = () => {
     const next = Number(pageDraft);
     if (Number.isFinite(next)) goToPage(next);
@@ -413,9 +503,13 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     annotationToolRef.current = tool;
     setAnnotationTool(tool);
     viewer.annotationEditorMode = { mode: annotationEditorMode(tool) };
+    // The tool is passed explicitly because `annotationTool` still holds the
+    // previous value in this render, and pdf.js colours the editor being opened.
     if (tool !== "select") setAnnotationColor(annotationColor, tool);
   };
 
+  // Sets the picked colour and, for a drawing tool, tells pdf.js about it: the
+  // dispatch type differs per tool, and `select` has no editor to colour.
   const setAnnotationColor = (
     color: (typeof HIGHLIGHT_COLORS)[number],
     tool: AnnotationTool = annotationTool,
@@ -436,6 +530,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     });
   };
 
+  // Downloads the document with the annotations baked in, as a `-edited.pdf`
+  // copy. The original file is left untouched.
   const saveModified = async () => {
     const pdf = runtimeRef.current?.document;
     if (!pdf || saving) return;
@@ -448,6 +544,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       anchor.href = objectUrl;
       anchor.download = editedPdfName(file.name);
       anchor.click();
+      // The blob URL is revoked once the browser has had time to start the
+      // download, so it does not stay alive for the rest of the session.
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
     } catch (reason) {
       // `saveDocument()` rejects when the edited annotations cannot be
@@ -468,6 +566,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     anchor.click();
   };
 
+  // The zoom button names the active preset; otherwise it shows the numeric
+  // zoom as a percentage.
   const zoomLabel = useMemo(() => {
     if (scaleValue === "page-width") return t("components.pdfReader.fitWidth");
     if (scaleValue === "page-fit") return t("components.pdfReader.fitPage");
@@ -487,6 +587,8 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
       onOutline={(item) => {
         const runtime = runtimeRef.current;
         if (!runtime) return;
+        // An outline row either points outside the document or names a
+        // destination inside it, which only the link service can resolve.
         if (item.url) {
           window.open(item.url, "_blank", "noopener,noreferrer");
           return;
@@ -995,6 +1097,11 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
   );
 }
 
+/**
+ * Find bar above the viewer: query box with the match counter, previous/next,
+ * case and whole-word toggles, and the close button. Enter moves to the next
+ * match, Shift+Enter to the previous one.
+ */
 function PdfFindBar({
   query,
   onQuery,
@@ -1105,6 +1212,12 @@ function PdfFindBar({
 /** Pages the thumbnail list adds at a time. */
 const pageBatch = 40;
 
+/**
+ * Sidebar panel with the page thumbnails and the document outline. Thumbnails
+ * are added in batches as the list is scrolled, and picking a row closes the
+ * mobile drawer through `onNavigateMobile`; `document` stays undefined until
+ * the document has loaded.
+ */
 function PdfSidebar({
   file,
   document,
@@ -1227,8 +1340,16 @@ function PdfSidebar({
 // panel. Entries stay observed, because a tile has to notice when it scrolls back
 // into view.
 const visibilityCallbacks = new WeakMap<Element, (visible: boolean) => void>();
+/** Created on first use, then shared by every observed element. */
 let visibilityObserver: IntersectionObserver | undefined;
 
+/**
+ * Calls `onVisibilityChange` whenever the element enters or leaves the
+ * viewport, with a 300 px margin on every side so work starts just before the
+ * element is on screen. Returns the cleanup that stops observing. Without
+ * IntersectionObserver support the callback fires once and nothing is observed,
+ * which keeps the content visible instead of dropping it.
+ */
 function observeVisibility(element: Element, onVisibilityChange: (visible: boolean) => void) {
   if (typeof IntersectionObserver === "undefined") {
     onVisibilityChange(true);
@@ -1250,6 +1371,11 @@ function observeVisibility(element: Element, onVisibilityChange: (visible: boole
   };
 }
 
+/**
+ * One thumbnail tile. The page is only fetched and rendered once the tile is
+ * near the viewport, the canvas is sized for the display's pixel ratio, and
+ * `current` marks the page the reader is on.
+ */
 function PdfThumbnail({
   document,
   pageNumber,
@@ -1266,6 +1392,8 @@ function PdfThumbnail({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pageRef = useRef<Awaited<ReturnType<PDFDocumentProxy["getPage"]>> | undefined>(undefined);
   const [visible, setVisible] = useState(false);
+  // Aspect ratio of the last page rendered here, kept in state so the tile
+  // reserves the right height before its canvas has any pixels.
   const [ratio, setRatio] = useState(1.294);
   const [loaded, setLoaded] = useState(false);
 
@@ -1275,6 +1403,8 @@ function PdfThumbnail({
     return observeVisibility(host, setVisible);
   }, []);
 
+  // `active` and the cancelled render task are what stop a page that resolves
+  // after the tile scrolled away from drawing into a detached canvas.
   useEffect(() => {
     if (!visible || loaded) return;
     const canvas = canvasRef.current;
@@ -1290,6 +1420,9 @@ function PdfThumbnail({
         pageRef.current = page;
         const natural = page.getViewport({ scale: 1 });
         setRatio(natural.height / natural.width);
+        // Tiles are a fixed 142 CSS px wide. The canvas is drawn at the display
+        // pixel ratio (capped at 2) so the thumbnail stays sharp without
+        // allocating a 3x bitmap on a high-density screen.
         const cssWidth = 142;
         const scale = cssWidth / natural.width;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1355,6 +1488,10 @@ function PdfThumbnail({
   );
 }
 
+/**
+ * Outline rows rendered recursively, indented by `depth`. Rows without a title
+ * show a placeholder, since pdf.js does not require one.
+ */
 function OutlineItems({
   items,
   depth,
@@ -1385,6 +1522,7 @@ function OutlineItems({
   ));
 }
 
+/** Icon button of the annotation toolbar; `active` marks the selected tool. */
 function ToolButton({
   label,
   active,
@@ -1409,10 +1547,12 @@ function ToolButton({
   );
 }
 
+/** Placeholder shown in a sidebar panel that has nothing to list yet. */
 function SidebarEmpty({ label }: { label: string }) {
   return <p className="px-3 py-8 text-center text-xs text-muted">{label}</p>;
 }
 
+/** pdf.js editor mode that matches the selected annotation tool. */
 function annotationEditorMode(tool: AnnotationTool) {
   if (tool === "highlight") return AnnotationEditorType.HIGHLIGHT;
   if (tool === "text") return AnnotationEditorType.FREETEXT;
@@ -1420,31 +1560,47 @@ function annotationEditorMode(tool: AnnotationTool) {
   return AnnotationEditorType.NONE;
 }
 
+/**
+ * Normalizes a rotation to a quarter turn in 0-359 degrees. Rotation arrives
+ * from viewer events typed loosely, so a non-number counts as 0 and a negative
+ * or oversized value is folded back into the range instead of propagating.
+ */
 function normalizedRotation(value: unknown) {
   const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
   return (((Math.round(number / 90) * 90) % 360) + 360) % 360;
 }
 
+/**
+ * Rounds a viewer-reported count (a page number) to a positive integer, falling
+ * back when the event carries nothing usable.
+ */
 function positiveInt(value: unknown, fallback: number) {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) && number > 0 ? Math.round(number) : fallback;
 }
 
+/** Returns a positive finite number from a viewer event, or the fallback. */
 function positiveNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+/**
+ * React key for an outline row: pdf.js titles repeat, so the destination (or
+ * the external address) is what distinguishes two rows.
+ */
 function outlineDestinationKey(item: OutlineItem) {
   if (item.url) return item.url;
   if (typeof item.dest === "string") return item.dest;
   return String(item.dest ?? "section");
 }
 
+/** Name of the downloaded copy: a `.pdf` suffix is replaced by `-edited.pdf`. */
 function editedPdfName(name: string) {
   const index = name.toLowerCase().lastIndexOf(".pdf");
   return index >= 0 ? `${name.slice(0, index)}-edited.pdf` : `${name}-edited.pdf`;
 }
 
+/** Whether a key event came from a field that keeps its own navigation keys. */
 function isEditableTarget(target: EventTarget | null) {
   return (
     target instanceof HTMLInputElement ||
@@ -1462,6 +1618,7 @@ function inNestedOverlay(target: EventTarget | null) {
   return overlay !== null && overlay.querySelector("[data-pdf-reader]") === null;
 }
 
+/** Formats a byte count in binary units; a falsy value renders as "0 B". */
 function formatBytes(value: number) {
   if (!value) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

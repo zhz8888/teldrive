@@ -6,16 +6,21 @@ export const locales = {
   zh: { code: 'zh', label: '简体中文', htmlLang: 'zh-CN' },
 } as const;
 
+/** The identifiers of the locales the site is published in. */
 export type LocaleCode = keyof typeof locales;
 
+/** The locale published without a URL prefix, which is also the fallback. */
 export const defaultLocale: LocaleCode = 'en';
 
+/** Locale codes in declaration order; switchers and path builders iterate this. */
 export const localeCodes = Object.keys(locales) as LocaleCode[];
 
+/** Narrows a path segment or query value to a locale code we publish. */
 export function isLocaleCode(value: string | undefined): value is LocaleCode {
   return value !== undefined && value in locales;
 }
 
+/** Returns the display metadata (label, htmlLang) of a locale. */
 export function localeOf(locale: LocaleCode) {
   return locales[locale];
 }

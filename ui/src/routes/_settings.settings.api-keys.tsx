@@ -12,6 +12,7 @@ import { getQueryClient } from "@/lib/queryClient";
 import CopyIcon from "~icons/gravity-ui/copy";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 
+/** `/settings/api-keys` — create and revoke the account's programmatic API keys. */
 export const Route = createFileRoute("/_settings/settings/api-keys")({
   component: ApiKeysSettings,
   pendingComponent: () => (
@@ -21,10 +22,17 @@ export const Route = createFileRoute("/_settings/settings/api-keys")({
   ),
 });
 
+/**
+ * Lists the account's API keys and creates new ones. The secret of a freshly created key
+ * is held in `created` because the API returns it only in the create response; the
+ * listing that follows shows the key without it.
+ */
 function ApiKeysSettings() {
   const { t } = useI18n();
   const [name, setName] = useState("");
+  // Secret of the key created in this visit; undefined hides the reveal row.
   const [created, setCreated] = useState<ApiKeyCreated>();
+  // Key the confirmation dialog is asking about; null keeps it closed.
   const [revokeKey, setRevokeKey] = useState<{ id: string; name: string } | null>(null);
   const query = $api.useSuspenseQuery(
     "get",
@@ -47,6 +55,7 @@ function ApiKeysSettings() {
     getQueryClient().invalidateQueries({
       queryKey: $api.queryOptions("get", "/v1/api-keys").queryKey,
     });
+  /** Renders a timestamp, or the "never" label for a key that has no such value yet. */
   const formatDate = (value?: string | null) =>
     value ? new Date(value).toLocaleString() : t("settings.apiKeys.never");
 
@@ -157,6 +166,8 @@ function ApiKeysSettings() {
       <ConfirmDialog
         open={revokeKey !== null}
         onOpenChange={(open) => {
+          // Dismissal is ignored while the revoke is in flight, so the dialog cannot
+          // close before the request that it started has settled.
           if (!open && !revoke.isPending) setRevokeKey(null);
         }}
         title={t("settings.apiKeys.delete.title")}

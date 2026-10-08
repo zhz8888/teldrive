@@ -6,9 +6,13 @@ import { structure, type StructuredData } from 'fumadocs-core/mdx-plugins';
 import type { Node, Root } from 'fumadocs-core/page-tree';
 import { defaultLocale, type LocaleCode, prefixPath } from './i18n';
 
+/** One locale's fumadocs loader together with the page tree built from it. */
 export interface LocaleSource {
+  /** The locale this source serves. */
   locale: LocaleCode;
+  /** The loader over that locale's content, with BASE_URL applied. */
   source: ReturnType<typeof loader>;
+  /** The tree the loader produced, before locale prefixes are applied. */
   tree: Root;
 }
 
@@ -20,8 +24,15 @@ export interface LocaleSource {
  * the `fumadocs-core/i18n/middleware` helper is Next-only anyway.
  */
 const sources = new Map<LocaleCode, LocaleSource>();
+// Cache of locale-prefixed trees, filled by localizedTree on first use so a
+// request does not rebuild the tree for every page it renders.
 const localizedTrees = new Map<LocaleCode, Root>();
 
+/**
+ * Returns the cached source of a locale, building it on first request. Every
+ * locale reads the shared collection but only the files under its own
+ * directory, and the loader is kept so the tree is built once per build.
+ */
 export async function getLocaleSource(locale: LocaleCode): Promise<LocaleSource> {
   const cached = sources.get(locale);
   if (cached) return cached;
@@ -36,10 +47,12 @@ export async function getLocaleSource(locale: LocaleCode): Promise<LocaleSource>
   return created;
 }
 
+/** Extracts the heading and content structure the search index is built from. */
 export function getStructuredData(entry: CollectionEntry<'docs'>): StructuredData {
   return structure(entry.body);
 }
 
+/** Applies BASE_URL to every URL of a freshly built page tree. */
 function buildTree(source: LocaleSource['source']): Root {
   const tree = source.getPageTree();
   return { ...tree, children: tree.children.map(withBaseUrl) };
@@ -63,9 +76,11 @@ export function localizedTree(locale: LocaleCode): Root {
   return tree;
 }
 
+/** Rewrites every URL of a tree, descending into folders and their indexes. */
 function mapURLs(node: Root, map: (url: string) => string): Root {
   return { ...node, children: node.children.map(mapNode) };
 
+  /** Rewrites one child node: a page URL, or a folder's index and children. */
   function mapNode(child: Node): Node {
     if (child.type === 'page') {
       return { ...child, url: map(child.url) };
@@ -83,6 +98,7 @@ function mapURLs(node: Root, map: (url: string) => string): Root {
   }
 }
 
+/** Copies a node with BASE_URL applied to its own and its children's URLs. */
 function withBaseUrl(node: Node): Node {
   if (node.type === 'page') {
     return { ...node, url: prefixBase(node.url) };
@@ -99,6 +115,10 @@ function withBaseUrl(node: Node): Node {
   return node;
 }
 
+/**
+ * Adds BASE_URL to a site-rooted URL, once: a URL that already carries the
+ * prefix, and anything that is not an absolute site path, is returned as is.
+ */
 function prefixBase(url: string) {
   if (!url.startsWith('/') || url.startsWith('//')) return url;
 
@@ -120,6 +140,12 @@ export function localizedURL(locale: LocaleCode, url: string): string {
   return prefixBase(prefixPath(locale, path === '/' ? '' : path));
 }
 
+/**
+ * Builds the static source fumadocs' loader consumes: page entries carry their
+ * frontmatter plus the raw collection entry the search index needs, meta
+ * entries carry the sidebar metadata. Entries of other locales are skipped,
+ * which is what keeps the per-locale trees apart.
+ */
 async function createSource(locale: LocaleCode) {
   const out: StaticSource<{
     metaData: CollectionEntry<'meta'>['data'];

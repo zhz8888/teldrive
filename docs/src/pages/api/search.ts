@@ -6,14 +6,23 @@ import { getStructuredData, getLocaleSource, localizedTree, localizedURL } from 
 import { getPageImageUrl } from '@/lib/shared';
 import { defaultLocale, localeCodes, type LocaleCode } from '@/lib/i18n';
 
+/** One index entry: a page of any locale, with its URLs already prefixed. */
 interface MergedPage {
+  /** Site-rooted URL including the locale prefix; it is also the index id. */
   url: string;
+  /** Slug segments relative to the locale root. */
   slugs: string[];
+  /** Locale the page belongs to. */
   locale: LocaleCode;
+  /** Everything the index and a rendered result need from the page. */
   data: {
+    /** Page title shown in a result. */
     title: string;
+    /** Optional page description. */
     description?: string;
+    /** Heading and content structure the search engine matches on. */
     structuredData: StructuredData;
+    /** Site-rooted path of the page's generated Open Graph image. */
     image: string;
   };
 }

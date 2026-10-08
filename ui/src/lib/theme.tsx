@@ -25,22 +25,40 @@ import { useMediaQuery } from "./use-media-query";
  * and as color-scheme, so the pre-paint script and this provider never disagree.
  */
 
+/**
+ * What the user picked for the interface: an explicit mode, or `system` to follow
+ * the operating system.
+ */
 export type Theme = "light" | "dark" | "system";
+/** The mode that ends up on the document; `system` has been resolved away by then. */
 export type ResolvedTheme = "light" | "dark";
 
+/**
+ * localStorage key holding the choice, and the same literal `public/theme.js` reads
+ * before the first paint.
+ */
 const STORAGE_KEY = "theme";
+/** Follow the operating system until the user makes an explicit choice. */
 const DEFAULT_THEME: Theme = "system";
+/** Media query that resolves `system` into a concrete mode. */
 const DARK_QUERY = "(prefers-color-scheme: dark)";
+/** Every value the storage key may hold; anything else is treated as no choice at all. */
 const THEMES: readonly string[] = ["light", "dark", "system"];
 
+/** Theme state shared through the context: the stored choice and what it resolves to. */
 type ThemeContextValue = {
   /** The stored choice, or the default while no choice has been made. */
   theme: Theme;
   /** What the choice resolves to; never "system". */
   resolvedTheme: ResolvedTheme;
+  /** Stores the choice and applies it immediately; the choice is per browser. */
   setTheme: (theme: Theme) => void;
 };
 
+/**
+ * Null outside the provider, which is what makes `useTheme` fail instead of
+ * rendering a tree that never had a theme applied.
+ */
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 /**
@@ -71,6 +89,12 @@ function applyTheme(resolved: ResolvedTheme) {
   root.style.colorScheme = resolved;
 }
 
+/**
+ * Keeps the theme choice for the tree below and writes the resolved mode to the
+ * document. It must wrap anything that calls `useTheme`, and it resolves `system`
+ * through a live media query, so an operating-system change while the page is open
+ * follows the system mode without a reload.
+ */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // The stored choice is read during the first render, so the appearance page
   // marks the active choice immediately instead of after an effect.
@@ -110,6 +134,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+/**
+ * The theme choice, its resolved mode and the setter. Throws outside
+ * `ThemeProvider`, because a component that silently got no theme would render
+ * against a document mode it never applied.
+ */
 export function useTheme() {
   const value = useContext(ThemeContext);
   if (!value) throw new Error("useTheme must be used inside ThemeProvider");

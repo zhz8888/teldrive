@@ -5,8 +5,11 @@ import { invalidResponse } from "@/api/errors";
 import type { paths } from "@/api/schema";
 import type { FileCategory, FileSort, FileStatus } from "@/api/types";
 
+/** The 200 body of `GET /v1/files`, taken from the generated schema. */
 type FileListResponse = paths["/v1/files"]["get"]["responses"][200]["content"]["application/json"];
 
+// Only the fields every listing relies on are validated; `.passthrough()` keeps the rest
+// of the entry (size, times, paths) available to the UI unchanged.
 const fileListSchema = z
   .object({
     items: z.array(
@@ -23,6 +26,12 @@ const fileListSchema = z
   })
   .passthrough();
 
+/**
+ * Guards the listing against a server whose response shape no longer matches the UI.
+ * Throwing here (instead of returning the data) turns the mismatch into a query error the
+ * caller renders as a load failure with a retry, rather than a tree rendered from a page
+ * whose entries are missing ids or names.
+ */
 function validateFileList(data: FileListResponse): FileListResponse {
   const result = fileListSchema.safeParse(data);
   if (!result.success) {
@@ -33,6 +42,7 @@ function validateFileList(data: FileListResponse): FileListResponse {
   return data;
 }
 
+/** Route action whose dialog `/files` opens on top of the listing. */
 export type FileRouteAction =
   | "new-folder"
   | "rename"
@@ -42,25 +52,52 @@ export type FileRouteAction =
   | "restore"
   | "purge";
 
+/**
+ * Search parameters of the `/files` and `/search` routes that the listing functions here
+ * read. The dialog and history fields at the bottom are part of the route vocabulary but no
+ * function in this module reads them; `cursorHistory` is likewise only carried along.
+ */
 export type FileRouteSearch = {
+  /** Current folder path; "/" means the drive root. */
   path: string;
+  /** Id of the current folder, sent instead of `path` once the path has been resolved. */
   parentId?: string;
+  /** Free-text query, sent as the `search` parameter. */
   q?: string;
+  /** Sort key requested from the server. */
   sort: FileSort;
+  /** Sort direction requested from the server. */
   order: "asc" | "desc";
+  /** One category or several; `filePageInit` normalises both to an array. */
   category?: FileCategory | FileCategory[];
+  /** "folder" lists one folder, "drive" the whole drive, "recursive" below `parentId`. */
   scope?: "folder" | "drive" | "recursive";
+  /** Restricts the listing to files or to folders. */
   kind?: "file" | "folder";
+  /** Inclusive lower bound on the modification time, as an ISO instant. */
   updatedAfter?: string;
+  /** Exclusive upper bound on the modification time, as an ISO instant. */
   updatedBefore?: string;
+  /** Opaque cursor the server returned for the page to fetch; omit for the first page. */
   cursor?: string;
+  /** Pagination history kept by the route for a "previous page" control. */
   cursorHistory?: string;
+  /** Result layout the browser should use; not sent to the server. */
   view: "list" | "grid";
+  /** Id of the file the route shows in the preview dialog. */
   preview?: string;
+  /** Id of the file the route opens in the reader. */
   read?: string;
+  /** Dialog the route opens on top of the listing. */
   action?: FileRouteAction;
 };
 
+/**
+ * Builds the listing request for one cursor position. A folder is addressed either by
+ * `parentId` or by `path`, never both, and the drive root is expressed by sending neither;
+ * `scope` and `status` select which slice of the drive to list. Pages are capped at 100
+ * entries.
+ */
 export function filePageInit(search: FileRouteSearch, status: FileStatus, cursor = search.cursor) {
   return {
     params: {
@@ -94,6 +131,10 @@ export function filePageInit(search: FileRouteSearch, status: FileStatus, cursor
   };
 }
 
+/**
+ * One listing page as plain query options rather than a hook, with the same 15-second
+ * staleness and response validation as `useFilePage` and `useInfiniteFilePages`.
+ */
 export function filePageQueryOptions(search: FileRouteSearch, status: FileStatus) {
   return $api.queryOptions("get", "/v1/files", filePageInit(search, status), {
     staleTime: 15_000,
@@ -186,6 +227,14 @@ export function useFilePage(search: FileRouteSearch, status: FileStatus) {
   });
 }
 
+/**
+ * Non-suspense cursor paging for one listing, used by the file manager. The query key
+ * holds every field that can change the result set, so a filter change starts a new cache
+ * entry instead of appending pages from the previous filters. `enabled` lets callers hold
+ * the request back (empty or invalid search criteria); for the drive-wide and recursive
+ * scopes the previous page is kept on screen as placeholder data while the new one loads,
+ * so retyping a query does not blank the list.
+ */
 export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus, enabled = true) {
   const queryKey = [
     "get",
@@ -238,17 +287,31 @@ export function useInfiniteFilePages(search: FileRouteSearch, status: FileStatus
  * the owner, "recursive" the entries below one folder.
  */
 export type DriveSearchOptions = {
+  /** Free-text query. */
   q?: string;
+  /** Which wide listing to run; see the type comment above. */
   scope: "drive" | "recursive";
+  /** Folder the recursive scope searches below; ignored by the drive scope. */
   parentId?: string;
+  /** Restricts results to files or to folders. */
   kind?: "file" | "folder";
+  /** Categories to include; an empty list means no category filter. */
   category?: FileCategory[];
+  /** Inclusive lower bound on the modification time, as an ISO instant. */
   updatedAfter?: string;
+  /** Exclusive upper bound on the modification time, as an ISO instant. */
   updatedBefore?: string;
+  /** Sort key the search results come back in. */
   sort: FileSort;
+  /** Sort direction of the search results. */
   order: "asc" | "desc";
 };
 
+/**
+ * Cursor pages of the folders directly under one destination, active ones only, sorted by
+ * name with 200 per page. The destination is given as `parentId` when known and otherwise
+ * as `path`; the drive root passes neither.
+ */
 export function useFolderChildren(parentId?: string, path?: string) {
   const queryKey = ["get", "/v1/files", "folders", { parentId, path }] as const;
 

@@ -1,6 +1,7 @@
 import { cn } from "@heroui/react";
 import type { ReactNode } from "react";
 
+/** Page shell: centres the content column and stacks the page's sections. */
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <section className={cn("mx-auto flex w-full max-w-[1600px] flex-col gap-5", className)}>
@@ -9,6 +10,7 @@ export function Page({ children, className }: { children: ReactNode; className?:
   );
 }
 
+/** Page title with an optional description and right-aligned actions. */
 export function PageHeader({
   title,
   description,
@@ -31,6 +33,7 @@ export function PageHeader({
   );
 }
 
+/** Toolbar row above the page content, usually holding filters and actions. */
 export function PageToolbar({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
@@ -44,10 +47,12 @@ export function PageToolbar({ children, className }: { children: ReactNode; clas
   );
 }
 
+/** Wrapper that lets page content shrink inside a flex layout without overflowing. */
 export function PageContent({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn("min-w-0", className)}>{children}</div>;
 }
 
+/** Centred placeholder for an empty list, with an optional call to action. */
 export function EmptyState({
   title,
   description,

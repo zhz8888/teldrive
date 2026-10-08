@@ -1,5 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 
+// The row installResults answers /api/v1/files with: alpha.txt, living in the
+// /Documents folder and carrying the full contract shape the result table reads.
 const resultFile = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "alpha.txt",
@@ -16,6 +18,13 @@ const resultFile = {
   encryption: false,
 };
 
+/**
+ * Serves the signed-in user and one drive listing, and records every
+ * /api/v1/files URL in `requests` so a test can assert on the query that was
+ * sent. Content requests answer with a preview body; anything else is a 404.
+ * The returned state is mutable: a test reads the recorded requests and can
+ * reset them between phases.
+ */
 async function installResults(page: Page) {
   const state = { items: [resultFile], requests: [] as URL[] };
   await page.route("**/api/v1/**", async (route) => {

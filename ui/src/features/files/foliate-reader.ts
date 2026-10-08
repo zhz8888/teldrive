@@ -1,10 +1,18 @@
+/** User-controlled appearance of the ebook reader; persisted by the caller, not here. */
 export interface ReaderPreferences {
+  /** Named colour scheme: "paper" renders light, "night" dark. */
   theme: string;
+  /** Foliate layout flow: "paginated" or "scrolled". */
   flow: string;
+  /** Font family key: "publisher" keeps the book's own fonts, "serif" or "sans" override it. */
   font: string;
+  /** Text size as a percentage of the book's own size (100 keeps it unchanged). */
   fontSize: number;
+  /** Unitless `line-height` multiplier applied to body text. */
   lineHeight: number;
+  /** Page margin in pixels, passed to foliate's renderer as its `margin`. */
   margin: number;
+  /** Maximum column count the paginated renderer may use. */
   columns: number;
 }
 
@@ -14,6 +22,7 @@ type PublicationResource = {
   name?: string;
   /** Manifest media type of the resource. */
   type?: string;
+  /** Resource payload as foliate has loaded it; markup arrives as a string. */
   data: unknown;
 };
 
@@ -22,6 +31,8 @@ type PublicationResource = {
  * Everything else (CSS, images, fonts) is passed through untouched.
  */
 const MARKUP_MEDIA_TYPES = new Set(["application/xhtml+xml", "text/html"]);
+// Path fallback for resources whose manifest omits or mislabels the media type; tested
+// against the resource path with any query string or fragment stripped.
 const MARKUP_PATH_PATTERN = /\.(?:x?html?|xhtm)$/;
 /** Elements that can load or run another document inside the chapter frame. */
 const DANGEROUS_ELEMENTS = "script, iframe, object, embed";
@@ -82,6 +93,11 @@ export function sanitizePublicationMarkupFallback(markup: string): string {
     );
 }
 
+/**
+ * Parses chapter markup as XML, returning undefined for anything the XML parser rejects
+ * (malformed XHTML is common in real books) so the caller can fall back to string-level
+ * sanitising instead of losing the chapter.
+ */
 function parsePublicationMarkup(markup: string): Document | undefined {
   try {
     const doc = new DOMParser().parseFromString(markup, "application/xhtml+xml");
@@ -94,6 +110,10 @@ function parsePublicationMarkup(markup: string): Document | undefined {
   }
 }
 
+/**
+ * Strips the event handlers and dangerous URLs from one element in place: every `on*`
+ * attribute is removed; other attributes are rewritten only if their value is dangerous.
+ */
 function sanitizeElementAttributes(element: Element) {
   for (const attribute of [...element.attributes]) {
     const name = attribute.name.toLowerCase();
@@ -129,14 +149,17 @@ function sanitizeUrlAttribute(name: string, value: string): string {
   return candidates.filter((candidate) => !isDangerousUrl(candidate)).join(",");
 }
 
+/** True when a dangerous URL appears anywhere in the value (used for inline `style`). */
 function containsDangerousUrl(value: string): boolean {
   return DANGEROUS_URL_PREFIXES.some((prefix) => normalizeUrl(value).includes(prefix));
 }
 
+/** True when the value itself is a dangerous URL, as opposed to merely containing one. */
 function isDangerousUrl(value: string): boolean {
   return DANGEROUS_URL_PREFIXES.some((prefix) => normalizeUrl(value).startsWith(prefix));
 }
 
+/** Drops the parameters from a media type (`text/html; charset=utf-8` -> `text/html`). */
 function mediaTypeOf(type: string): string {
   return (type.split(";")[0] ?? "").trim().toLowerCase();
 }
@@ -153,6 +176,15 @@ function normalizeUrl(value: string): string {
   return normalized.toLowerCase();
 }
 
+/**
+ * Loads a book file into a `<foliate-view>` element and shows it: it sanitises every markup
+ * resource on its way in (see {@link sanitizePublicationMarkup}), attaches the `load` and
+ * `relocate` listeners, opens the book, applies the appearance and initialises the position
+ * (the saved `lastLocation` when one is given, otherwise the text start). The listeners stay
+ * attached to `element`, so the caller removes them on teardown. Resolves with the foliate
+ * book object, whose metadata and TOC the caller reads before {@link closePublication}
+ * destroys it.
+ */
 export async function openPublication({
   element,
   file,
@@ -193,6 +225,12 @@ export async function openPublication({
   return book;
 }
 
+/**
+ * Pushes the appearance preferences into an already-open view: it re-reads the reader's
+ * CSS custom properties from the host element so the chapter frames match the app theme,
+ * configures foliate's renderer attributes, and injects a stylesheet into each chapter.
+ * Safe to call repeatedly — the caller re-runs it whenever a preference changes.
+ */
 export function applyPublicationAppearance(
   element: FoliateViewElement,
   preferences: ReaderPreferences,
@@ -238,11 +276,17 @@ export function applyPublicationAppearance(
   `);
 }
 
+/**
+ * Tears a view down: closes foliate's renderer and destroys the book, releasing the
+ * per-chapter blob URLs it created. Both calls are synchronous, which is what lets the
+ * caller run it while unmounting.
+ */
 export function closePublication(element: FoliateViewElement) {
   element.close();
   element.book?.destroy?.();
 }
 
+/** CSS font stack for a font preference; anything unrecognised keeps the book's own fonts. */
 function readerFont(font: string) {
   if (font === "serif") return 'Iowan Old Style, Charter, "Bitstream Charter", Georgia, serif';
   if (font === "sans") return 'Avenir Next, Avenir, "Segoe UI", sans-serif';

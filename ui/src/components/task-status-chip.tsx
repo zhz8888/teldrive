@@ -1,6 +1,7 @@
 import { Chip } from "@heroui/react";
 import { type MessageKey, t, useI18n } from "@/lib/i18n";
 
+/** Statuses that are still in flight; only these get the pulsing dot. */
 const ACTIVE_STATUSES = new Set(["pending", "scheduled", "available", "running", "retryable"]);
 
 /**
@@ -18,16 +19,22 @@ const STATUS_KEYS: Partial<Record<string, MessageKey>> = {
   cancelled: "components.taskStatus.cancelled",
 };
 
+/** Translates a known status, falling back to the raw value capitalized. */
 function statusLabel(translate: (key: MessageKey) => string, status: string) {
   const key = STATUS_KEYS[status];
   if (key) return translate(key);
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
+/** Localized status label for callers that are not rendering the chip. */
 export function taskStatusLabel(status: string) {
   return statusLabel(t, status);
 }
 
+/**
+ * Coloured chip naming a job status, with a pulsing dot while the job is still
+ * active. `animate` turns the pulse off where motion would distract.
+ */
 export function TaskStatusChip({ status, animate = true }: { status: string; animate?: boolean }) {
   const { t } = useI18n();
   const active = ACTIVE_STATUSES.has(status);
@@ -47,6 +54,7 @@ export function TaskStatusChip({ status, animate = true }: { status: string; ani
   );
 }
 
+/** Chip colour for a job status; anything unrecognized uses the neutral colour. */
 function taskStatusColor(status: string): "accent" | "success" | "warning" | "danger" | "default" {
   switch (status) {
     case "completed":

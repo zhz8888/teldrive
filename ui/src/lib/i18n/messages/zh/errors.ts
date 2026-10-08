@@ -6,6 +6,10 @@
 import type { AreaMessages } from "../../types";
 import type { errors as enErrors } from "../en/errors";
 
+/**
+ * Wording for the failures the interface phrases itself; a server-authored message
+ * takes precedence where there is one.
+ */
 export const errors: AreaMessages<typeof enErrors> = {
   // `api/errors.ts` 中 `userMessage()` 的友好提示分支。若服务端自带文案，
   // 仍优先使用服务端文案，不使用下列词条。

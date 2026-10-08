@@ -19,31 +19,55 @@ import ListIcon from "~icons/gravity-ui/list-ul";
 import { FileTypeIcon } from "./file-type-icon";
 import { useI18n } from "@/lib/i18n";
 
+/** Layout of the entry list: stacked rows or an auto-filling grid of cards. */
 export type FileBrowserView = "list" | "grid";
 
+/** Everything the browser needs to render a listing; it owns no data or route state. */
 type FileBrowserProps = {
+  /** Entries to render, in the order the caller wants them shown. */
   files: FileEntry[];
+  /** Folder the list represents; "/" is the drive root and disables the up button. */
   path: string;
+  /** Label of the root crumb, e.g. the drive or share name. */
   rootLabel: string;
+  /** Layout the caller has stored for this pane. */
   view: FileBrowserView;
+  /** Replaces the list with a spinner; used for the first load of a listing. */
   loading: boolean;
+  /** Navigates to a breadcrumb or up-button target. */
   onNavigatePath: (path: string) => void;
+  /** Requests a layout switch; the caller persists it. */
   onViewChange: (view: FileBrowserView) => void;
+  /** Called on double-click/Enter of an entry, or a single click in grid view. */
   onOpen: (file: FileEntry) => void;
+  /** Controls rendered in the header, next to the view toggles. */
   toolbar?: ReactNode;
+  /** When set, shows a back button before the breadcrumb. */
   onBack?: () => void;
+  /**
+   * Selection wiring. Omitting it makes the list read-only: rows are not selectable and
+   * no checkboxes are rendered.
+   */
   selection?: {
     selectedKeys: Selection;
     onSelectionChange: (selection: Selection) => void;
+    /** Called when the click lands outside any row, so the page can drop the selection. */
     onClearSelection: () => void;
   };
+  /** Floating bar rendered over the list (selection actions); the list pads for it. */
   selectionOverlay?: ReactNode;
+  /** Disables selecting every row without hiding the checkboxes. */
   selectionDisabled?: boolean;
 
+  /** Entries drawn at reduced opacity, e.g. the ones a pending "cut" would move. */
   dimmedIds?: ReadonlySet<string>;
+  /** Enables the load-more row at the end of the list. */
   hasNextPage?: boolean;
+  /** Shows the load-more row's spinner while the next page is in flight. */
   isLoadingMore?: boolean;
+  /** Requests the next page; ignored when omitted. */
   onLoadMore?: () => void;
+  /** Second line of the empty state. */
   emptyHint?: string;
   /** Headline of the empty state; the folder wording is the default. */
   emptyTitle?: string;
@@ -183,6 +207,12 @@ export function FileBrowser({
   );
 }
 
+/**
+ * The scrollable list itself: virtualized, switchable between grid and list rows, with an
+ * empty state and a load-more row. The `dependencies` array tells the collection to
+ * re-render rows when the highlight set or the location props change, because those are
+ * read through closures rather than passed to the row.
+ */
 function FileCollection({
   files,
   view,
@@ -325,6 +355,11 @@ function FileCollection({
   );
 }
 
+/**
+ * Row checkbox. It occupies the row's `selection` slot, which is what positions it, and
+ * stays invisible until the row is hovered, focused or selected — except on touch devices,
+ * where the hover media query never matches and it is always shown.
+ */
 function SelectionCheckbox({ file, isVisible }: { file: FileEntry; isVisible: boolean }) {
   const { t } = useI18n();
   return (
@@ -347,6 +382,11 @@ function SelectionCheckbox({ file, isVisible }: { file: FileEntry; isVisible: bo
   );
 }
 
+/**
+ * Grid-view card content: icon and checkbox on top, name, optional location and the size
+ * (or the word "Folder") below. The row's own action handler opens the entry, so nothing
+ * here is clickable except the location button.
+ */
 function GridFile({
   file,
   selectable,
@@ -388,6 +428,12 @@ function GridFile({
   );
 }
 
+/**
+ * List-view row content. The columns are responsive: below `sm` only the name shows, the
+ * size column appears at `sm`, and at `lg` a third column carries the location (when the
+ * caller provides one) or the modification time. The inline location button under the name
+ * is the small-width equivalent and is hidden from `lg` up.
+ */
 function ListFile({
   file,
   selectable,
@@ -472,6 +518,11 @@ function LocationButton({
   );
 }
 
+/**
+ * Breadcrumb for the current path. The trail is trimmed by container width rather than
+ * viewport width: the current folder is always shown, its parent from the `@md` container
+ * width and the ancestors only from `@4xl`, so a narrow pane never overflows.
+ */
 function FileBrowserBreadcrumb({
   path,
   rootLabel,
@@ -536,6 +587,11 @@ function FileBrowserBreadcrumb({
   );
 }
 
+/**
+ * Formats a byte count as at most one decimal with a binary unit, e.g. "1.5 MB". Non-finite
+ * and non-positive counts (a folder reports no size) render as "0 B"; byte counts are shown
+ * without a decimal. TB is the largest unit, so bigger values keep growing in TB.
+ */
 export function formatFileBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

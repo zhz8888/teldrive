@@ -17,6 +17,8 @@
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const THEME_COLORS = { light: "#fafafa", dark: "#1a1a1a" };
 
+  // storedTheme reads the saved choice; a browser that refuses storage (private
+  // mode, hardened settings) is treated as having no choice rather than failing.
   const storedTheme = () => {
     try {
       return window.localStorage.getItem("theme");
@@ -25,17 +27,22 @@
     }
   };
 
+  // resolveTheme prefers an explicit "light"/"dark" choice and otherwise follows
+  // the system preference, which is what the "system" value (and no value) means.
   const resolveTheme = () => {
     const stored = storedTheme();
     if (stored === "light" || stored === "dark") return stored;
     return media.matches ? "dark" : "light";
   };
 
+  // paintThemeColor updates the browser chrome colour to match the applied theme.
   const paintThemeColor = (theme) => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", THEME_COLORS[theme]);
   };
 
+  // applyTheme writes the class, data attribute and color-scheme next-themes also
+  // maintains, so the pre-paint state and the React state agree.
   const applyTheme = () => {
     const theme = resolveTheme();
     root.classList.remove("light", "dark");

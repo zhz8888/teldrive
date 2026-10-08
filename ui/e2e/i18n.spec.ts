@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
+// The fixed instant the profile fixture is timestamped with.
 const now = "2026-07-22T12:00:00Z";
 
 /**

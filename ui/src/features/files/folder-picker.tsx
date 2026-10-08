@@ -7,6 +7,12 @@ import HomeIcon from "~icons/gravity-ui/house";
 import { useI18n } from "@/lib/i18n";
 import { useFolderChildren } from "./queries";
 
+/**
+ * Breadcrumb-driven folder browser used to choose a destination. It walks the drive one
+ * folder at a time (the current folder's children come from {@link useFolderChildren}) and
+ * reports the chosen folder through `onConfirm`. `requireFolder` keeps the confirm button
+ * disabled until a folder id is known, which the drive root never has.
+ */
 export function FolderPicker({
   initialPath = "/",
   initialParentId,
@@ -25,7 +31,11 @@ export function FolderPicker({
   const { t } = useI18n();
   const [path, setPath] = useState(initialPath);
   const [parentId, setParentId] = useState<string | undefined>(initialParentId);
+  // Paths are remembered with the folder id they resolved to, because the API lists by id
+  // and a breadcrumb click only has the path.
   const folderIds = useRef(new Map<string, string | undefined>([[initialPath, initialParentId]]));
+  // A folder is listed by id when one is known and by path otherwise; the drive root has
+  // neither.
   const folders = useFolderChildren(parentId, parentId ? undefined : path);
   const folderItems = folders.data?.pages.flatMap((page) => page.items) ?? [];
   const crumbs = path.split("/").filter(Boolean);
@@ -145,6 +155,7 @@ export function FolderPicker({
   );
 }
 
+/** Appends a folder name to a path and collapses repeated slashes; root stays "/". */
 function joinPath(parent: string, name: string) {
   return `${parent === "/" ? "" : parent}/${name}`.replace(/\/+/g, "/") || "/";
 }

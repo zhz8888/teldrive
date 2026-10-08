@@ -10,6 +10,7 @@ import { getQueryClient } from "@/lib/queryClient";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import RefreshIcon from "~icons/gravity-ui/arrow-rotate-left";
 
+/** `/settings/users` — owner/admin view of every account, with role and access controls. */
 export const Route = createFileRoute("/_settings/settings/users")({
   component: UsersSettings,
   pendingComponent: () => (
@@ -19,6 +20,11 @@ export const Route = createFileRoute("/_settings/settings/users")({
   ),
 });
 
+/**
+ * Searchable account list for administrators: role changes, disable/enable and access
+ * revocation, each followed by a listing refresh because the server is the authority on
+ * what a change did to the row.
+ */
 function UsersSettings() {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -39,6 +45,7 @@ function UsersSettings() {
       queryKey: $api.queryOptions("get", "/v1/admin/users").queryKey,
     });
 
+  /** Applies one partial change to one account and reports the outcome as a toast. */
   const update = async (userId: number, body: { role?: "admin" | "user"; disabled?: boolean }) => {
     try {
       await updateUser.mutateAsync({ params: { path: { userId } }, body });
@@ -86,6 +93,8 @@ function UsersSettings() {
               user.displayName?.trim() ||
               user.username?.trim() ||
               t("settings.users.displayNameFallback", { userId: user.userId });
+            // The owner's role and access are not editable from this screen, so that row
+            // renders its chips without any of the controls below.
             const owner = user.role === "owner";
             return (
               <SettingsRow

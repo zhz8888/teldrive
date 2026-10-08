@@ -7,17 +7,29 @@ import { fetchClient } from "@/api/client";
 import { type MessageKey, useI18n } from "@/lib/i18n";
 import { useAppForm } from "../forms/app-form";
 
+/** Request body of `POST /v1/jobs`, filled from the launcher form. */
 type JobCreate = components["schemas"]["JobCreate"];
+/** Job kinds the launcher offers; every entry in {@link GROUPS} names one. */
 type TaskType = "teldrive_upload_cleanup" | "teldrive_pending_file_purge";
 
+/** Launcher form values, split between the job's `args` and its River options. */
 type TaskFormValues = {
+  /** Job kind to queue; selecting one also resets the kind's defaults. */
   taskType: TaskType;
+  /** `args.batchSize`: batch size sent with the job, at least 1. */
   batchSize: number;
+  /** Target queue; blank falls back to "maintenance" when the job is sent. */
   queue: string;
+  /** River priority, 1 being the highest and 4 the lowest. */
   priority: number;
+  /** River attempt budget before the job is discarded. */
   maxAttempts: number;
 };
 
+/**
+ * Task kinds grouped for the sidebar: display labels plus the queue, priority
+ * and attempt defaults applied when the kind is selected.
+ */
 const GROUPS: {
   labelKey: MessageKey;
   items: {
@@ -46,6 +58,7 @@ const GROUPS: {
   },
 ];
 
+/** Values the form opens with; `chooseTask` replaces the per-kind fields. */
 const DEFAULT_VALUES: TaskFormValues = {
   taskType: "teldrive_upload_cleanup",
   batchSize: 100,
@@ -54,6 +67,12 @@ const DEFAULT_VALUES: TaskFormValues = {
   maxAttempts: 10,
 };
 
+/**
+ * Slide-over form that queues one maintenance job. `onQueued` runs after the
+ * API accepted the request, so the caller can refresh its task list, and
+ * `onClose` is the only way to dismiss the panel; a rejected request keeps the
+ * panel open with the values the user entered.
+ */
 export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onClose: () => void }) {
   const { t } = useI18n();
   const form = useAppForm({
@@ -86,6 +105,7 @@ export function TaskLauncher({ onQueued, onClose }: { onQueued: () => void; onCl
   });
   const values = useStore(form.store, (state) => state.values);
   const submitting = useStore(form.store, (state) => state.isSubmitting);
+  // Every selectable kind comes from GROUPS, so the lookup always resolves.
   const selected = GROUPS.flatMap((group) => group.items).find(
     (item) => item.key === values.taskType,
   )!;

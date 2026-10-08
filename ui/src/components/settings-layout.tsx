@@ -1,6 +1,7 @@
 import { Card, Typography } from "@heroui/react";
 import type { ReactNode } from "react";
 
+/** Settings page title: a required description line and optional actions. */
 export function SettingsPageHeader({
   title,
   description,
@@ -25,6 +26,7 @@ export function SettingsPageHeader({
   );
 }
 
+/** Titled card that groups related settings rows. */
 export function SettingsSection({
   title,
   description,
@@ -49,6 +51,11 @@ export function SettingsSection({
   );
 }
 
+/**
+ * One settings row: label and help text on the left, the control on the right.
+ * `align` chooses whether the label lines up with the centre of the control or
+ * with its top; the default is the centre.
+ */
 export function SettingsRow({
   label,
   description,

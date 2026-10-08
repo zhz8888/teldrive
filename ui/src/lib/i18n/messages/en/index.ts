@@ -10,6 +10,7 @@ import { features } from "./features";
 import { routes } from "./routes";
 import { settings } from "./settings";
 
+/** English messages by key, merged from the area catalogs above; its shape defines `MessageKey`. */
 export const en = {
   ...common,
   ...components,

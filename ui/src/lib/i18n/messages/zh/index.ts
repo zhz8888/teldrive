@@ -14,6 +14,10 @@ import { features } from "./features";
 import { routes } from "./routes";
 import { settings } from "./settings";
 
+/**
+ * Chinese messages by key, typed against `en` so a missing, extra or mistyped entry
+ * fails typecheck.
+ */
 export const zh: AreaMessages<typeof en> = {
   ...common,
   ...components,

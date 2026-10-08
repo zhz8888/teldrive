@@ -1,14 +1,32 @@
 import { t } from "@/lib/i18n";
 
+/** Free-form server payload from `error.details`, whose shape is defined per error code. */
 export type ApiErrorDetails = Record<string, unknown>;
 
+/**
+ * A failure the interface can render: everything the API layer throws is one of
+ * these (or an abort), so screens can branch on `status`/`code` instead of
+ * inspecting responses. Instances carry the request id and any server-requested
+ * retry delay, which is what makes an error reportable and a retry schedulable.
+ */
 export class ApiError extends Error {
+  /** HTTP status, or 0 when no response arrived (offline, DNS, connection reset). */
   readonly status: number;
+  /** Machine-readable code: the server's `error.code`, `http_<status>`, or `network_error`. */
   readonly code: string;
+  /** Structured server payload, keyed by `code`. */
   readonly details?: ApiErrorDetails;
+  /** Server's `X-Request-ID`, quoted when a failure is reported. */
   readonly requestId?: string;
+  /** Server-requested wait from `Retry-After`, capped at one hour. */
   readonly retryAfterSeconds?: number;
 
+  /**
+   * Fills in a failure from the fields above. Prefer `normalizeApiError`, which
+   * derives them from a response; construct directly only where the failure is
+   * authored without one (the upload transfer, which reports its own network
+   * errors).
+   */
   constructor({
     status,
     code,
@@ -33,11 +51,23 @@ export class ApiError extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
   }
 
+  /**
+   * Whether repeating the request could plausibly succeed: a timeout, a too-early
+   * request, a rate limit or a server fault. Anything else is an answer that would
+   * not change, so the query client must not retry it. A request that never reached
+   * the server carries status 0 and is therefore not retried either.
+   */
   get retryable() {
     return this.status === 408 || this.status === 425 || this.status === 429 || this.status >= 500;
   }
 }
 
+/**
+ * Extracts the `error` envelope of a response body, or undefined when the body is
+ * not an object carrying one. The input is whatever reached `normalizeApiError` —
+ * a rejected `fetch`, or a parsed payload that need not match the envelope — so
+ * each field is returned untyped for the caller to check.
+ */
 function envelope(
   error: unknown,
 ): { code?: unknown; message?: unknown; details?: unknown } | undefined {
@@ -101,8 +131,29 @@ export function normalizeApiError(error: unknown, response?: Response): ApiError
   });
 }
 
-type ApiResult<T> = { data?: T; error?: unknown; response: Response };
+/**
+ * The shape `openapi-fetch` returns for one call. `data` and `error` are mutually
+ * exclusive and `response` is always present; `unwrap` is the usual reader.
+ */
+type ApiResult<T> = {
+  /** Decoded success body; undefined for a 204 and whenever the call failed. */
+  data?: T;
+  /**
+   * Failure body, filled only when `openapi-fetch` itself classifies the response
+   * as failed. The wrapped fetch in `api/client.ts` throws before that, so this
+   * stays undefined for the calls that go through it.
+   */
+  error?: unknown;
+  /** The response itself, needed for the status, headers and empty-body cases. */
+  response: Response;
+};
 
+/**
+ * Turns a generated-client result into the body, or throws the matching
+ * `ApiError`. A 2xx without a body is accepted only for 204: any other success
+ * missing its payload means the server and the OpenAPI contract disagree, which is
+ * reported as `invalid_response` rather than handed on as undefined data.
+ */
 export async function unwrap<T>(result: ApiResult<T> | Promise<ApiResult<T>>): Promise<T> {
   const { data, error, response } = await result;
   if (error !== undefined || !response.ok) throw normalizeApiError(error, response);
@@ -116,10 +167,18 @@ export async function unwrap<T>(result: ApiResult<T> | Promise<ApiResult<T>>): P
   return data as T;
 }
 
+/** Whether a failure is the server refusing an absent or expired session. */
 export function isUnauthorized(error: unknown) {
   return error instanceof ApiError && error.status === 401;
 }
 
+/**
+ * Builds the error for a 2xx response the interface refuses to use: the body
+ * parsed but does not match the OpenAPI contract (a listing without ids, an empty
+ * page where entries were expected). It keeps the success status so callers can
+ * tell this mismatch from a request the server rejected, and the message names
+ * what was wrong for the reader.
+ */
 export function invalidResponse(
   message = "The server returned data that does not match the current OpenAPI contract.",
 ) {

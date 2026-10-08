@@ -1,8 +1,10 @@
 import { createGetUrl } from 'fumadocs-core/source';
 import { defaultLocale, type LocaleCode } from './i18n';
 
+/** Site-rooted route that serves the generated Open Graph images of pages. */
 export const docsImageRoute = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/og/docs`;
 
+/** Builds paths under docsImageRoute; getPageImageUrl appends the segments. */
 const getImageUrl = createGetUrl(docsImageRoute);
 
 /**

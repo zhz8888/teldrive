@@ -14,12 +14,23 @@ import TrashIcon from "~icons/gravity-ui/trash-bin";
 import CloseIcon from "~icons/gravity-ui/xmark";
 import { FileTypeIcon } from "@/features/files/file-type-icon";
 
+/**
+ * Node of the shelf tree: a batch, a folder inside one, or a single file. Only
+ * file nodes carry `task`; group nodes aggregate the tasks of their
+ * descendants.
+ */
 type UploadNode = {
+  /** Tree key, unique within the shelf for as long as the node exists. */
   id: string;
+  /** Display name: the batch name, a path segment, or the file name. */
   name: string;
+  /** Node role, which selects the icon and the detail line. */
   kind: "batch" | "folder" | "file";
+  /** Child folders and files; empty for a file node. */
   children: UploadNode[];
+  /** Tasks this node covers, including those of its descendants. */
   tasks: UploadTask[];
+  /** Upload task of a file node, used for its status chip and row actions. */
   task?: UploadTask;
 };
 
@@ -36,6 +47,7 @@ const STATUS_KEYS: Partial<Record<UploadTaskStatus, MessageKey>> = {
   cancelled: "components.uploadShelf.statusCancelled",
 };
 
+/** Formats a byte count with binary units, one decimal above whole bytes. */
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -43,6 +55,12 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** power).toFixed(power === 0 ? 0 : 1)} ${units[power]}`;
 }
 
+/**
+ * Folds the flat task list into the tree the shelf renders: one node per batch,
+ * a folder node per path segment, and a file node per task, with the batch that
+ * was queued last shown first. A batch whose tasks are all at its top level is
+ * inlined as its file nodes, so a plain multi-file upload shows no batch header.
+ */
 function buildTree(tasks: UploadTask[]) {
   const batches = new Map<string, UploadNode>();
   for (const task of tasks) {
@@ -59,6 +77,8 @@ function buildTree(tasks: UploadTask[]) {
     }
     batch.tasks.push(task);
     const segments = task.relativePath.split("/").filter(Boolean);
+    // The batch node already shows the batch name, so it is dropped from the
+    // path before the remaining segments become folder nodes.
     if (segments.length > 1 && segments[0] === task.batchName) segments.shift();
     let parent = batch;
     for (const segment of segments.slice(0, -1)) {
@@ -93,6 +113,11 @@ function buildTree(tasks: UploadTask[]) {
   });
 }
 
+/**
+ * Totals for a set of tasks: cancelled uploads are left out of every figure,
+ * and the percentage measures bytes rather than files. With no bytes to measure
+ * it reports 100 % when every remaining task is completed, and 0 % otherwise.
+ */
 function summarize(tasks: UploadTask[]) {
   const included = tasks.filter((task) => task.status !== "cancelled");
   const totalBytes = included.reduce((sum, task) => sum + task.size, 0);
@@ -110,6 +135,7 @@ function summarize(tasks: UploadTask[]) {
   return { totalBytes, uploadedBytes, completed, total: included.length, progress };
 }
 
+/** Pause, resume, cancel or remove button for one task, chosen by its status. */
 function TaskActions({ task }: { task: UploadTask }) {
   const { t } = useI18n();
   const pause = useUploadStore((state) => state.pause);
@@ -166,6 +192,12 @@ function TaskActions({ task }: { task: UploadTask }) {
   );
 }
 
+/**
+ * One row of the shelf tree, rendering its children with itself: expander,
+ * kind icon, name, status chip, byte detail and progress. `root` marks the rows
+ * the shelf mounts directly, which omit the chevron placeholder of a leaf
+ * because nothing sits beside them.
+ */
 function UploadTreeItem({ node, root = false }: { node: UploadNode; root?: boolean }) {
   const { t } = useI18n();
   const summary = summarize(node.tasks);
@@ -247,6 +279,11 @@ function UploadTreeItem({ node, root = false }: { node: UploadNode; root?: boole
   );
 }
 
+/**
+ * Floating upload queue: every task as a tree with byte progress and its own
+ * pause, resume, cancel or remove action, plus a summary of the whole set.
+ * Renders nothing while the queue is empty, and its tree starts expanded.
+ */
 export function UploadShelf() {
   const { t } = useI18n();
   const tasks = useUploadStore((state) => state.tasks);
@@ -258,6 +295,8 @@ export function UploadShelf() {
   const summary = summarize(tasks);
   const active = tasks.filter((task) => !["completed", "cancelled"].includes(task.status)).length;
   const failed = tasks.filter((task) => task.status === "failed").length;
+  // The tree tracks expansion itself, so this is read on mount only: batches and
+  // their folders start open, files are leaves and stay that way.
   const expandedKeys = new Set(
     tree.flatMap((batch) => [
       batch.id,

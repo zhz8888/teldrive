@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 
+/** `/settings/sessions` — the browser sessions of the signed-in account. */
 export const Route = createFileRoute("/_settings/settings/sessions")({
   component: SessionsSettings,
   pendingComponent: () => (
@@ -19,8 +20,13 @@ export const Route = createFileRoute("/_settings/settings/sessions")({
   ),
 });
 
+/**
+ * Lists the account's active sessions and revokes them one at a time. The current session
+ * is marked and cannot be revoked from here, so the page cannot log its own user out.
+ */
 function SessionsSettings() {
   const { t } = useI18n();
+  // Id of the session the confirmation dialog is asking about; null keeps it closed.
   const [revokeSessionId, setRevokeSessionId] = useState<string | null>(null);
   const query = $api.useSuspenseQuery(
     "get",
@@ -92,6 +98,8 @@ function SessionsSettings() {
       <ConfirmDialog
         open={revokeSessionId !== null}
         onOpenChange={(open) => {
+          // Dismissal is ignored while the revoke is in flight, so the dialog cannot
+          // close before the request that it started has settled.
           if (!open && !revoke.isPending) setRevokeSessionId(null);
         }}
         title={t("settings.sessions.revoke.title")}

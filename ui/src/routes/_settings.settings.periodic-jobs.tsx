@@ -18,24 +18,49 @@ import { ConfirmDialog } from "../components/dialogs/confirm-dialog";
 import { SettingsPageHeader } from "../components/settings-layout";
 import { useAppForm } from "../forms/app-form";
 
+/** A registered periodic job as the API returns it, including its next run and pause state. */
 type PeriodicJob = components["schemas"]["PeriodicJob"];
+/** A catalog entry describing one worker kind and the defaults it suggests. */
 type PeriodicJobTemplate = components["schemas"]["PeriodicJobTemplate"];
+/** Body of a create call; `id` names the job and `paused` decides whether it starts paused. */
 type PeriodicJobCreateRequest = components["schemas"]["PeriodicJobCreate"];
+/** Body of an update call: the same fields as a create, minus the id. */
 type PeriodicJobUpdateRequest = components["schemas"]["PeriodicJobUpdate"];
 
+/**
+ * Editor state for one periodic job. It mirrors the API body but in the shapes a form can
+ * hold: arguments are JSON text, tags are comma-separated, and `id` is present even when
+ * editing, where the field is shown read-only.
+ */
 type JobFormValues = {
+  /** Job id; the create call's key, and read-only once the job exists. */
   id: string;
+  /** Registered worker kind to run. */
   kind: string;
+  /** Arguments as JSON text, parsed on submit rather than on each keystroke. */
   argsText: string;
+  /** Queue the job is inserted into. */
   queue: string;
+  /** River priority, 1 (highest) to 4. */
   priority: number;
+  /** Attempts before the job is discarded. */
   maxAttempts: number;
+  /** Tags as a comma-separated list, split and trimmed on submit. */
   tagsText: string;
+  /** Cron expression in `cronTimezone`, not in the browser's zone. */
   cronExpression: string;
+  /** IANA zone the expression is evaluated in; "UTC" when left blank. */
   cronTimezone: string;
+  /** Whether the job starts paused; only sent when creating. */
   paused: boolean;
 };
 
+/**
+ * The blank form, used when the editor opens with neither a job to edit nor a template to
+ * seed from, and the base that every seeded form spreads over. Its values are the client's
+ * own starting point — queue "cron", highest priority, 25 attempts, daily at midnight UTC —
+ * rather than anything read back from the server.
+ */
 const EMPTY_JOB: JobFormValues = {
   id: "",
   kind: "",
@@ -49,6 +74,11 @@ const EMPTY_JOB: JobFormValues = {
   paused: false,
 };
 
+/**
+ * Ready-made schedules offered as one-click buttons, with the expression each one stands
+ * for. They are ordinary five-field cron in the job's own timezone, and the buttons also
+ * highlight when the current expression matches one of them.
+ */
 const CRON_PRESETS = [
   { labelKey: "settings.periodicJobs.preset.hourly", value: "0 * * * *" },
   { labelKey: "settings.periodicJobs.preset.every2Hours", value: "0 */2 * * *" },
@@ -57,6 +87,11 @@ const CRON_PRESETS = [
   { labelKey: "settings.periodicJobs.preset.weekly", value: "0 0 * * 0" },
 ] as const;
 
+/**
+ * `/settings/periodic-jobs` — the cron-driven job schedules. The loader warms both the
+ * schedule list and the worker catalog, because the editor's template picker is populated
+ * from the catalog as soon as it opens.
+ */
 export const Route = createFileRoute("/_settings/settings/periodic-jobs")({
   loader: async () => {
     await Promise.all([
@@ -67,6 +102,11 @@ export const Route = createFileRoute("/_settings/settings/periodic-jobs")({
   component: PeriodicJobsPage,
 });
 
+/**
+ * Lists the periodic jobs and owns every mutation on them: create, update, delete, pause,
+ * resume and the bulk reset. Each mutation refreshes the list on success, because the
+ * server recomputes the next run time and the computed state is what the cards show.
+ */
 function PeriodicJobsPage() {
   const { t } = useI18n();
   const { data: jobsResponse } = api.useSuspenseQuery("get", "/v1/periodic-jobs");
@@ -74,11 +114,14 @@ function PeriodicJobsPage() {
   const jobs = jobsResponse.jobs ?? [];
   const templates = catalogResponse.templates ?? [];
 
+  // Dialog state: which job the editor holds (null means "create"), which one the delete
+  // dialog asks about, and whether the bulk reset is confirming.
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<PeriodicJob | null>(null);
   const [deleteJob, setDeleteJob] = useState<PeriodicJob | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
 
+  /** Refetches the schedule list; every mutation below calls it on success. */
   const invalidate = () =>
     queryClient.invalidateQueries({
       queryKey: api.queryOptions("get", "/v1/periodic-jobs").queryKey,
@@ -126,6 +169,8 @@ function PeriodicJobsPage() {
     onSuccess: () => {
       toast.success(t("settings.periodicJobs.toast.reset"));
       setResetOpen(false);
+      // `resetQueries` drops the cached list before refetching it, so nothing from the
+      // previous registration can survive a reset that removed schedules.
       void queryClient.resetQueries({
         queryKey: api.queryOptions("get", "/v1/periodic-jobs").queryKey,
       });
@@ -133,15 +178,23 @@ function PeriodicJobsPage() {
     onError: () => toast.error(t("settings.periodicJobs.toast.resetFailed")),
   });
 
+  /** Opens the editor on a blank form; `editingJob` being null is what selects create mode. */
   const openCreate = () => {
     setEditingJob(null);
     setEditorOpen(true);
   };
+  /** Opens the editor on an existing schedule, whose id becomes read-only. */
   const openEdit = (job: PeriodicJob) => {
     setEditingJob(job);
     setEditorOpen(true);
   };
 
+  /**
+   * Turns the form values into an API body and submits them. Creating sends the id and the
+   * initial pause flag; editing updates the job in place with a body that carries no
+   * `paused`, which the endpoint reads as "not paused" — so saving an edit to a paused
+   * schedule resumes it.
+   */
   const submitJob = async (values: JobFormValues) => {
     const args = parseArguments(values.argsText);
     const common = {
@@ -210,6 +263,8 @@ function PeriodicJobsPage() {
             <PeriodicJobCard
               key={job.id}
               job={job}
+              // A toggle is pending for this card when either mutation is in flight for
+              // this job's id; the two are separate operations on the same row.
               isToggling={
                 (pauseMutation.isPending &&
                   pauseMutation.variables?.params.path.periodicJobId === job.id) ||
@@ -264,6 +319,10 @@ function PeriodicJobsPage() {
   );
 }
 
+/**
+ * Summary card for one schedule: its id, kind, pause state and the four facts an operator
+ * checks first, with the pause/resume, edit and delete actions beside them.
+ */
 function PeriodicJobCard({
   job,
   isToggling,
@@ -358,6 +417,7 @@ function PeriodicJobCard({
   );
 }
 
+/** Label/value pair inside a schedule card; `mono` is for the cron expression. */
 function JobDetail({
   label,
   value,
@@ -381,6 +441,12 @@ function JobDetail({
   );
 }
 
+/**
+ * Create/edit dialog for a schedule. It is a TanStack Form whose fields are declared here
+ * and whose initial values come from the job being edited, from the first catalog template
+ * or from `EMPTY_JOB`; validation runs on submit only, because arguments are JSON text that
+ * is invalid for most of the time it is being typed.
+ */
 function PeriodicJobEditor({
   open,
   editingJob,
@@ -396,6 +462,7 @@ function PeriodicJobEditor({
 }) {
   const { t } = useI18n();
   const editing = Boolean(editingJob);
+  // Recomputed only when the dialog's subject changes; the form is reset to it on open.
   const initialValues = useMemo(
     () =>
       editingJob
@@ -428,6 +495,8 @@ function PeriodicJobEditor({
     },
     onSubmit: async ({ value }) => onSubmit(value),
   });
+  // The dialog stays mounted between openings, so the form is re-seeded every time it is
+  // opened; otherwise the previous job's values would still be in the fields.
   useEffect(() => {
     if (open) form.reset(initialValues);
   }, [form, initialValues, open]);
@@ -435,8 +504,14 @@ function PeriodicJobEditor({
   const values = useStore(form.store, (state) => state.values);
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const cronExpression = values.cronExpression;
+  // Plain-language rendering of the current expression, shown under the section heading.
   const scheduleDescription = useMemo(() => describeCron(cronExpression, t), [cronExpression, t]);
 
+  /**
+   * Applies a template's defaults to the form. The pause flag is always kept, and so is the
+   * id when editing; a new job instead takes the template's suggested id, falling back to
+   * whatever was typed when the template suggests none.
+   */
   const chooseTemplate = (kind: string) => {
     const template = templates.find((item) => item.kind === kind);
     if (!template) {
@@ -656,6 +731,10 @@ function PeriodicJobEditor({
   );
 }
 
+/**
+ * Seeds the form from a catalog template, keeping `EMPTY_JOB`'s defaults for everything
+ * the template does not suggest (priority, attempts, timezone, pause flag).
+ */
 function formFromTemplate(template: PeriodicJobTemplate): JobFormValues {
   return {
     ...EMPTY_JOB,
@@ -667,6 +746,10 @@ function formFromTemplate(template: PeriodicJobTemplate): JobFormValues {
   };
 }
 
+/**
+ * The inverse of `submitJob`: renders a stored schedule into the form, with its arguments
+ * pretty-printed as JSON and its tags joined into the comma-separated text the field holds.
+ */
 function formFromJob(job: PeriodicJob): JobFormValues {
   return {
     id: job.id ?? "",
@@ -682,6 +765,11 @@ function formFromJob(job: PeriodicJob): JobFormValues {
   };
 }
 
+/**
+ * Parses the arguments field, treating blank text as an empty object. Anything that is not
+ * a JSON object — a syntax error, an array, a scalar — throws, and the submit validator
+ * reports the thrown message on the field.
+ */
 function parseArguments(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value || "{}");
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object")
@@ -689,6 +777,11 @@ function parseArguments(value: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+/**
+ * Describes the current expression: by a preset's own name when one matches, as "empty"
+ * when nothing is typed, and by quoting the expression itself otherwise. Nothing is
+ * interpreted beyond that — there is no cron parser here.
+ */
 function describeCron(
   expression: string,
   t: (key: MessageKey, params?: MessageParams) => string,
@@ -699,6 +792,10 @@ function describeCron(
   return t("settings.periodicJobs.schedule.custom", { expression: expression.trim() });
 }
 
+/**
+ * Formats an optional timestamp in the browser's locale. An absent value reads as an em
+ * dash, and a value the date parser rejects is shown verbatim rather than as "Invalid Date".
+ */
 function formatDateTime(value?: string): string {
   if (!value) return "—";
   const date = new Date(value);

@@ -1,6 +1,10 @@
 import type { FileCategory, FileSort } from "@/api/types";
 import type { DriveSearchOptions } from "./queries";
 
+/**
+ * Categories offered by the filter panel, in display order. Validation also accepts a
+ * category only if it appears here, so this list is the allow-list for the URL parameter.
+ */
 export const searchCategories: FileCategory[] = [
   "archive",
   "audio",
@@ -10,17 +14,29 @@ export const searchCategories: FileCategory[] = [
   "other",
 ];
 
+/** Validated `/search` route state; every field is optional and reflects one URL parameter. */
 export type SearchState = {
+  /** Free-text query; trimmed, capped at 512 characters. */
   q?: string;
+  /** "recursive" searches inside `parentId`, "drive" searches the whole drive. */
   scope?: "drive" | "recursive";
+  /** Folder to search in; only meaningful together with the recursive scope. */
   parentId?: string;
+  /** Display path of `parentId`, shown by the search controls; never sent to the API. */
   folderPath?: string;
+  /** Restricts results to files or to folders; unset means both. */
   kind?: "file" | "folder";
+  /** Selected categories; unknown values are dropped and the order is canonicalized. */
   category?: FileCategory[];
+  /** Inclusive lower bound on the modification time, as a canonical ISO instant. */
   updatedAfter?: string;
+  /** Exclusive upper bound on the modification time, as a canonical ISO instant. */
   updatedBefore?: string;
+  /** Sort key; only "updatedAt" and "size" are accepted, anything else reads as "name". */
   sort?: FileSort;
+  /** Sort direction; anything other than "desc" reads as ascending. */
   order?: "asc" | "desc";
+  /** Result layout; defaults to the list view. */
   view?: "list" | "grid";
 };
 

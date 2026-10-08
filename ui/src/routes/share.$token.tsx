@@ -20,24 +20,48 @@ import { FileBrowser, formatFileBytes, type FileBrowserView } from "@/features/f
 import { copyText } from "@/features/files/download";
 import { useI18n } from "@/lib/i18n";
 
+/**
+ * `/share/$token` — the public view of a share link. It is reachable without a session and
+ * talks to the `/v1/public/shares/*` endpoints only, carrying the share token in the URL
+ * and, for a protected share, the password in the `X-Share-Password` header.
+ */
 export const Route = createFileRoute("/share/$token")({
   component: PublicSharePage,
 });
 
+/**
+ * One page of a shared folder's children; `items` may be absent, which the page below
+ * reads as an empty folder.
+ */
 type ShareFilePage = { items: FileEntry[] };
+/**
+ * Upload session opened against a share: `id` names the session the parts are posted to,
+ * and `partSize` is the server-chosen chunk size in bytes the parts must respect.
+ */
 type UploadSession = { id: string; partSize: number };
 
+/**
+ * The public share browser. It is deliberately self-contained: no session, no query cache
+ * and no drive routes, just the token from the URL, a password once one is accepted, and
+ * a path within the shared folder. Write actions are offered only when the share grants
+ * edit permission and its root is a folder.
+ */
 function PublicSharePage() {
   const { token } = Route.useParams();
   const { t } = useI18n();
+  // What the visitor is typing; `activePassword` below is what the requests actually send,
+  // and only a submit copies one into the other.
   const [password, setPassword] = useState("");
   const [activePassword, setActivePassword] = useState("");
   const [share, setShare] = useState<PublicShare>();
   const [items, setItems] = useState<FileEntry[]>([]);
   const [path, setPath] = useState("/");
+  // Folder ids learned while descending, keyed by path relative to the share root; the
+  // root's own id is seeded from the share response, since the API filters by id.
   const [pathIds, setPathIds] = useState<Record<string, string>>({});
   const [view, setView] = useState<FileBrowserView>("list");
   const [loading, setLoading] = useState(true);
+  // Set when the share answered 401, which is how a password-protected link asks for one.
   const [needsPassword, setNeedsPassword] = useState(false);
   const [error, setError] = useState<string>();
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set());
@@ -45,14 +69,19 @@ function PublicSharePage() {
   const [folderName, setFolderName] = useState("");
   const [renameFile, setRenameFile] = useState<FileEntry>();
   const [renameName, setRenameName] = useState("");
+  // Set while an upload is in flight: it disables the upload button and makes a second
+  // file pick a no-op.
   const [uploading, setUploading] = useState(false);
   const editable = share?.permission === "edit" && share.file.kind === "folder";
+  // "all" is a selection sentinel from the list box, not a key that can be looked up.
   const selectedIds =
     selectedKeys === "all" ? items.map((item) => item.id) : Array.from(selectedKeys, String);
   const selectedFiles = items.filter((item) => selectedIds.includes(item.id));
   const singleSelected = selectedFiles.length === 1 ? selectedFiles[0] : undefined;
+  // Target for writes: the folder being browsed, or the share root for a single-file share.
   const currentParentId = share ? (pathIds[path] ?? share.file.id) : undefined;
 
+  /** Loads the share and resets browsing to its root; the caller turns a 401 into the prompt. */
   const loadShare = async (signal: AbortSignal) => {
     const response = await apiFetch(`/v1/public/shares/${encodeURIComponent(token)}`, {
       headers: shareHeaders(activePassword),
@@ -66,6 +95,8 @@ function PublicSharePage() {
     setPath("/");
   };
 
+  // Re-runs whenever the token or the accepted password changes, and aborts the previous
+  // request: a stale 401 from an old password must not reopen the password prompt.
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -86,6 +117,11 @@ function PublicSharePage() {
     return () => controller.abort();
   }, [token, activePassword]);
 
+  /**
+   * Lists the folder being browsed, or the shared file itself when the share points at a
+   * single file. The path is sent relative to the share root, and one request carries the
+   * whole page (200 entries) because the public browser has no pagination control.
+   */
   const refreshItems = async (signal?: AbortSignal) => {
     if (share?.file.kind !== "folder") {
       setItems(share ? [share.file] : []);
@@ -104,6 +140,7 @@ function PublicSharePage() {
     if (!signal?.aborted) setItems(page.items ?? []);
   };
 
+  // Reloads the listing whenever the share, the password or the browsed path changes.
   useEffect(() => {
     if (!share) return;
     const controller = new AbortController();
@@ -119,8 +156,14 @@ function PublicSharePage() {
     return () => controller.abort();
   }, [share, token, activePassword, path]);
 
+  // A selection belongs to the folder it was made in, so it is dropped on navigation.
   useEffect(() => setSelectedKeys(new Set()), [path]);
 
+  /**
+   * URL of a file's bytes. A share whose root is a single file has its own content route;
+   * entries below a folder root are addressed by file id, and both end in the file name so
+   * a browser saving the response gets a sensible default.
+   */
   const publicContentUrl = (file: FileEntry) => {
     const isRootFile = share?.file.kind === "file" && file.id === share.file.id;
     const fileName = encodeURIComponent(file.name);
@@ -130,12 +173,17 @@ function PublicSharePage() {
     return new URL(`/api${endpoint}`, window.location.origin).toString();
   };
 
+  /** The same URL with the flag that makes the server send a download response. */
   const publicDownloadUrl = (file: FileEntry) => {
     const url = new URL(publicContentUrl(file));
     url.searchParams.set("download", "1");
     return url.toString();
   };
 
+  /**
+   * Fetches the file with the share's credentials and saves the response body, so the
+   * password travels in a header rather than in the URL.
+   */
   const download = async (file: FileEntry) => {
     setError(undefined);
     try {
@@ -162,6 +210,10 @@ function PublicSharePage() {
     }
   };
 
+  /**
+   * Copies a link anyone can fetch. Refused for a password-protected share: the password
+   * cannot be part of a URL, so the copied link would not open for its recipient.
+   */
   const copyDownloadLink = async (file: FileEntry) => {
     if (activePassword) {
       toast.error(t("routes.share.toast.directLinkUnavailable"));
@@ -177,6 +229,7 @@ function PublicSharePage() {
     }
   };
 
+  /** A folder is descended into and remembered by id; a file is downloaded instead. */
   const openFile = (file: FileEntry) => {
     if (file.kind === "folder") {
       const nextPath = joinPath(path, file.name);
@@ -187,6 +240,10 @@ function PublicSharePage() {
     void download(file);
   };
 
+  /**
+   * Creates a folder inside the one being browsed. The conflict policy is "fail", so an
+   * existing name is rejected rather than auto-renamed.
+   */
   const createFolder = async () => {
     const name = folderName.trim();
     if (!name || !currentParentId) return;
@@ -211,6 +268,11 @@ function PublicSharePage() {
     }
   };
 
+  /**
+   * Renames the file the dialog was opened for. The write is conditional on the
+   * generation the page last saw, so renaming a file someone else changed in the meantime
+   * is refused rather than overwriting their version.
+   */
   const renameSelected = async () => {
     if (!renameFile || !renameName.trim()) return;
     try {
@@ -285,6 +347,11 @@ function PublicSharePage() {
     toast.success(t("routes.share.toast.trashed", { count: removedIds.size }));
   };
 
+  /**
+   * Uploads one file as a sequence of parts: open a session, PUT each chunk under its
+   * 1-based part number, then complete it. A failure anywhere deletes the session, so a
+   * half-uploaded file does not linger in the share.
+   */
   const uploadFile = async (file: File) => {
     if (!currentParentId || uploading) return;
     setUploading(true);
@@ -309,6 +376,7 @@ function PublicSharePage() {
       );
       const session = (await createResponse.json()) as UploadSession;
       uploadId = session.id;
+      // A zero part size would make the offset loop below never advance.
       const partSize = Math.max(1, session.partSize);
       let partNo = 1;
       for (let offset = 0; offset < file.size; offset += partSize, partNo += 1) {
@@ -597,10 +665,15 @@ function PublicSharePage() {
   );
 }
 
+/**
+ * Headers for a share request. The password goes in `X-Share-Password` rather than the
+ * URL, and an unprotected share sends no header at all.
+ */
 function shareHeaders(password: string): HeadersInit | undefined {
   return password ? { "X-Share-Password": password } : undefined;
 }
 
+/** The same, for a request with a JSON body, which also needs a content type. */
 function jsonShareHeaders(password: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -608,6 +681,11 @@ function jsonShareHeaders(password: string): Record<string, string> {
   };
 }
 
+/**
+ * Appends one path segment to a share-rooted path. The share root is "/", so joining it
+ * with a name must not produce a leading "//", and collapsing repeated slashes keeps the
+ * path comparable with the keys of the folder-id map.
+ */
 function joinPath(parent: string, name: string) {
   return `${parent === "/" ? "" : parent}/${name}`.replace(/\/+/g, "/") || "/";
 }

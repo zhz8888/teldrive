@@ -4,11 +4,18 @@ import { useEffect, useRef } from "react";
 import type { FileEntry } from "@/api/types";
 import { previewMedia } from "@/features/files/preview-support";
 
+/**
+ * Plays one video file through the shared player. `url` must already be an
+ * authenticated content URL; the preview dialog builds it from the file.
+ */
 export function VideoViewer({ file, url }: { file: FileEntry; url: string }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const root = rootRef.current;
+    // Unmounting only detaches the player element, so the video is stopped by
+    // hand: pausing, clearing the source and calling load() releases the stream
+    // instead of leaving playback running in the background.
     return () => {
       const video = root?.querySelector("video");
       if (!video) return;

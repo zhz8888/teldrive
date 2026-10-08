@@ -37,45 +37,88 @@ const THEME_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
   ["components.epubReader.themeGray", "gray"],
   ["components.epubReader.themeNight", "night"],
 ];
+/** Value foliate receives: keep the publisher's fonts, or force serif or sans. */
 const FONT_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
   ["components.epubReader.fontOriginal", "publisher"],
   ["components.epubReader.fontSerif", "serif"],
   ["components.epubReader.fontSans", "sans"],
 ];
+/** Value foliate receives: paginated columns, or one scrolling column. */
 const FLOW_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
   ["components.epubReader.layoutPages", "paginated"],
   ["components.epubReader.layoutScroll", "scrolled"],
 ];
+/** Column counts offered for the paginated flow, as foliate's attribute strings. */
 const COLUMN_OPTIONS: ReadonlyArray<readonly [MessageKey, string]> = [
   ["components.epubReader.columnsSingle", "1"],
   ["components.epubReader.columnsDouble", "2"],
 ];
 
+/** Props of {@link EpubReader}; the parent mounts it only while it is shown. */
 export type EpubReaderProps = {
+  /** Entry shown in the header and in the navigation details tab. */
   file: FileEntry;
+  /** Authenticated content URL the publication is fetched from. */
   url: string;
+  /** Called after teardown finished, which is when the parent may unmount. */
   onClose: () => void;
 };
 
+/** One navigation row, flattened out of foliate's nested table of contents. */
 type TocItem = {
+  /** Key unique in the flattened list, built from the path to the entry. */
   id: string;
+  /** Chapter title shown in the navigation list. */
   label: string;
+  /** Publication-relative target handed to the view's `goTo`. */
   href: string;
+  /** Nesting level used for the row indent; the top level is 0. */
   depth: number;
 };
 
+/**
+ * Position foliate reports for the current reading spot: its synthetic
+ * "locations" scheme, not page numbers and not a fraction of the book.
+ */
 type Location = { current?: number; total?: number };
 
+/**
+ * EPUB reader built on the foliate `foliate-view` custom element, which is
+ * created imperatively because it is not a React component.
+ *
+ * One effect owns the publication for as long as the reader is mounted: it
+ * fetches `url`, opens the book and destroys it again on unmount, including
+ * when the reader is left by navigation rather than through the close button.
+ * Everything the close path has to wait for (navigation, the in-flight open,
+ * chapter fonts) is tracked in refs, because teardown must stay bounded: a
+ * promise that never settles must not trap the reader open.
+ */
 export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // The custom element lives outside React, so it is reached through a ref.
   const viewRef = useRef<FoliateViewElement | undefined>(undefined);
+  // False from the first close request on: every await in the loader re-checks
+  // it before it touches state or the DOM.
   const activeRef = useRef(true);
+  // Promises returned by foliate's navigation calls. Closing waits for them, so
+  // a navigation that is still running is not cut off by the publication being
+  // destroyed underneath it.
   const navigationTasksRef = useRef(new Set<Promise<unknown>>());
+  // Latest appearance settings, for the loader effect, which must not re-run
+  // when one of them changes.
   const preferencesRef = useRef<ReaderPreferences | undefined>(undefined);
+  // Kept current so the teardown closure calls the latest handler without
+  // listing it as an effect dependency.
   const onCloseRef = useRef(onClose);
+  // The in-flight open, so a close can wait for a book that is still parsing.
   const openingRef = useRef<Promise<void> | undefined>(undefined);
+  // Chapter documents foliate currently has mounted: key handlers are attached
+  // to them and detached again when the next chapter replaces them.
   const loadedDocumentsRef = useRef(new Set<Document>());
+  // Closing is idempotent; the first request wins and later ones are ignored.
   const closingRef = useRef(false);
+  // Marks the publication as destroyed, so the unmount cleanup and the close
+  // path cannot destroy the same book twice.
   const closedRef = useRef(false);
   onCloseRef.current = onClose;
   const isDesktop = useMediaQuery("(min-width: 1024px)");
@@ -83,6 +126,8 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   const { t } = useI18n();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // `closing` hides the loading overlay while the reader tears down; `title`
+  // starts as the file name until the book's metadata supplies the real one.
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string>();
   const [closing, setClosing] = useState(false);
@@ -100,6 +145,9 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   const [margin, setMargin] = useState(48);
   const [columns, setColumns] = useState(2);
 
+  // The appearance settings, mirrored into `preferencesRef` below. The loader
+  // effect reads the ref so that changing a setting only re-styles the open
+  // book: reloading it would lose the reading position.
   const preferences: ReaderPreferences = {
     theme,
     flow,
@@ -111,6 +159,9 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   };
   preferencesRef.current = preferences;
 
+  // A navigation that fails (a torn-down renderer, an href the book does not
+  // have) must not surface as an unhandled rejection, and the close path needs
+  // a settled promise, so the tracked promise swallows its rejection.
   const trackNavigation = useCallback((task: Promise<unknown>) => {
     const tracked = Promise.resolve(task).catch(() => undefined);
     navigationTasksRef.current.add(tracked);
@@ -142,6 +193,8 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   };
 
   useEffect(() => {
+    // Re-armed on every run: the cleanup of a previous run, and React's
+    // double-invoked mount in development, both set it to false.
     activeRef.current = true;
     const host = hostRef.current;
     if (!host) return;
@@ -174,6 +227,9 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
         loadedDocuments.delete(previous);
       }
       loadedDocuments.add(doc);
+      // A chapter is a separate document, and a key pressed inside its frame
+      // never reaches the reader's own window listener, so each chapter
+      // document gets its own handler.
       doc.addEventListener("keydown", onReaderKeyDown);
       const updateRenderedContent = () => {
         const text = doc.body?.innerText.trim();
@@ -200,14 +256,21 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
     const open = async () => {
       setReady(false);
       setError(undefined);
+      // Dynamic import: the foliate engine is only pulled in once a book is
+      // actually opened.
       await import("foliate-js/view.js");
       if (!activeRef.current) return;
 
       element = document.createElement("foliate-view");
+      // The custom element brings no styles of its own, so the host gives it
+      // the full size of the reading pane.
       element.className = "block h-full min-h-0 w-full";
       host.replaceChildren(element);
       viewRef.current = element;
 
+      // The content URL is authenticated by the session cookie, and the body is
+      // wrapped in a File carrying the entry's name and MIME type so foliate can
+      // detect the publication format.
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Unable to load publication (${response.status}).`);
       const bookFile = new File([await response.blob()], file.name, { type: file.mimeType });
@@ -229,6 +292,8 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
       setReady(true);
     };
 
+    // Assigned synchronously, so a close that arrives while the book is still
+    // loading always has a promise to wait for.
     openingRef.current = open().catch((reason: unknown) => {
       if (activeRef.current) {
         setError(
@@ -259,6 +324,13 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
     };
   }, [file.id, file.mimeType, file.name, trackNavigation, url]);
 
+  /**
+   * Starts the teardown and calls `onClose` once it has settled: pending
+   * navigation and the in-flight open are awaited, chapter fonts are given a
+   * chance to finish, two frames are allowed to paint, and only then is the
+   * publication destroyed. Every wait is bounded by {@link settleSoon}, so a
+   * promise that never settles still closes the reader.
+   */
   const requestClose = useCallback(() => {
     if (closingRef.current) return;
     closingRef.current = true;
@@ -277,6 +349,8 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
         const fontLoads = [...loadedDocumentsRef.current].flatMap((doc) =>
           doc.fonts?.ready ? [doc.fonts.ready.catch(() => undefined)] : [],
         );
+        // Bounded like the navigation wait: the frames below are what actually
+        // lets the last layout settle before the documents go away.
         await settleSoon(fontLoads);
         await nextAnimationFrame();
         await nextAnimationFrame();
@@ -302,11 +376,16 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
     void finishClose();
   }, [drawerState]);
 
+  // Appearance changes re-style the live publication instead of reloading it;
+  // the loader effect never re-runs for a setting.
   useEffect(() => {
     const view = viewRef.current;
     if (view) applyPublicationAppearance(view, preferences);
   }, [columns, flow, font, fontSize, lineHeight, margin, theme]);
 
+  // Keys pressed while the focus is on the reader chrome, or on the page body,
+  // are handled here; keys pressed inside a chapter frame are handled by the
+  // per-document listener the loader attaches.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
@@ -502,6 +581,11 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   );
 }
 
+/**
+ * Navigation panel shown in the desktop sidebar or the mobile drawer: the file
+ * name over a contents / details tab pair. `activeChapter` highlights the entry
+ * the reading position currently falls under.
+ */
 function EpubNavigation({
   file,
   toc,
@@ -578,6 +662,7 @@ function EpubNavigation({
   );
 }
 
+/** Label and value pair of the navigation details tab. */
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -587,6 +672,11 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Appearance popover behind the "Aa" button: theme, font, text size, line
+ * spacing, margins, layout and column count. Every change is applied to the
+ * live publication by the caller, so the reader keeps its position.
+ */
 function EpubSettings({
   isOpen,
   onOpenChange,
@@ -700,6 +790,10 @@ function EpubSettings({
   );
 }
 
+/**
+ * Setting rendered as a row of mutually exclusive buttons; `options` pairs each
+ * catalog label with the value foliate receives.
+ */
 function SettingButtons({
   label,
   value,
@@ -731,6 +825,10 @@ function SettingButtons({
   );
 }
 
+/**
+ * Setting rendered as a slider, with the current value shown as `output` at the
+ * end of the label row.
+ */
 function SettingSlider({
   label,
   value,
@@ -770,6 +868,11 @@ function SettingSlider({
   );
 }
 
+/**
+ * Flattens foliate's nested table of contents into the list the panel renders.
+ * Each id repeats the path to the entry, because labels and hrefs alone are not
+ * unique across a book.
+ */
 function flattenToc(
   items: Array<{ label: string; href: string; subitems?: unknown[] }>,
   depth = 0,
@@ -788,6 +891,10 @@ function flattenToc(
   });
 }
 
+/**
+ * Position shown in the header and footer: foliate's location counter when it
+ * has one, otherwise the percentage of the book read.
+ */
 function locationLabel(location: Location, progress: number) {
   if (location.current !== undefined && location.total)
     return translate("components.epubReader.pageLocation", {
@@ -797,6 +904,7 @@ function locationLabel(location: Location, progress: number) {
   return `${Math.round(progress * 100)}%`;
 }
 
+/** Formats a byte count in binary units; a falsy value renders as "0 B". */
 function formatBytes(value: number) {
   if (!value) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -804,6 +912,7 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+/** Whether a key event came from a field that keeps its own navigation keys. */
 function isEditableTarget(target: EventTarget | null) {
   return (
     target instanceof HTMLInputElement ||
@@ -813,6 +922,7 @@ function isEditableTarget(target: EventTarget | null) {
   );
 }
 
+/** Resolves on the next animation frame, used to let a paint finish mid-teardown. */
 function nextAnimationFrame() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }

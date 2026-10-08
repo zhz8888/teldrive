@@ -15,6 +15,7 @@ import { useFileActions } from "@/features/files/mutations";
 import { useFilePage } from "@/features/files/queries";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
+/** `/trash` — the trashed files only, with restore and permanent-delete actions. */
 export const Route = createFileRoute("/trash")({
   component: TrashPage,
   pendingComponent: () => (
@@ -24,11 +25,19 @@ export const Route = createFileRoute("/trash")({
   ),
 });
 
+/**
+ * Labels for the entry kinds the trash can hold. A kind with no key here falls back to
+ * the raw value in the chip, so a future kind shows up rather than rendering blank.
+ */
 const KIND_LABEL_KEYS: Record<string, MessageKey | undefined> = {
   file: "routes.trash.kind.file",
   folder: "routes.trash.kind.folder",
 };
 
+/**
+ * Renders the trashed entries as a flat, drive-wide list. The listing parameters are
+ * fixed — newest deletion first, no folder scope — because the trash is not navigable.
+ */
 function TrashPage() {
   const { t } = useI18n();
   const query = useFilePage(
@@ -41,8 +50,11 @@ function TrashPage() {
     "trashed",
   );
   const actions = useFileActions();
+  // Entry the "delete forever" dialog is asking about; undefined keeps it closed.
   const [purging, setPurging] = useState<FileEntry>();
+  // Whether the empty-trash dialog is open; it has no per-entry subject.
   const [cleaningTrash, setCleaningTrash] = useState(false);
+  // The pages of an infinite query are flattened here: the trash has no folders to group by.
   const trashedFiles = query.data.pages.flatMap((page) => page.items);
 
   const restore = async (file: FileEntry) => {
@@ -181,6 +193,8 @@ function TrashPage() {
         isPending={actions.pending}
         onConfirm={() => {
           if (!purging) return;
+          // The dialog closes when the purge settles — success or failure alike; the toast
+          // is what reports the outcome.
           void purge(purging).finally(() => setPurging(undefined));
         }}
       />

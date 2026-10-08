@@ -7,6 +7,7 @@
 import type { AreaMessages } from "../../types";
 import type { settings as enSettings } from "../en/settings";
 
+/** Wording of the settings screens, one group per page. */
 export const settings: AreaMessages<typeof enSettings> = {
   "settings.appearance.title": "外观",
   "settings.appearance.description": "控制 Teldrive 在当前浏览器中的显示方式。",

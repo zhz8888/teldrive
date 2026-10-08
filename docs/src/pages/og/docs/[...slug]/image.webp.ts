@@ -3,6 +3,11 @@ import { generateOGImage } from 'fumadocs-ui/og/takumi';
 import { getLocaleSource } from '@/lib/source';
 import { defaultLocale, isLocaleCode, localeCodes, type LocaleCode } from '@/lib/i18n';
 
+/**
+ * Enumerates one image path per documentation page and locale: unprefixed for
+ * English, `/zh/...` for Chinese, always ending in `image.webp`. The index page
+ * has no slug of its own, so it is given the `index` segment.
+ */
 export const getStaticPaths = (async () => {
   const paths: { params: { slug: string } }[] = [];
 
@@ -23,6 +28,10 @@ export const getStaticPaths = (async () => {
   return paths;
 }) satisfies GetStaticPaths;
 
+/**
+ * Renders the Open Graph card of one documentation page as WebP, or answers 404
+ * when the slug matches no page.
+ */
 export const GET: APIRoute = async ({ params }) => {
   const segments = params.slug?.split('/').filter((item) => item.length > 0) ?? [];
 

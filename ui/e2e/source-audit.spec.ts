@@ -2,8 +2,10 @@ import { expect, test } from "@playwright/test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+// Absolute path of the shipped UI sources every policy check below scans.
 const sourceRoot = join(process.cwd(), "src");
 
+/** Lists every .ts, .tsx and .css file below a directory, recursively. */
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
     const path = join(directory, entry);
@@ -62,6 +64,8 @@ test("the document loads every script from a file, never inline", () => {
 // Han, Hangul and kana ranges plus the compatibility ideographs: the characters a
 // translated string is made of. Latin accents are deliberately not included.
 const cjkPattern = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+// Only this directory may hold Chinese copy; every other source file is scanned
+// for CJK characters.
 const translationRoot = join(sourceRoot, "lib", "i18n");
 
 // callArguments returns the text between the parentheses of a call whose opening

@@ -43,6 +43,11 @@ import { useI18n, type MessageKey } from "../lib/i18n";
 import { getQueryClient } from "../lib/queryClient";
 import { useTheme } from "../lib/theme";
 
+/**
+ * Sidebar destinations in display order. An entry that declares a `capability` is only
+ * rendered for users whose profile carries it; the optional field is what keeps the
+ * unguarded entries free of an empty capability string.
+ */
 const mainNav = [
   { labelKey: "routes.root.nav.files", icon: GridIcon, path: "/files" },
   { labelKey: "routes.root.nav.shared", icon: FolderIcon, path: "/shared" },
@@ -62,8 +67,13 @@ const mainNav = [
   capability?: string;
 }[];
 
+/**
+ * Viewport width at which the sidebar is docked instead of opened as a drawer. Must stay
+ * in step with the `lg:` layout classes, which switch at the same 1024px.
+ */
 const DESKTOP_BREAKPOINT = 1024;
 
+/** Maps the current path to the header title, matching nested paths by prefix. */
 function getPageTitle(pathname: string, t: (key: MessageKey) => string) {
   if (pathname === "/search") return t("routes.root.title.search");
   if (pathname.startsWith("/settings")) return t("routes.root.title.settings");
@@ -73,6 +83,11 @@ function getPageTitle(pathname: string, t: (key: MessageKey) => string) {
   return item ? t(item.labelKey) : t("common.app.name");
 }
 
+/**
+ * Primary navigation rail. `collapsed` keeps the icons and hides the labels when docked;
+ * the same component is reused as the mobile drawer, where `mobile` forces the wide
+ * layout and `onNavigate` closes the drawer after a tap.
+ */
 function Sidebar({
   collapsed,
   mobile,
@@ -90,6 +105,8 @@ function Sidebar({
     (item) => !("capability" in item) || Boolean(user?.capabilities.includes(item.capability)),
   );
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  // A user without a name or handle is still identified, by a translated placeholder
+  // keyed on the numeric id, so the menu never renders an empty trigger.
   const displayName =
     user?.displayName?.trim() ||
     user?.username?.trim() ||
@@ -108,6 +125,8 @@ function Sidebar({
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase())
       .join("") || "U";
+  // The whole query cache is dropped before leaving for the login screen: it is keyed by
+  // resource rather than by session, so keeping it would show the next user this one's data.
   const signOut = async () => {
     try {
       await logout.mutateAsync({});
@@ -255,6 +274,10 @@ function Sidebar({
   );
 }
 
+/**
+ * Header bar: the sidebar toggle, the current page title, the drive search box and the
+ * theme switch. On mobile the toggle opens the drawer instead of collapsing the rail.
+ */
 function TopBar({
   collapsed,
   desktop,
@@ -293,10 +316,14 @@ function TopBar({
     }, 300);
   };
 
+  // Mirrors the URL back into the box while on the search page, so back/forward and
+  // edits made elsewhere in the app show the query the results actually used.
   useEffect(() => {
     if (pathname === "/search")
       setSearchText(typeof routeSearch.q === "string" ? routeSearch.q : "");
   }, [pathname, routeSearch]);
+  // Re-registered on every navigation, which cancels a debounce still waiting to fire:
+  // its closure holds the previous location's parameters.
   useEffect(
     () => () => {
       if (searchTimer.current) window.clearTimeout(searchTimer.current);
@@ -357,6 +384,9 @@ function TopBar({
         aria-label={t("routes.root.search.landmark")}
         className="flex min-w-0 flex-1 items-center md:max-w-md"
       >
+        {/* Submitting always lands on `/search`: filters the URL already holds are kept when
+            the box is used from the search page, and the folder open in the drive browser is
+            seeded as the id/path pair the recursive scope offers to search inside. */}
         <form
           className="w-full"
           onSubmit={(event) => {
@@ -391,6 +421,8 @@ function TopBar({
               ref={searchRef}
               aria-label={t("routes.root.search.label")}
               value={searchText}
+              // Matches the 512 characters the `/search` validator keeps, so the box cannot
+              // hold a query that the URL silently truncates.
               maxLength={512}
               enterKeyHint="search"
               onCompositionStart={() => {
@@ -444,6 +476,11 @@ function TopBar({
   );
 }
 
+/**
+ * Application chrome around every route: the docked or drawer sidebar, the top bar and
+ * the upload shelf. It also owns the `desktop` flag derived from `DESKTOP_BREAKPOINT`,
+ * because the same breakpoint decides whether the toggle collapses or opens the rail.
+ */
 function Layout() {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -473,6 +510,8 @@ function Layout() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // The login screen and public share links are reachable without a session and render
+  // their own full-page layout, so they bypass the sidebar, top bar and shelf entirely.
   if (pathname === "/login" || pathname.startsWith("/share/")) return <Outlet />;
   return (
     <AriaRouterProvider
@@ -527,10 +566,18 @@ function Layout() {
   );
 }
 
+/** Router context the app injects; the root route's guard is its only consumer. */
 export type RouterContext = {
+  /** Client used to prefetch the current user before any protected route renders. */
   queryClient: QueryClient;
 };
 
+/**
+ * Root route. Its `beforeLoad` gates every child except `/login` and `/share/*` on the
+ * current-user query: a 401 redirects to the login screen carrying the attempted URL, so
+ * signing in returns the user where they were; any other failure is rethrown, so it
+ * surfaces as a router error instead of a bounce to the login screen.
+ */
 export const Route = createRootRouteWithContext<RouterContext>()({
   beforeLoad: async ({ context, location }) => {
     if (location.pathname === "/login" || location.pathname.startsWith("/share/")) return;

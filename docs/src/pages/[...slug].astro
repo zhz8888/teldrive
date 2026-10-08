@@ -3,6 +3,8 @@ import DocsPage from '../components/DocsPage.astro';
 import { getLocaleSource } from '../lib/source';
 import { defaultLocale } from '../lib/i18n';
 
+// getStaticPaths renders one page per entry of the default locale's tree; the
+// slug segments become the route path and the raw entry is handed to DocsPage.
 export async function getStaticPaths() {
   const { source } = await getLocaleSource(defaultLocale);
   return source.getPages().map((page) => ({

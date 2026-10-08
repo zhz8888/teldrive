@@ -1,28 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 
+/**
+ * The four secret values the generator produces; each is 32 random bytes
+ * encoded as unpadded URL-safe Base64 and independent of the others.
+ */
 type Secrets = {
+  /** Password of the bundled PostgreSQL service, reused in the database URL. */
   databasePassword: string;
+  /** security.signing-key: the HS256 key for access tokens (32+ characters). */
   signingKey: string;
+  /** security.data-key: must decode back to exactly 32 bytes. */
   dataKey: string;
+  /** The version-1 entry of encryption.keys, used when encryption is on. */
   encryptionKey: string;
 };
 
+/** The configuration formats the generator renders, one builder each. */
 type OutputKind = 'compose' | 'env' | 'yaml' | 'cli';
 
+/** Returns `length` bytes from the browser CSPRNG; nothing leaves the browser. */
 function randomBytes(length: number) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return bytes;
 }
 
+/** Encodes bytes as unpadded URL-safe Base64, the form the settings accept. */
 function base64Url(bytes: Uint8Array) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
+// Every generated secret is this many bytes; Base64 makes 43 characters, which
+// clears the 32-character minimum the signing key is validated against.
 const SECRET_BYTES = 32;
 
+/** Generates a fresh set of secrets; callers replace all four at once. */
 function generateSecrets(): Secrets {
   return {
     databasePassword: base64Url(randomBytes(SECRET_BYTES)),
@@ -33,6 +47,10 @@ function generateSecrets(): Secrets {
 }
 
 
+/**
+ * Renders the docker-compose example: PostgreSQL with a healthcheck plus the
+ * released Teldrive image, sharing the generated password and keys.
+ */
 function buildCompose(secrets: Secrets, encryptionEnabled: boolean) {
   const encryption = encryptionEnabled
     ? `\n      TELDRIVE_ENCRYPTION_ACTIVE_KEY_VERSION: "1"\n      TELDRIVE_ENCRYPTION_KEYS: "1:${secrets.encryptionKey}"`
@@ -70,6 +88,7 @@ function buildCompose(secrets: Secrets, encryptionEnabled: boolean) {
 `;
 }
 
+/** Renders the .env form of the same settings, for a local `teldrive run`. */
 function buildEnv(secrets: Secrets, encryptionEnabled: boolean) {
   const encryption = encryptionEnabled
     ? `\nTELDRIVE_ENCRYPTION_ACTIVE_KEY_VERSION=1\nTELDRIVE_ENCRYPTION_KEYS=1:${secrets.encryptionKey}`
@@ -83,6 +102,7 @@ TELDRIVE_SECURITY_DATA_KEY=${secrets.dataKey}${encryption}
 `;
 }
 
+/** Renders the config.yaml form, with a database URL for a local PostgreSQL. */
 function buildYaml(secrets: Secrets, encryptionEnabled: boolean) {
   const encryption = encryptionEnabled
     ? `\nencryption:\n  active-key-version: 1\n  keys:\n    1: "${secrets.encryptionKey}"`
@@ -100,6 +120,7 @@ security:
 `;
 }
 
+/** Renders the same values as flags of `teldrive run`. */
 function buildCli(secrets: Secrets, encryptionEnabled: boolean) {
   const encryption = encryptionEnabled
     ? ` \\\n  --encryption-active-key-version 1 \\\n  --encryption-keys '1:${secrets.encryptionKey}'`
@@ -113,6 +134,7 @@ function buildCli(secrets: Secrets, encryptionEnabled: boolean) {
 `;
 }
 
+/** Labels of the output tabs; the copy button names the active one. */
 const outputLabels: Record<OutputKind, string> = {
   compose: 'Compose',
   env: '.env',
@@ -120,6 +142,10 @@ const outputLabels: Record<OutputKind, string> = {
   cli: 'CLI',
 };
 
+/**
+ * One generated value with its own copy button. The value is empty until the
+ * first effect has run, which the placeholder and the disabled button show.
+ */
 function SecretRow({ label, value }: { label: string; value: string }) {
   const copy = async () => {
     await navigator.clipboard.writeText(value);
@@ -143,6 +169,12 @@ function SecretRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The install helper embedded in the quick-start pages: it generates the four
+ * secrets in the browser, renders the chosen configuration format, and copies
+ * it. It is a client-only island, so no generated value leaves the reader's
+ * machine.
+ */
 export default function SetupGenerator() {
   const [secrets, setSecrets] = useState<Secrets | null>(null);
   const [encryptionEnabled, setEncryptionEnabled] = useState(true);

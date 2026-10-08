@@ -8,6 +8,10 @@
 import type { AreaMessages } from "../../types";
 import type { components as enComponents } from "../en/components";
 
+/**
+ * Wording of the shared components; text an embedded third-party UI draws itself is
+ * not catalogued here.
+ */
 export const components: AreaMessages<typeof enComponents> = {
   "components.uploadShelf.title": "上传",
   "components.uploadShelf.summaryActive": "{active} 个进行中 - {progress}% - {uploaded}/{total}",

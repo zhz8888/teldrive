@@ -7,6 +7,11 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode, Ref } from "react";
 
+/**
+ * Button props plus the router link props of the target route. The link props
+ * win where the two overlap, and `render` is dropped because the component
+ * supplies its own render target.
+ */
 type LinkButtonProps<
   TRouter extends AnyRouter,
   TFrom extends string,
@@ -21,6 +26,11 @@ type LinkButtonProps<
     children?: ReactNode;
   };
 
+/**
+ * A router `Link` that looks and behaves like a button. Type parameters mirror
+ * the router's, so `to`, `params` and `search` are checked against the route
+ * tree exactly as they are on `Link`.
+ */
 export function LinkButton<
   TRouter extends AnyRouter = RegisteredRouter,
   const TFrom extends string = string,

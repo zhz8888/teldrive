@@ -19,11 +19,18 @@ import { queryClient } from "@/api/query-client";
 import { invalidateTaskQueries } from "@/api/tasks";
 import { useI18n, type MessageKey, type MessageParams } from "@/lib/i18n";
 
+/** One job as the job endpoint returns it. */
 type TaskOut = components["schemas"]["Job"];
+/** One recorded attempt failure, with its error text and stack trace. */
 type TaskAttemptError = components["schemas"]["JobAttemptError"];
 
+/** Translator signature for helpers that format outside a component body. */
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
+/**
+ * States in which the worker still owns the job. They decide whether the page keeps
+ * polling and whether the destructive button cancels the job or deletes its record.
+ */
 const ACTIVE_STATES = ["pending", "scheduled", "available", "running", "retryable"];
 
 /** Interface wording for the states of an attempt; the stored values stay English. */
@@ -46,6 +53,12 @@ const STATUS_SUMMARY_KEYS: Record<string, MessageKey | undefined> = {
   cancelled: "routes.tasks.detail.summary.cancelled",
 };
 
+/**
+ * `/tasks/$id` — one job's detail page. The loader resolves the job before the page
+ * renders, so a navigation to an unknown id never reaches the component; the route
+ * declares neither an error nor a not-found component, so that failure surfaces as a
+ * router error rather than a friendly message.
+ */
 export const Route = createFileRoute("/tasks_/$id")({
   component: TaskDetailPage,
   pendingComponent: () => (
@@ -55,12 +68,19 @@ export const Route = createFileRoute("/tasks_/$id")({
   ),
   loader: async ({ params }) => {
     const qc = queryClient;
+    // Warms the same cache entry the component reads, so the page renders without a
+    // second request and without the route's pending component.
     await qc.ensureQueryData(
       api.queryOptions("get", "/v1/jobs/{jobId}", { params: { path: { jobId: params.id } } }),
     );
   },
 });
 
+/**
+ * Detail view of a single job: its facts, its lifecycle timeline, the raw arguments and
+ * output, the attempts that failed, and the retry/cancel/delete actions. While the job is
+ * still active the page re-reads it every two seconds.
+ */
 function TaskDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
@@ -76,6 +96,9 @@ function TaskDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const task = data;
 
+  // Polls only while the job is still owned by a worker; a finished job cannot change on
+  // its own, so the page stops asking. The effect re-registers when the status changes,
+  // which is also what stops the interval once the job settles.
   useEffect(() => {
     if (!task || !ACTIVE_STATES.includes(task.status)) return;
     const interval = window.setInterval(() => {
@@ -94,6 +117,7 @@ function TaskDetailPage() {
     );
   }
 
+  /** Requeues the job after a failure, then re-reads it so the new attempt is visible. */
   const retry = async () => {
     setRetrying(true);
     try {
@@ -108,6 +132,10 @@ function TaskDetailPage() {
     await invalidateTaskQueries(qc, id);
   };
 
+  /**
+   * Cancels an active job or deletes a finished one, then returns to the list. The detail
+   * page has nothing left to show in the second case: its subject is gone.
+   */
   const remove = async () => {
     setDeleting(true);
     try {
@@ -148,7 +176,9 @@ function TaskDetailPage() {
     void invalidateTaskQueries(qc, id);
   };
 
+  // Newest attempt first.
   const errors = [...(task.errors ?? [])].sort((a, b) => (b.attempt ?? 0) - (a.attempt ?? 0));
+  // Broken files are recovered from the job output, which is free-form JSON.
   const brokenFiles = extractBrokenFiles(task.output);
 
   return (
@@ -285,6 +315,8 @@ function TaskDetailPage() {
             </p>
           </div>
           <Chip size="sm" variant="tertiary">
+            {/* The attempt counter and the recorded failures can disagree, so the header
+                shows whichever of the two is larger. */}
             {Math.max(task.attempt ?? 0, errors.length)}
           </Chip>
         </div>
@@ -298,6 +330,7 @@ function TaskDetailPage() {
   );
 }
 
+/** One fact in the execution grid: a small caption and either a value or custom content. */
 function Fact({
   label,
   value,
@@ -315,6 +348,11 @@ function Fact({
   );
 }
 
+/**
+ * Lifecycle timeline of one job. The steps are fixed and every one is rendered; only their
+ * state varies, so the reader always sees the whole path and where the job stopped. The
+ * error and retry steps are inserted conditionally, and the last step is the terminal one.
+ */
 function Timeline({ task }: { task: TaskOut }) {
   const { t } = useI18n();
   const errors = task.errors ?? [];
@@ -403,15 +441,29 @@ function Timeline({ task }: { task: TaskOut }) {
   );
 }
 
+/** One row of the attempts list, assembled from the recorded errors and the job itself. */
 type AttemptView = {
+  /** Attempt number, 1-based; 0 stands for a job that has not run yet. */
   attempt: number;
+  /** Outcome shown for the attempt; "waiting" is a job that has not been picked up yet. */
   state: "completed" | "failed" | "running" | "waiting";
+  /** When the attempt finished, started or was scheduled, as far as it is known. */
   at?: string;
+  /** Error text of a failed attempt. */
   error?: string;
+  /** Stack trace of a failed attempt, shown behind a disclosure. */
   trace?: string;
+  /** Worker that handled the attempt, when the job records it. */
   worker?: string;
 };
 
+/**
+ * Merges the recorded failures with the job's own progress into the rows the attempts
+ * list shows: one row per failure, plus a row for the current attempt when it is newer
+ * than the last recorded failure — or when a completed job's final attempt succeeded.
+ * A job with nothing recorded still gets a synthetic "waiting" row, so the panel is never
+ * empty, and the result is ordered newest attempt first.
+ */
 function buildAttempts(task: TaskOut, errors: TaskAttemptError[]): AttemptView[] {
   const attempts: AttemptView[] = errors.map((error, index) => ({
     attempt: error.attempt ?? 0,
@@ -451,6 +503,7 @@ function buildAttempts(task: TaskOut, errors: TaskAttemptError[]): AttemptView[]
   return attempts.sort((a, b) => b.attempt - a.attempt);
 }
 
+/** One attempt: its outcome, when it happened, the worker, and the error behind a disclosure. */
 function AttemptRow({ attempt }: { attempt: AttemptView }) {
   const { t } = useI18n();
   return (
@@ -498,6 +551,11 @@ function AttemptRow({ attempt }: { attempt: AttemptView }) {
   );
 }
 
+/**
+ * Read-only JSON viewer: pretty-prints the value with its keys in a stable order, offers a
+ * download when a filename is given, and shows `empty` instead of an empty document. The
+ * `tall` flag is for the panel that is not side by side with another one.
+ */
 function JsonPanel({
   title,
   value,
@@ -539,14 +597,25 @@ function JsonPanel({
   );
 }
 
+/**
+ * One entry of the job output's `brokenFiles` list. Every field is `unknown` on purpose:
+ * the shape comes from unstructured worker output, so each one is type-checked at the
+ * point of use rather than trusted here.
+ */
 type BrokenFileEntry = {
+  /** Id of the file the missing parts belong to. */
   fileId?: unknown;
+  /** Display name of the file, when the worker recorded one. */
   name?: unknown;
+  /** Declared size in bytes, validated by `formatBytes` before it is shown. */
   size?: unknown;
+  /** Storage channel the file's parts live in. */
   channelId?: unknown;
+  /** Message ids whose parts could not be found; the count is what the card shows. */
   missingMessageIds?: unknown;
 };
 
+/** Reads `output.brokenFiles` out of a job's free-form output, ignoring anything unusable. */
 function extractBrokenFiles(output: unknown): BrokenFileEntry[] {
   if (!output || typeof output !== "object" || Array.isArray(output)) return [];
   const list = (output as Record<string, unknown>).brokenFiles;
@@ -556,15 +625,25 @@ function extractBrokenFiles(output: unknown): BrokenFileEntry[] {
   );
 }
 
+/**
+ * Whether the worker dropped the broken-file list to stay inside the job-output budget.
+ * The counts in the same output stay exact when it does, but the list itself is empty.
+ */
 function isOutputTruncated(output: unknown): boolean {
   if (!output || typeof output !== "object" || Array.isArray(output)) return false;
   return (output as Record<string, unknown>).brokenTruncated === true;
 }
 
+/** Number of missing message ids on one entry; a malformed value counts as none. */
 function missingPartCount(entry: BrokenFileEntry): number {
   return Array.isArray(entry.missingMessageIds) ? entry.missingMessageIds.length : 0;
 }
 
+/**
+ * Files the job reported as damaged, with how many of their parts are missing. The caller
+ * renders the card only when at least one entry survived, and `truncated` adds the note
+ * that the worker dropped the list for size.
+ */
 function BrokenFilesCard({ files, truncated }: { files: BrokenFileEntry[]; truncated: boolean }) {
   const { t } = useI18n();
   return (
@@ -609,6 +688,7 @@ function BrokenFilesCard({ files, truncated }: { files: BrokenFileEntry[]; trunc
   );
 }
 
+/** Saves a value as a pretty-printed JSON file through a temporary object URL. */
 function downloadJsonFile(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -624,6 +704,10 @@ function downloadJsonFile(filename: string, value: unknown) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+/**
+ * Formats a value from free-form output as a size. Anything that is not a finite,
+ * non-negative number reads as an em dash, and the unit list stops at TB.
+ */
 function formatBytes(value: unknown): string {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "—";
   if (value === 0) return "0 B";
@@ -632,6 +716,11 @@ function formatBytes(value: unknown): string {
   return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+/**
+ * Rebuilds the value with object keys sorted alphabetically, recursively. Two payloads
+ * that differ only in key order then render identically; array order is preserved, since
+ * it is part of the data.
+ */
 function sortJsonKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJsonKeys);
   if (!value || typeof value !== "object") return value;
@@ -642,6 +731,12 @@ function sortJsonKeys(value: unknown): unknown {
   );
 }
 
+/**
+ * Visual state of one timeline step: `current` when the job is sitting on it, `done`
+ * once the job has moved past it, `future` for a step that has not been reached. A job
+ * that ended by cancellation or discard is decided by whether it ever started, because
+ * the ordering list below has no entry for those two statuses.
+ */
 function timelineState(task: TaskOut, stage: string) {
   const order = ["pending", "scheduled", "available", "running", "retryable", "completed"];
   if (task.status === stage) return "current";
@@ -649,6 +744,7 @@ function timelineState(task: TaskOut, stage: string) {
   return order.indexOf(task.status) > order.indexOf(stage) ? "done" : "future";
 }
 
+/** Icon for a step kind; the varied terminal outcomes share the cross. */
 function TimelineIcon({ kind, className }: { kind: string; className?: string }) {
   if (kind === "created") return <PlusIcon className={className} />;
   if (kind === "scheduled") return <ClockIcon className={className} />;
@@ -658,6 +754,7 @@ function TimelineIcon({ kind, className }: { kind: string; className?: string })
   return <XIcon className={className} />;
 }
 
+/** Colour pair of a timeline marker; an unreached step is muted whatever its kind. */
 function timelineIconClass(kind: string, state: string) {
   if (state === "future") return "bg-muted/25 text-muted";
   if (kind === "created") return "bg-accent/15 text-accent";
@@ -669,6 +766,7 @@ function timelineIconClass(kind: string, state: string) {
   return "bg-danger/15 text-danger";
 }
 
+/** Dot colour of an attempt row; a not-yet-run attempt keeps the warning colour. */
 function attemptDot(state: AttemptView["state"]) {
   if (state === "completed") return "bg-success";
   if (state === "failed") return "bg-danger";
@@ -676,15 +774,21 @@ function attemptDot(state: AttemptView["state"]) {
   return "bg-warning";
 }
 
+/**
+ * One-line explanation of a status, falling back to the shared status label for a value
+ * this page has no wording for.
+ */
 function statusSummary(status: string, t: Translate) {
   const key = STATUS_SUMMARY_KEYS[status];
   return key ? t(key) : taskStatusLabel(status);
 }
 
+/** Heading fallback for a job the creator left without a description: its kind. */
 function defaultTaskDescription(task: TaskOut) {
   return task.type;
 }
 
+/** Whether a JSON panel has anything to show; empty containers count as nothing. */
 function hasJsonValue(value: unknown) {
   if (value == null) return false;
   if (Array.isArray(value)) return value.length > 0;
@@ -692,10 +796,15 @@ function hasJsonValue(value: unknown) {
   return true;
 }
 
+/** Full local date-time, paired with the relative age in the timeline and attempt rows. */
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
 }
 
+/**
+ * Age of an instant as "just now", minutes, hours or days ago. Unlike the list page there
+ * is no week cutoff, so every age is expressed in days.
+ */
 function formatRelative(value: string, t: Translate) {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
   if (seconds < 60) return t("routes.tasks.relative.justNow");

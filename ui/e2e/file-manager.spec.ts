@@ -1,25 +1,43 @@
 import { expect, type Page, test } from "@playwright/test";
 
+// The fixed instant every fixture entry is created and modified at.
 const now = "2026-07-22T12:00:00Z";
+// The "Destination" folder: the copy/move target and the upload destination.
 const rootId = "11111111-1111-4111-8111-111111111111";
+// alpha.txt, the row most selection and clipboard tests act on.
 const alphaId = "22222222-2222-4222-8222-222222222222";
+// beta.txt, the second file used for range selection and conflicts.
 const betaId = "33333333-3333-4333-8333-333333333333";
 
+/** The subset of the file contract the in-memory fixture store keeps per entry. */
 type FixtureFile = {
+  /** Server-assigned id; the store is keyed by it. */
   id: string;
+  /** Containing folder, undefined at the drive root. */
   parentId?: string;
+  /** Display name; conflict rules compare it case-insensitively. */
   name: string;
+  /** Whether the entry is a file or a folder. */
   kind: "file" | "folder";
+  /** Trashed entries stay in the store but are hidden from listings. */
   status: "active" | "trashed";
+  /** Contract revision counter, bumped by rename and move. */
   generation: number;
+  /** Content type; only files carry one. */
   mimeType?: string;
+  /** Size in bytes; only files carry one. */
   size?: number;
+  /** Last modification time reported by the contract. */
   modTime: string;
+  /** Creation instant. */
   createdAt: string;
+  /** Instant of the last metadata update. */
   updatedAt: string;
+  /** Whether the server stores the file encrypted. */
   encryption: boolean;
 };
 
+/** Builds a fixture entry from the shared defaults; id, name and kind are required. */
 function file(
   overrides: Partial<FixtureFile> & Pick<FixtureFile, "id" | "name" | "kind">,
 ): FixtureFile {
@@ -34,6 +52,14 @@ function file(
   };
 }
 
+/**
+ * Serves the file-manager surface from an in-memory store: the profile, drive
+ * statistics, listings filtered by parent, search term and search type, and the
+ * folder, upload, trash, rename, copy and move mutations, which update the
+ * store so later reads observe them. Conflicts are resolved the way the server
+ * resolves them — 409, `rename` picks the next free "(n)" suffix, `replace`
+ * drops the existing entry — so the conflict dialogs can be driven end to end.
+ */
 async function installFileApi(page: Page) {
   let uploadSequence = 0;
   const files = new Map<string, FixtureFile>([
@@ -349,6 +375,8 @@ test("upload menu preserves folder hierarchy and exposes byte-weighted tree prog
   await tree.getByRole("button", { name: "Expand Destination" }).click();
   await expect(destinationBatch).toHaveAttribute("aria-expanded", "true");
 
+  // The baselines are committed per platform (darwin and linux), so a change to
+  // the shelf needs both captures.
   const shelf = page.getByTestId("upload-shelf");
   await expect(shelf).toHaveScreenshot("upload-tree-expanded.png");
   await page.getByRole("button", { name: "Collapse uploads" }).click();

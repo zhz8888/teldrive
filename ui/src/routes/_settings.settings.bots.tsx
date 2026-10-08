@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 import TrashIcon from "~icons/gravity-ui/trash-bin";
 
+/** `/settings/bots` — the Telegram bots whose tokens the account has queued for setup. */
 export const Route = createFileRoute("/_settings/settings/bots")({
   component: BotsSettings,
   pendingComponent: () => (
@@ -19,10 +20,18 @@ export const Route = createFileRoute("/_settings/settings/bots")({
   ),
 });
 
+/**
+ * Adds bots by token and lists the ones already queued. Registration is asynchronous on
+ * the server: a create response only says which tokens were accepted, so the page reports
+ * that and refreshes rather than waiting for the bots to appear.
+ */
 function BotsSettings() {
   const { t } = useI18n();
   const [token, setToken] = useState("");
+  // Set for the whole add flow — request, listing refresh and toasts — and not just for
+  // the mutation, so a second press cannot start an overlapping batch.
   const [isAddingBots, setIsAddingBots] = useState(false);
+  // Bot the confirmation dialog is asking about; null keeps it closed.
   const [deleteBot, setDeleteBot] = useState<{ id: number; name: string } | null>(null);
   const query = $api.useSuspenseQuery(
     "get",
@@ -44,6 +53,11 @@ function BotsSettings() {
   const refresh = () =>
     getQueryClient().invalidateQueries({ queryKey: $api.queryOptions("get", "/v1/bots").queryKey });
 
+  /**
+   * Queues every non-blank line of the textarea as a bot token. Duplicates are collapsed
+   * before the request, and the tokens the server rejects — reported as indexes into the
+   * submitted array — are left in the box so they can be corrected and resubmitted.
+   */
   const handleAddBots = async () => {
     const tokens = [
       ...new Set(
@@ -153,6 +167,8 @@ function BotsSettings() {
       <ConfirmDialog
         open={deleteBot !== null}
         onOpenChange={(open) => {
+          // Dismissal is ignored while the delete is in flight, so the dialog cannot
+          // close before the request that it started has settled.
           if (!open && !remove.isPending) setDeleteBot(null);
         }}
         title={t("settings.bots.delete.title")}

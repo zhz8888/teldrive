@@ -20,9 +20,13 @@ import { copyText } from "@/features/files/download";
 import { type MessageKey, useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 
+/** Access level a grant or public link carries: read-only viewer or full editor. */
 type Permission = "read" | "edit";
+/** Expiry presets offered by {@link ExpirationPicker}; "custom" reveals a free-text field. */
 type ExpirationMode = "never" | "1h" | "1d" | "7d" | "30d" | "custom";
 
+// Milliseconds per unit suffix accepted in a custom duration. The units are case-sensitive:
+// lowercase "m" is a minute while uppercase "M" is a 30-day month.
 const DURATION_UNITS: Record<string, number> = {
   ms: 1,
   s: 1000,
@@ -44,6 +48,12 @@ const EXPIRATION_LABELS = {
   custom: "features.shareDialog.duration.custom",
 } as const satisfies Record<ExpirationMode, MessageKey>;
 
+/**
+ * Sharing dialog for one file: it grants access to individual users and creates or revokes
+ * public links, each with its own permission and expiry. `file` also drives visibility —
+ * an undefined file keeps the dialog closed — and its id resets every field, so switching
+ * targets never carries the previous file's password or expiry over.
+ */
 export function ShareDialog({
   file,
   onOpenChange,
@@ -505,6 +515,7 @@ export function ShareDialog({
   );
 }
 
+/** Small muted label above one of the dialog's pickers. */
 function ControlField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid gap-1.5">
@@ -514,6 +525,7 @@ function ControlField({ label, children }: { label: string; children: ReactNode 
   );
 }
 
+/** Viewer/editor select shared by the grant and public-link sections. */
 function PermissionPicker({
   value,
   onChange,
@@ -549,6 +561,11 @@ function PermissionPicker({
   );
 }
 
+/**
+ * Expiry select plus the free-text duration field, which is rendered only for the "custom"
+ * mode. The duration string is kept by the parent so it survives switching modes; it is
+ * not validated here but when the share is created.
+ */
 function ExpirationPicker({
   mode,
   duration,
@@ -608,6 +625,12 @@ function ExpirationPicker({
   );
 }
 
+/**
+ * Turns the picker state into the `expiresAt` the API expects: undefined for "never",
+ * otherwise the current time plus the preset or custom duration, as an ISO instant. Throws
+ * when the custom duration is unparsable or the resulting date overflows, which the calling
+ * action reports as a failed share rather than silently creating a share without expiry.
+ */
 function expirationDate(mode: ExpirationMode, duration: string): string | undefined {
   if (mode === "never") return undefined;
   const milliseconds = parseDuration(mode === "custom" ? duration : mode);
@@ -616,6 +639,12 @@ function expirationDate(mode: ExpirationMode, duration: string): string | undefi
   return expiresAt.toISOString();
 }
 
+/**
+ * Parses a duration such as "1h", "1d" or "1h30m" into milliseconds. The value must be
+ * nothing but number/unit pairs, so "1 h" or a trailing separator is rejected; a zero or
+ * overflowing total is rejected too. The thrown messages are shown to the user verbatim,
+ * because `userMessage` passes a plain `Error` through unchanged.
+ */
 function parseDuration(input: string): number {
   const value = input.trim();
   if (!value) throw new Error("Enter an expiration duration such as 1h, 1d, or 1y");

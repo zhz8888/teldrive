@@ -21,6 +21,11 @@ function withPrefix(locale: LocaleCode, href: string | undefined) {
   return `${prefixPath(locale, path)}${hash ? `#${hash}` : ''}`;
 }
 
+/**
+ * withBase prefixes a site-rooted href with the configured BASE_URL, so links
+ * keep resolving when the docs are served from a sub-path. Anything that is not
+ * an absolute site path is returned unchanged.
+ */
 function withBase(href: string | undefined) {
   if (!href || !href.startsWith('/') || href.startsWith('//')) return href;
 
@@ -28,7 +33,9 @@ function withBase(href: string | undefined) {
   return `${base}${href}`;
 }
 
+/** The anchor fumadocs maps MDX links to; the wrapper below builds on it. */
 const DefaultLink = defaultMdxComponents.a;
+/** The card fumadocs maps MDX `<Card>` to; the wrapper below builds on it. */
 const DefaultCard = defaultMdxComponents.Card;
 
 /**
@@ -37,14 +44,17 @@ const DefaultCard = defaultMdxComponents.Card;
  * slug instead of falling back to English.
  */
 export function getMdxComponents(locale: LocaleCode) {
+  /** Anchor that roots its href in this locale and applies BASE_URL. */
   function Link(props: ComponentProps<typeof DefaultLink>) {
     return <DefaultLink {...props} href={withBase(withPrefix(locale, props.href))} />;
   }
 
+  /** Card whose href is localized the same way as a link. */
   function Card(props: ComponentProps<typeof DefaultCard>) {
     return <DefaultCard {...props} href={withBase(withPrefix(locale, props.href))} />;
   }
 
+  /** Landing-page call to action; styles an anchor and localizes href as Link does. */
   function ButtonLink({ className, ...props }: ComponentProps<'a'>) {
     return (
       <a

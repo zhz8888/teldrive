@@ -6,6 +6,10 @@
 import type { AreaMessages } from "../../types";
 import type { common as enCommon } from "../en/common";
 
+/**
+ * Wording reused everywhere: the app name, shared action labels, states,
+ * accessibility labels and language names.
+ */
 export const common: AreaMessages<typeof enCommon> = {
   "common.app.name": "Teldrive",
   "common.app.tagline": "基于 Telegram 的云存储",

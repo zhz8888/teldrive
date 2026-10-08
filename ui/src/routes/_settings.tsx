@@ -15,6 +15,11 @@ import PaletteIcon from "~icons/gravity-ui/palette";
 import PersonIcon from "~icons/gravity-ui/person";
 import CloseIcon from "~icons/gravity-ui/xmark";
 
+/**
+ * Settings navigation, grouped in the order the sidebar shows them. An item that names a
+ * `capability` is visible only to users who hold it, so the list doubles as the map from
+ * nav entry to the permission that guards its page.
+ */
 const SETTINGS_GROUPS = [
   {
     labelKey: "settings.layout.group.account",
@@ -66,14 +71,22 @@ const SETTINGS_GROUPS = [
   },
 ] as const;
 
+/** Pathless layout route for `/settings/*`; it renders the nav shell around the child page. */
 export const Route = createFileRoute("/_settings")({ component: SettingsLayout });
 
+/**
+ * Shell of every settings page: a sticky rail on large screens, a drawer on small ones.
+ * The nav is filtered by the current user's capabilities once and handed to both
+ * renderings, so a page the user cannot open has no link in either.
+ */
 function SettingsLayout() {
   const { t } = useI18n();
   const location = useLocation();
   const { data: user } = useQuery(currentUserQueryOptions());
   const [mobileOpen, setMobileOpen] = useState(false);
   const visibleGroups = settingsGroupsFor(user?.capabilities ?? []);
+  // First group that owns a page with this exact pathname; the mobile header shows that
+  // page's name instead of the generic section title.
   const activeLabelKey = visibleGroups.reduce<MessageKey | undefined>(
     (found, group) =>
       found ?? group.items.find((item) => item.path === location.pathname)?.labelKey,
@@ -151,6 +164,10 @@ function SettingsLayout() {
   );
 }
 
+/**
+ * Vertical list of settings links, shared by the desktop rail and the mobile drawer.
+ * `onNavigate` is the drawer's dismiss hook; the rail leaves it unset.
+ */
 function SettingsNavigation({
   currentPath,
   groups,
@@ -189,9 +206,15 @@ function SettingsNavigation({
   );
 }
 
+/** One nav entry, derived from the literal table so the optional `capability` is typed. */
 type SettingsItem = (typeof SETTINGS_GROUPS)[number]["items"][number];
+/** A captioned group of nav entries, as produced by `settingsGroupsFor`. */
 type SettingsGroup = { labelKey: MessageKey; items: SettingsItem[] };
 
+/**
+ * Keeps the groups and entries the user is allowed to see, dropping a group entirely once
+ * nothing is left in it, so the rail never renders an empty caption or separator.
+ */
 function settingsGroupsFor(capabilities: string[]): SettingsGroup[] {
   const allowed = new Set(capabilities);
   return SETTINGS_GROUPS.map((group) => ({

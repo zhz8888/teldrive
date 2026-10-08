@@ -1,10 +1,15 @@
 import type { FileEntry } from "@/api/types";
 
+/**
+ * Builds the API path that serves a file's bytes; `download` appends the query flag that
+ * makes the server send a Content-Disposition attachment instead of inline content.
+ */
 export function fileContentUrl(file: Pick<FileEntry, "id" | "name">, download = false) {
   const path = `/api/v1/files/${encodeURIComponent(file.id)}/content/${encodeURIComponent(file.name)}`;
   return download ? `${path}?download=1` : path;
 }
 
+/** Triggers a browser download of one file through a synthetic anchor click. */
 export function startFileDownload(file: Pick<FileEntry, "id" | "name">) {
   const anchor = document.createElement("a");
   anchor.href = fileContentUrl(file, true);
@@ -12,6 +17,12 @@ export function startFileDownload(file: Pick<FileEntry, "id" | "name">) {
   anchor.click();
 }
 
+/**
+ * Copies text to the clipboard, falling back to a hidden textarea plus
+ * `document.execCommand("copy")` when the async Clipboard API is unavailable (it needs a
+ * secure context, which fails on plain-HTTP host/IP deployments). Rejects when both paths
+ * fail, so callers can surface an error.
+ */
 export async function copyText(value: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -35,6 +46,7 @@ export async function copyText(value: string) {
   if (!copied) throw new Error("Clipboard access is unavailable");
 }
 
+/** Absolute form of {@link fileContentUrl} for sharing outside the current origin. */
 export function absoluteFileDownloadUrl(file: Pick<FileEntry, "id" | "name">) {
   return new URL(fileContentUrl(file, true), window.location.origin).toString();
 }

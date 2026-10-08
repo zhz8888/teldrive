@@ -25,22 +25,38 @@ import { useUploadStore } from "@/features/uploads/store";
 import { useI18n } from "@/lib/i18n";
 import { getQueryClient } from "@/lib/queryClient";
 
+/** Access level the caller has on an entry of a shared tree. */
 type Permission = "read" | "edit";
 
+/** Validated route state of the shared browsers; mirrors the URL's search parameters. */
 export type SharedBrowserSearch = {
+  /** Path inside the shared tree, relative to the root the browser starts at. */
   path: string;
+  /** Id of the folder at `path`, absent at the share root. */
   parentId?: string;
+  /** Filter text: applied client-side at the root and sent as the search parameter below it. */
   query: string;
+  /** Layout the browser uses, persisted in the URL. */
   view: FileBrowserView;
+  /** Access level inside the folder at `path`; only meaningful while browsing "with-me". */
   permission?: Permission;
 };
 
+/** Which side of sharing the browser shows, plus its route state and navigation callback. */
 type SharedFileBrowserProps = {
+  /** "shared" lists what the caller shared, "with-me" what others shared with them. */
   mode: "shared" | "with-me";
+  /** Current route state, already validated by {@link sharedBrowserSearch}. */
   search: SharedBrowserSearch;
+  /** Writes the new route state; `replace` keeps the back button out of the walk. */
   navigate: (search: SharedBrowserSearch, replace?: boolean) => void;
 };
 
+/**
+ * Validates the URL parameters of the shared browsers. Unknown permission values are
+ * dropped rather than rejected, so an edited or stale link still opens; `view` falls back
+ * to the list layout and a missing path to the share root.
+ */
 export function sharedBrowserSearch(search: Record<string, unknown>): SharedBrowserSearch {
   return {
     path: typeof search.path === "string" && search.path ? search.path : "/",
@@ -52,6 +68,13 @@ export function sharedBrowserSearch(search: Record<string, unknown>): SharedBrow
   };
 }
 
+/**
+ * Browser for a tree the caller does not own: the share root is a cursor-paged listing of
+ * shared entries, deeper levels are ordinary folder listings by id. Because the API never
+ * reveals the ancestor ids of a shared subtree, only folders walked through in this session
+ * can be opened; a path with no recorded id falls back to the root. Which actions are
+ * offered follows the per-entry permission the listing reports.
+ */
 export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserProps) {
   const { t } = useI18n();
   const [previewFile, setPreviewFile] = useState<FileEntry>();
@@ -503,6 +526,7 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
   );
 }
 
+/** Full-page spinner the shared routes render while their search parameters validate. */
 export function SharedPageSpinner() {
   return (
     <div className="flex min-h-[40vh] items-center justify-center">
@@ -511,6 +535,7 @@ export function SharedPageSpinner() {
   );
 }
 
+/** Appends a folder name to a path and collapses repeated slashes; root stays "/". */
 function joinPath(parent: string, name: string) {
   return `${parent === "/" ? "" : parent}/${name}`.replace(/\/+/g, "/") || "/";
 }

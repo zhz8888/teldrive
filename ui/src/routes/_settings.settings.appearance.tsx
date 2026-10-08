@@ -7,6 +7,7 @@ import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/s
 import { LOCALE_LABELS, LOCALES, type MessageKey, useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 
+/** `/settings/appearance` — colour theme and interface language, both stored per browser. */
 export const Route = createFileRoute("/_settings/settings/appearance")({
   component: AppearanceSettings,
 });
@@ -19,6 +20,10 @@ const THEME_OPTIONS = [
   { value: "dark", icon: MoonIcon, labelKey: "settings.appearance.colorTheme.dark" },
 ] as const satisfies readonly { value: string; icon: unknown; labelKey: MessageKey }[];
 
+/**
+ * Colour theme and interface language. Both are per-browser preferences — a choice here
+ * never travels to the server — so the page only writes through the two providers.
+ */
 function AppearanceSettings() {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale, t } = useI18n();

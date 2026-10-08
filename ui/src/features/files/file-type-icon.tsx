@@ -11,13 +11,18 @@ import FileZipIcon from "~icons/icon-park-outline/file-zip";
 import PictureIcon from "~icons/icon-park-outline/picture-one";
 import VideoFileIcon from "~icons/icon-park-outline/video-file";
 
+/** Minimal shape of the entry the icon needs; both fields are matched case-insensitively. */
 export type FileTypeLike = {
+  /** File name, used for the extension fallback when the MIME type is unhelpful. */
   name: string;
+  /** Server-reported MIME type; absent or null when the server has none. */
   mimeType?: string | null;
 };
 
+// Extension lists below are dot-prefixed because they are matched with `name.endsWith`.
 const ebookExtensions = [".epub", ".mobi", ".azw", ".azw3", ".fb2", ".fbz", ".cbz", ".cbr"];
 
+// Archives have no MIME-type check; only the extension decides.
 const archiveExtensions = [
   ".zip",
   ".rar",
@@ -29,10 +34,14 @@ const archiveExtensions = [
   ".xz",
 ];
 
+// Office document families; each is also recognised by a MIME-type substring.
 const wordExtensions = [".doc", ".docx", ".odt", ".rtf"];
+/** Spreadsheet extensions; `text/csv` is matched as a MIME type instead. */
 const sheetExtensions = [".xls", ".xlsx", ".ods", ".csv"];
+/** Presentation extensions, including the Keynote one. */
 const slideExtensions = [".ppt", ".pptx", ".odp", ".key"];
 
+/** Image extensions, used when the MIME type does not start with `image/`. */
 const imageExtensions = [
   ".png",
   ".jpg",
@@ -47,9 +56,13 @@ const imageExtensions = [
   ".heif",
 ];
 
+/** Video extensions, used when the MIME type does not start with `video/`. */
 const videoExtensions = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".ogv"];
+/** Audio extensions, checked only after `audio/` MIME types have been ruled out. */
 const audioExtensions = [".mp3", ".wav", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac"];
 
+// Source extensions checked against `extensionOf`, so they carry no leading dot;
+// "dockerfile" is a whole file name rather than an extension.
 const codeExtensions = new Set([
   "bash",
   "c",
@@ -86,8 +99,13 @@ const codeExtensions = new Set([
   "yml",
 ]);
 
+/** Plain-text extensions used when the MIME type does not start with `text/`. */
 const textExtensions = [".txt", ".md", ".mdx", ".log"];
 
+/**
+ * Lowercase extension of a file name without the dot; a name with no dot yields an empty
+ * string, except `dockerfile`, which is reported as its own "extension".
+ */
 function extensionOf(name: string) {
   const lower = name.toLowerCase();
   if (lower === "dockerfile") return "dockerfile";
@@ -95,6 +113,7 @@ function extensionOf(name: string) {
   return dot >= 0 ? lower.slice(dot + 1) : "";
 }
 
+/** True when the (already lowercased) name ends with any of the dot-prefixed extensions. */
 function endsWithAny(name: string, extensions: string[]) {
   return extensions.some((extension) => name.endsWith(extension));
 }

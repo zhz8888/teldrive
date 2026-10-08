@@ -1,10 +1,16 @@
 import { expect, type Page, test } from "@playwright/test";
 
+// The fixed instant every fixture timestamp is set to, so nothing races a clock.
 const now = "2026-07-22T12:00:00Z";
+// The "Documents" folder row the listing fixture serves.
 const folderId = "11111111-1111-4111-8111-111111111111";
+// The "fixture.txt" row; the preview and share fixtures hang off this id.
 const fileId = "22222222-2222-4222-8222-222222222222";
+// The "deleted.txt" row, answered only for a listing with status=trashed.
 const trashedId = "33333333-3333-4333-8333-333333333333";
 
+// The active listing: the Documents folder and fixture.txt, reused as the base
+// of the created folder and the completed upload.
 const activeFiles = [
   {
     id: folderId,
@@ -32,8 +38,19 @@ const activeFiles = [
   },
 ];
 
+// State handle of the fixture installed for the running test, so a route
+// override added inside a test can write to the state the list reads.
 let apiState: Awaited<ReturnType<typeof installApi>> | undefined;
 
+/**
+ * Answers every /api/v1 request the shell makes: the profile, drive
+ * statistics, file listings (including the cursor pages and the 100-row result
+ * the load-more test scrolls through), the storage dashboard, the River job and
+ * periodic-job surfaces, uploads, shares and folders. A request no route
+ * matches is answered 404, so a route the application starts calling fails the
+ * test instead of hanging. The returned handle writes to the same paused-job
+ * state the periodic-job list is rendered from.
+ */
 async function installApi(page: Page): Promise<{ setJobPaused: (id: string, paused: boolean) => void }> {
   let uploaded = false;
   let jobState = "running";
@@ -502,6 +519,10 @@ async function installApi(page: Page): Promise<{ setJobPaused: (id: string, paus
   };
 }
 
+/**
+ * Records page errors and console errors for the lifetime of the test; the
+ * specs assert the array is empty once the surface under test has settled.
+ */
 function collectRuntimeErrors(page: Page) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
@@ -802,6 +823,11 @@ test("all active routes render without runtime errors", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+/**
+ * Captures every listed surface. Baselines are per project and per platform
+ * (the file name carries the project name and Playwright appends -darwin or
+ * -linux), so both sets have to be committed for a new surface.
+ */
 test("visual regression for every active surface", async ({ page }, testInfo) => {
   // Each route names the text its rendered body shows once its data has arrived,
   // which is what the capture waits for instead of guessing from a spinner; the
