@@ -283,6 +283,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Find other accounts by display name, username or exact user ID so a share owner can
+         *     pick a grantee; at most twenty matches are returned.
+         */
         get: operations["searchUsers"];
         put?: never;
         post?: never;
@@ -327,6 +331,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * @description Apply a role and/or disabled flag to one account; disabling also revokes its
+         *     sessions and API keys. Owner accounts answer 403 and an empty body 422.
+         */
         patch: operations["updateAdminUser"];
         trace?: never;
     };
@@ -339,6 +347,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Revoke every session and API key of one account so its credentials stop working
+         *     immediately. Owner accounts are refused with 403.
+         */
         post: operations["revokeAdminUserAccess"];
         delete?: never;
         options?: never;
@@ -353,8 +365,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List the account's usable API keys, newest first, as a cursor page; revoked and
+         *     expired keys are omitted.
+         */
         get: operations["listApiKeys"];
         put?: never;
+        /** @description Mint an API key and return its plaintext secret once, because only a hash is stored. */
         post: operations["createApiKey"];
         delete?: never;
         options?: never;
@@ -372,6 +389,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** @description Revoke one API key; an unknown, foreign or already revoked key answers 404. */
         delete: operations["revokeApiKey"];
         options?: never;
         head?: never;
@@ -419,8 +437,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description List the account's registered channels, newest first, as a cursor page. */
         get: operations["listChannels"];
         put?: never;
+        /**
+         * @description Create a Telegram channel named by the request, register it and optionally select
+         *     it; a blank name gets a generated one.
+         */
         post: operations["createChannel"];
         delete?: never;
         options?: never;
@@ -471,6 +494,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Make one registered channel the upload target, clearing the previous selection; an
+         *     `unavailable` channel is refused with 409.
+         */
         post: operations["selectChannel"];
         delete?: never;
         options?: never;
@@ -488,6 +515,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * @description Delete a registered channel and its Telegram channel; the selected channel and one
+         *     still holding stored parts are refused with 409.
+         */
         delete: operations["deleteChannel"];
         options?: never;
         head?: never;
@@ -501,8 +532,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description List the account's registered bots, newest first, as a cursor page. */
         get: operations["listBots"];
         put?: never;
+        /**
+         * @description Register bot tokens: valid ones are stored disabled and queued for provisioning,
+         *     malformed or duplicate ones come back in `failedIndexes`.
+         */
         post: operations["createBots"];
         delete?: never;
         options?: never;
@@ -520,6 +556,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** @description Remove one registered bot by its Telegram bot ID; an unknown or foreign ID answers 404. */
         delete: operations["deleteBot"];
         options?: never;
         head?: never;
@@ -813,6 +850,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Create a folder in an editable parent folder and return it with its generation ETag and location. */
         post: operations["createFolder"];
         delete?: never;
         options?: never;
@@ -954,8 +992,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List every share created for one file, newest first, including revoked and expired
+         *     ones so the owner sees their state.
+         */
         get: operations["listFileShares"];
         put?: never;
+        /**
+         * @description Create a public share link for one of the caller's active files; the plaintext
+         *     token is returned only here.
+         */
         post: operations["createShare"];
         delete?: never;
         options?: never;
@@ -973,9 +1019,17 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * @description Revoke a share so every later use of its token fails with 410; unknown, foreign or
+         *     already revoked shares answer 404.
+         */
         delete: operations["revokeShare"];
         options?: never;
         head?: never;
+        /**
+         * @description Apply a partial update to a share; omitted fields keep their value and the `clear*`
+         *     flags remove one.
+         */
         patch: operations["updateShare"];
         trace?: never;
     };
@@ -986,8 +1040,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List the grants on one of the caller's files, newest first; expired grants stay
+         *     listed and revoked ones are omitted.
+         */
         get: operations["listFileAccessGrants"];
         put?: never;
+        /**
+         * @description Grant another account access to one of the caller's files, replacing any live grant
+         *     for the same file and grantee.
+         */
         post: operations["createFileAccessGrant"];
         delete?: never;
         options?: never;
@@ -1005,9 +1067,17 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * @description Revoke a grant, removing the grantee's access immediately; unknown, foreign or
+         *     already revoked grants answer 404.
+         */
         delete: operations["revokeFileAccessGrant"];
         options?: never;
         head?: never;
+        /**
+         * @description Patch a live grant with a new permission, a new expiry, or `clearExpiresAt` to drop
+         *     the expiry; an empty patch is rejected with 422.
+         */
         patch: operations["updateFileAccessGrant"];
         trace?: never;
     };
@@ -1052,6 +1122,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Resolve a share token and return the shared entry; a missing or wrong password
+         *     answers 401 and a revoked, expired or exhausted link 410.
+         */
         get: operations["getPublicShare"];
         put?: never;
         post?: never;
@@ -1085,11 +1159,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Download one file inside a shared folder; a successful call consumes one download
+         *     of the link's quota.
+         */
         get: operations["downloadPublicShareFile"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
+        /**
+         * @description Return download metadata for one file inside a shared folder without a body, under
+         *     the same token and password rules as the download.
+         */
         head: operations["headPublicShareFile"];
         patch?: never;
         trace?: never;
@@ -1101,11 +1183,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Download the file a share token points at; a successful call consumes one download
+         *     of the link's quota.
+         */
         get: operations["downloadPublicShare"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
+        /**
+         * @description Return download metadata for the share root without a body, under the same token
+         *     and password rules as the download.
+         */
         head: operations["headPublicShare"];
         patch?: never;
         trace?: never;
@@ -1117,11 +1207,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Download one file inside a shared folder through the pre-v1 URL form that omits the
+         *     filename; otherwise identical to the current download.
+         */
         get: operations["downloadPublicShareFileLegacy"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
+        /** @description HEAD form of the legacy single-file download path, kept for older clients. */
         head: operations["headPublicShareFileLegacy"];
         patch?: never;
         trace?: never;
@@ -1133,11 +1228,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Download the share root through the pre-v1 URL form that omits the filename;
+         *     otherwise identical to the current download.
+         */
         get: operations["downloadPublicShareLegacy"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
+        /** @description HEAD form of the legacy share-root download path, kept for older clients. */
         head: operations["headPublicShareLegacy"];
         patch?: never;
         trace?: never;
@@ -1151,6 +1251,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Create a folder inside an edit-enabled share, attributed to the share owner; a
+         *     read-only share answers 403 and a duplicate name is a conflict.
+         */
         post: operations["createPublicShareFolder"];
         delete?: never;
         options?: never;
@@ -1168,9 +1272,17 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * @description Move one entry inside an edit-enabled share to the owner's trash; the share root
+         *     itself is refused with 403.
+         */
         delete: operations["trashPublicShareFile"];
         options?: never;
         head?: never;
+        /**
+         * @description Rename one entry inside an edit-enabled share; `If-Match` must carry the entry's
+         *     current generation or the call answers 412.
+         */
         patch: operations["updatePublicShareFile"];
         trace?: never;
     };
@@ -1183,6 +1295,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Open an upload session inside an edit-enabled share; the finished file belongs to
+         *     the share owner and a name conflict answers 409.
+         */
         post: operations["createPublicShareUpload"];
         delete?: never;
         options?: never;
@@ -1198,6 +1314,10 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        /**
+         * @description Store one part of a public-share upload; a repeated part with the same size and
+         *     checksum returns 200 instead of 201.
+         */
         put: operations["putPublicShareUploadPart"];
         post?: never;
         delete?: never;
@@ -1215,6 +1335,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Finalize a public-share upload into a file owned by the share owner and return the
+         *     entry with its ETag; missing parts answer 409.
+         */
         post: operations["completePublicShareUpload"];
         delete?: never;
         options?: never;
@@ -1232,6 +1356,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** @description Discard a public-share upload session and its stored parts. */
         delete: operations["abortPublicShareUpload"];
         options?: never;
         head?: never;
@@ -1245,8 +1370,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List jobs newest first. Administrators see every job; other callers only see
+         *     the jobs that carry their own user ID. A cursor that is not the opaque token
+         *     of an earlier page is rejected with 422.
+         */
         get: operations["listJobs"];
         put?: never;
+        /**
+         * @description Enqueue a one-off maintenance job and return it. The admin or owner role is
+         *     required, and a job kind this deployment has no worker for is rejected with
+         *     422 before anything is written.
+         */
         post: operations["createJob"];
         delete?: never;
         options?: never;
@@ -1261,6 +1396,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Count jobs per state: cluster-wide for administrators, and restricted to the
+         *     caller's own jobs for everyone else, which hides maintenance jobs that carry
+         *     no user ID.
+         */
         get: operations["getJobStatistics"];
         put?: never;
         post?: never;
@@ -1277,6 +1417,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List the River queues with their paused flag and counters: every queue known
+         *     to the instance for administrators, otherwise only the queues holding the
+         *     caller's jobs.
+         */
         get: operations["listJobQueues"];
         put?: never;
         post?: never;
@@ -1295,6 +1440,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Pause a queue so it hands out no new jobs; jobs already running finish.
+         *     Requires the admin or owner role, and a queue that has never held a job is
+         *     reported as 404.
+         */
         post: operations["pauseJobQueue"];
         delete?: never;
         options?: never;
@@ -1311,6 +1461,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Let a paused queue hand out jobs again. Requires the admin or owner role, and
+         *     a queue that River has never seen is reported as 404.
+         */
         post: operations["resumeJobQueue"];
         delete?: never;
         options?: never;
@@ -1328,6 +1482,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * @description Permanently delete the caller's jobs in one finalized state and report how
+         *     many rows were removed; administrators purge across all users. Only
+         *     cancelled, completed and discarded are accepted, and any other state is
+         *     rejected with 409, so a job that may still run cannot be deleted here.
+         */
         delete: operations["purgeJobs"];
         options?: never;
         head?: never;
@@ -1341,9 +1501,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description Return one job by its decimal ID. Non-administrators only reach their own
+         *     jobs, so an unknown or foreign ID is reported as 404 without disclosing which
+         *     IDs exist.
+         */
         get: operations["getJob"];
         put?: never;
         post?: never;
+        /**
+         * @description Remove a job permanently; an active job is cancelled instead, because River
+         *     refuses to delete a job a worker may still hold. Non-administrators can only
+         *     delete their own jobs, and an unknown ID is reported as 404.
+         */
         delete: operations["deleteJob"];
         options?: never;
         head?: never;
@@ -1359,6 +1529,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Request cancellation of a job and return its record. A running job is only
+         *     flagged for the job rescuer rather than interrupted, so the returned state can
+         *     still be running; the same visibility rule as get applies.
+         */
         post: operations["cancelJob"];
         delete?: never;
         options?: never;
@@ -1375,6 +1550,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Put a job back on its queue and return the updated record, granting one extra
+         *     attempt when the budget was already exhausted. A job River would leave
+         *     untouched, because it is running or already queued, is rejected with 409.
+         */
         post: operations["retryJob"];
         delete?: never;
         options?: never;
@@ -1389,8 +1569,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List every stored periodic job with its schedule, queue and pause state. The
+         *     admin or owner role is required: a schedule drives maintenance for every
+         *     account on the instance.
+         */
         get: operations["listPeriodicJobs"];
         put?: never;
+        /**
+         * @description Store a new periodic job definition and return it. The admin or owner role is
+         *     required, an identifier already in use is reported as 409, and a kind this
+         *     deployment has no worker for as 422 before anything is written.
+         */
         post: operations["createPeriodicJob"];
         delete?: never;
         options?: never;
@@ -1405,6 +1595,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description List the built-in schedule templates with their kind, label, default
+         *     arguments, queue and recommended cron expression, which clients use to create
+         *     periodic jobs. The admin or owner role is required, and templates of features
+         *     this deployment cannot run are absent.
+         */
         get: operations["getPeriodicJobCatalog"];
         put?: never;
         post?: never;
@@ -1423,6 +1619,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Restore the built-in schedules to their catalog defaults and return them:
+         *     every stored definition is deleted and recreated active, so operator edits
+         *     are lost while the runs the old definitions already inserted stay in the job
+         *     table. The admin or owner role is required.
+         */
         post: operations["resetPeriodicJobs"];
         delete?: never;
         options?: never;
@@ -1438,8 +1640,18 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        /**
+         * @description Replace the definition identified by the path ID and return the stored job.
+         *     The admin or owner role is required, an unknown ID is reported as 404, and a
+         *     kind this deployment has no worker for as 422.
+         */
         put: operations["updatePeriodicJob"];
         post?: never;
+        /**
+         * @description Remove a schedule permanently; the runs it already inserted stay in the job
+         *     table and keep their history. The admin or owner role is required, and an
+         *     unknown ID is reported as 404.
+         */
         delete: operations["deletePeriodicJob"];
         options?: never;
         head?: never;
@@ -1455,6 +1667,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Suspend a schedule so it inserts no further runs while keeping its
+         *     configuration, and return the updated definition. The admin or owner role is
+         *     required, and an unknown ID is reported as 404.
+         */
         post: operations["pausePeriodicJob"];
         delete?: never;
         options?: never;
@@ -1471,6 +1688,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /**
+         * @description Reactivate a paused schedule and return the updated definition. Occurrences
+         *     skipped while it was paused are not replayed one by one, but a schedule whose
+         *     stored next run has already passed fires one catch-up run. The admin or owner
+         *     role is required, and an unknown ID is reported as 404.
+         */
         post: operations["resumePeriodicJob"];
         delete?: never;
         options?: never;
@@ -1499,11 +1722,27 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description Result of a health probe: the state observed at that moment and the version that
+         *     answered.
+         */
         HealthStatus: {
-            /** @enum {string} */
+            /**
+             * @description `ok` when the probe passed; `degraded` when a required dependency failed or was
+             *     never configured.
+             * @enum {string}
+             */
             status: "ok" | "degraded";
+            /**
+             * @description Build version of the answering process; may be empty when the binary carries no
+             *     version information.
+             */
             version: string;
         };
+        /**
+         * @description One failure: a stable code for clients, a message for humans and optional structured
+         *     context.
+         */
         ErrorDetail: {
             /** @description Stable machine-readable error code. */
             code: string;
@@ -1514,416 +1753,904 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Payload every failing request returns, whatever the status code. */
         ErrorEnvelope: {
+            /** @description Machine-readable error code of the failure. */
             error: components["schemas"]["ErrorDetail"];
         };
-        /** Format: uuid */
+        /**
+         * Format: uuid
+         * @description Identifier in canonical UUID textual form.
+         */
         Uuid: string;
+        /** @description Pending phone login flow, continued with the verify-code and verify-password operations. */
         TelegramLoginStartResponse: {
+            /**
+             * @description Opaque identifier of the flow; pass it back to the verify operations while it is
+             *     unexpired.
+             */
             flowId: components["schemas"]["Uuid"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the flow stops being usable; later verify calls answer 410.
+             */
             expiresAt: string;
+            /**
+             * @description True while the account's two-step password is still needed, so the client must call
+             *     the verify-password operation.
+             */
             passwordRequired: boolean;
         };
+        /** @description Phone-number login request; the server asks Telegram to send a login code to that number. */
         TelegramLoginStartRequest: {
             /** @description Phone number in E.164 format. */
             phoneNumber: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Input that a QR login flow is still waiting for.
+         * @enum {string}
+         */
         TelegramQRLoginState: "pending" | "password_required";
+        /** @description Current challenge of a QR login flow, repeated on every poll that has not completed. */
         TelegramQRLoginResponse: {
+            /** @description Opaque identifier of the flow; pass it back to the poll operations. */
             flowId: components["schemas"]["Uuid"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the flow stops being usable; polling after this instant answers 410.
+             */
             expiresAt: string;
+            /** @description Which input the flow still needs. */
             state: components["schemas"]["TelegramQRLoginState"];
+            /** @description `tg://` link to render as a QR code; omitted once the password prompt was reached. */
             qrUrl?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When Telegram stops accepting the QR token, after which a poll returns a fresh
+             *     link; omitted at the password prompt.
+             */
             qrExpiresAt?: string;
         };
+        /** @description Credential pair issued by a completed login or a token refresh. */
         TokenPair: {
+            /** @description Signed bearer token to send as `Authorization: Bearer` on API requests. */
             accessToken: string;
+            /**
+             * @description Opaque secret that obtains the next pair; it is rotated on every refresh, so the
+             *     value just used becomes invalid.
+             */
             refreshToken: string;
-            /** @enum {string} */
+            /**
+             * @description Always `Bearer`.
+             * @enum {string}
+             */
             tokenType: "Bearer";
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Access token lifetime in seconds.
+             */
             expiresIn: number;
         };
+        /** @description Poll request naming the QR flow to advance. */
         TelegramQRLoginPollRequest: {
+            /** @description Identifier returned by the QR start operation. */
             flowId: components["schemas"]["Uuid"];
         };
+        /** @description Login code that Telegram sent to the phone, submitted for a pending flow. */
         TelegramCodeVerifyRequest: {
+            /** @description Identifier returned by a start operation; it must still be unexpired. */
             flowId: components["schemas"]["Uuid"];
+            /** @description Code Telegram sent to the phone, 1 to 16 characters. */
             code: string;
         };
+        /** @description Two-step password submitted for a flow that reported `passwordRequired`. */
         TelegramPasswordVerifyRequest: {
+            /** @description Identifier of the flow that asked for the password. */
             flowId: components["schemas"]["Uuid"];
+            /** @description The account's Telegram two-step password. */
             password: string;
         };
+        /**
+         * @description Token refresh request; the refresh token is itself the credential, so no
+         *     Authorization header is needed.
+         */
         RefreshTokenRequest: {
+            /**
+             * @description Refresh token from a previous login or refresh; it is rotated, so the value sent
+             *     stops working.
+             */
             refreshToken: string;
         };
+        /**
+         * @description Session state returned by a browser cookie login; the tokens themselves stay in
+         *     HttpOnly cookies.
+         */
         CookieSession: {
-            /** @enum {boolean} */
+            /**
+             * @description Always true: the model is only returned once a session was established.
+             * @enum {boolean}
+             */
             authenticated: true;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the refresh session expires; the access cookie is renewed silently before then.
+             */
             expiresAt: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Account role, in descending privilege.
+         * @enum {string}
+         */
         UserRole: "owner" | "admin" | "user";
+        /** @description Profile of the authenticated account. */
         UserProfile: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram user ID of the account.
+             */
             userId: number;
+            /** @description Display name; omitted when unset. */
             displayName?: string;
+            /** @description Telegram */
             username?: string;
+            /** @description Whether the Telegram account has a premium subscription. */
             premium: boolean;
+            /** @description Current role of the account. */
             role: components["schemas"]["UserRole"];
+            /**
+             * @description Permission strings derived from the role, for example `files.write` or
+             *     `system.manageUsers`; clients use them to show or hide controls.
+             */
             capabilities: string[];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the account first signed in to this deployment.
+             */
             createdAt: string;
         };
+        /**
+         * @description Strong entity tag of a resource: a quoted generation number, or a quoted content hash
+         *     on download responses.
+         */
         ETag: string;
+        /** @description Lightweight account identity returned by user search. */
         UserSearchResult: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram user ID; pass it as `granteeUserId` when granting access.
+             */
             userId: number;
+            /** @description Display name; omitted when unset. */
             displayName?: string;
+            /** @description Telegram */
             username?: string;
         };
+        /** @description Account row as shown in the admin console. */
         AdminUserSummary: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram user ID of the account.
+             */
             userId: number;
+            /** @description Telegram display name; omitted when Telegram reports none. */
             displayName?: string;
+            /** @description Telegram */
             username?: string;
+            /** @description Whether the Telegram account has a premium subscription. */
             premium: boolean;
+            /** @description Current role of the account. */
             role: components["schemas"]["UserRole"];
+            /** @description Whether the account is disabled and therefore refuses to authenticate. */
             disabled: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the account first signed in to this deployment.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the account row was last changed.
+             */
             updatedAt: string;
         };
+        /**
+         * @description Administrative patch of one account; at least one field must be present or the
+         *     request is rejected with 422.
+         */
         UserAdminUpdateRequest: {
+            /**
+             * @description New role; only `admin` and `user` are accepted, so no account can be promoted to
+             *     owner here.
+             */
             role?: components["schemas"]["UserRole"];
+            /** @description True disables the account and revokes its sessions and API keys; false re-enables it. */
             disabled?: boolean;
         };
+        /**
+         * @description Opaque pagination cursor returned as `nextCursor`; clients pass it back unchanged and
+         *     never parse it.
+         */
         Cursor: string;
+        /** @description One API key of the account, without its secret. */
         ApiKeySummary: {
+            /** @description Key identifier used to revoke it. */
             id: components["schemas"]["Uuid"];
+            /** @description Label given at creation. */
             name: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key last authenticated a request; omitted while it has never been used.
+             */
             lastUsedAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key stops authenticating; a key past its expiry is never listed.
+             */
             expiresAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key was revoked; revoked keys are not listed, so this is normally absent.
+             */
             revokedAt?: string;
         };
+        /** @description Newly minted API key; its plaintext secret is returned only in this response. */
         ApiKeyCreated: {
+            /** @description Key identifier used to revoke it. */
             id: components["schemas"]["Uuid"];
+            /** @description Label given at creation. */
             name: string;
             /** @description Returned once. The server stores only a hash. */
             secret: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Expiry given at creation; omitted when the key never expires.
+             */
             expiresAt?: string;
         };
+        /** @description Request to mint an API key for the authenticated account. */
         ApiKeyCreateRequest: {
+            /** @description Label shown in key listings, 1 to 120 characters. */
             name: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the key stops authenticating; omitted means it never expires.
+             */
             expiresAt?: string;
         };
+        /** @description One TelDrive login session of the account. */
         SessionSummary: {
+            /** @description Session identifier used to revoke it. */
             id: components["schemas"]["Uuid"];
+            /** @description True for the session backing the credential that made this request. */
             current: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session last authenticated a request; omitted while it has not been used yet.
+             */
             lastUsedAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session stops being usable.
+             */
             expiresAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the session was revoked; the listing only returns live sessions, so this is
+             *     normally absent.
+             */
             revokedAt?: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Last recorded health of a channel; `unavailable` keeps the channel out of uploads.
+         * @enum {string}
+         */
         ChannelHealth: "unknown" | "healthy" | "degraded" | "unavailable";
+        /** @description One Telegram channel registered to the account. */
         ChannelSummary: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram channel ID.
+             */
             id: number;
+            /** @description Channel title. */
             name: string;
+            /** @description True for the channel new uploads currently target; at most one channel per account. */
             selected: boolean;
+            /** @description Last recorded health of this channel. */
             health: components["schemas"]["ChannelHealth"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the channel was registered with TelDrive.
+             */
             createdAt: string;
         };
+        /** @description A channel Telegram reports the account can manage, registered with TelDrive or not. */
         DiscoveredChannel: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram channel ID.
+             */
             id: number;
+            /** @description Channel title reported by Telegram. */
             name: string;
         };
+        /** @description Request to create a new Telegram channel and register it. */
         ChannelCreateRequest: {
             /** @description Optional display name. Telegram may choose the final title. */
             name?: string;
-            /** @default true */
+            /**
+             * @description Whether to make the new channel the upload target; omitted or false leaves the
+             *     current selection unchanged.
+             * @default true
+             */
             selected: boolean;
         };
+        /** @description One registered Telegram bot. */
         BotSummary: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram bot user ID parsed from the token.
+             */
             id: number;
+            /** @description Bot */
             username?: string;
+            /**
+             * @description True once provisioning verified the token with Telegram; a pending or failed bot is
+             *     false and cannot be used for uploads.
+             */
             enabled: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the token was registered with TelDrive.
+             */
             createdAt: string;
         };
+        /** @description Result of registering a batch of bot tokens. */
         BotCreateResponse: {
+            /** @description Bots stored by this request, in the order their tokens were accepted. */
             bots: components["schemas"]["BotSummary"][];
+            /**
+             * @description Zero-based indexes into the request's `tokens` that were rejected as malformed or
+             *     duplicated.
+             */
             failedIndexes: number[];
             /** @description Present only when existing channels need background bot provisioning. */
             jobId?: string;
         };
+        /** @description Request to register Telegram bots by token. */
         BotCreateRequest: {
             /** @description Telegram bot tokens. Tokens are never returned by the API. */
             tokens: string[];
         };
+        /** @description Credential that lets an EventSource URL authenticate without headers. */
         EventStreamTicket: {
             /** @description Short-lived credential suitable for a browser EventSource URL. */
             ticket: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the ticket stops authenticating; it is bound to the issuing account and its
+             *     default lifetime is two minutes.
+             */
             expiresAt: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Region of the drive a listing covers.
+         * @enum {string}
+         */
         FileListScope: "folder" | "drive" | "recursive";
-        /** @enum {string} */
+        /**
+         * @description Whether a catalog entry holds content or groups other entries.
+         * @enum {string}
+         */
         FileKind: "file" | "folder";
-        /** @enum {string} */
+        /**
+         * @description Lifecycle of a catalog entry. Trashing only flips the status and keeps the
+         *     content parts; the purge sweep later deletes the parts of a deletion-pending
+         *     entry.
+         * @enum {string}
+         */
         FileStatus: "active" | "trashed" | "deletion_pending";
-        /** @enum {string} */
+        /**
+         * @description How the search term is matched against entry names.
+         * @enum {string}
+         */
         FileSearchType: "text" | "regex";
-        /** @enum {string} */
+        /**
+         * @description Bucket the server derives from an entry's MIME type, falling back to the file name.
+         * @enum {string}
+         */
         FileCategory: "archive" | "audio" | "document" | "image" | "video" | "other";
-        /** @enum {string} */
+        /**
+         * @description Key a listing is ordered by; a cursor only continues a listing produced with the same key and order.
+         * @enum {string}
+         */
         FileSort: "name" | "updatedAt" | "size" | "id";
-        /** @enum {string} */
+        /**
+         * @description Direction a sorted listing is returned in.
+         * @enum {string}
+         */
         SortOrder: "asc" | "desc";
-        /** @enum {string} */
+        /**
+         * @description Content-digest algorithms the contract accepts; only BLAKE3 is advertised today.
+         * @enum {string}
+         */
         HashAlgorithm: "blake3";
+        /** @description BLAKE3 digest of plaintext content, 64 lowercase hex characters. */
         Checksum: string;
+        /** @description Content digest of a file or upload, used to verify transfers. */
         FileHash: {
+            /** @description Algorithm that produced `value`. */
             algorithm: components["schemas"]["HashAlgorithm"];
+            /** @description Digest of the plaintext content in that algorithm's encoding. */
             value: components["schemas"]["Checksum"];
         };
+        /** @description One catalog entry with its metadata, as returned by every file endpoint. */
         FileEntry: {
+            /** @description Entry UUID; this is the fileId path parameter of the single-entry endpoints. */
             id: components["schemas"]["Uuid"];
+            /** @description Containing folder; absent for an entry sitting in the drive root. */
             parentId?: components["schemas"]["Uuid"];
+            /** @description Entry name, unique among the active entries of the same parent and never blank. */
             name: string;
+            /** @description Whether this entry is a file or a folder. */
             kind: components["schemas"]["FileKind"];
+            /** @description Media type recorded at upload time; absent when the upload supplied none. */
             mimeType?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Content size in bytes; absent for folders, which never carry a size.
+             */
             size?: number;
+            /** @description Content checksum (BLAKE3 tree hash) recorded on completion; absent when no part hash was stored. */
             hash?: components["schemas"]["FileHash"];
+            /** @description Whether the content parts are stored encrypted and decrypted by the server on read. */
             encryption: boolean;
+            /** @description Lifecycle state of the entry. */
             status: components["schemas"]["FileStatus"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Modification time of the content, as supplied when the entry was created or last updated.
+             */
             modTime: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Revision of the metadata; it is incremented by every rename, move, trash and restore.
+             */
             generation: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the entry row was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the entry row was last changed.
+             */
             updatedAt: string;
             /** @description Location path, included for drive and recursive listings. */
             parentPath?: string;
         };
+        /** @description Partial metadata change of one entry; at least one of name and modTime must be set. */
         FileUpdateRequest: {
+            /** @description New name, 1 to 255 characters and not blank; absent keeps the current name. */
             name?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description New modification time; absent keeps the current one.
+             */
             modTime?: string;
         };
-        /** @enum {string} */
+        /**
+         * @description What a move, copy or create does when an entry of that name already exists at the destination.
+         * @enum {string}
+         */
         NameConflictPolicy: "fail" | "replace" | "rename";
+        /** @description Destination of a single-entry move within one owner's drive. */
         FileMoveRequest: {
+            /** @description Destination folder; absent moves the entry to the caller's drive root. */
             parentId?: components["schemas"]["Uuid"];
-            /** @default fail */
+            /**
+             * @description How to resolve a name already taken at the destination.
+             * @default fail
+             */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
         };
-        /** Format: uri */
+        /**
+         * Format: uri
+         * @description URI in RFC 3986 form, percent-encoded.
+         */
         Uri: string;
+        /** @description Destination and naming of a copy. */
         FileCopyRequest: {
+            /** @description Destination folder; absent copies into the source owner's drive root. */
             parentId?: components["schemas"]["Uuid"];
+            /** @description Name of the copied root, 1 to 255 characters; absent keeps the source name. */
             name?: string;
-            /** @default fail */
+            /**
+             * @description How to resolve a name already taken at the destination.
+             * @default fail
+             */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
         };
-        /** @enum {string} */
+        /**
+         * @description Viewer a saved reader state belongs to.
+         * @enum {string}
+         */
         ViewerKind: "image" | "video" | "audio" | "pdf" | "ebook" | "text";
+        /** @description Reader state one user saved for one file; the server treats every payload as opaque JSON. */
         FileViewState: {
+            /** @description File the state belongs to. */
             fileId: components["schemas"]["Uuid"];
+            /** @description Viewer the state was saved by. */
             kind: components["schemas"]["ViewerKind"];
+            /** @description Opaque JSON object, for example the reading or playback position. */
             position: {
                 [key: string]: unknown;
             };
+            /** @description Opaque JSON object with the viewer settings chosen by the user. */
             preferences: {
                 [key: string]: unknown;
             };
+            /** @description Reader bookmarks, each an opaque JSON value; at most 500 entries. */
             bookmarks: {
                 [key: string]: unknown;
             }[];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the state was last written.
+             */
             updatedAt: string;
         };
+        /**
+         * @description Reader state to store for one file. The write replaces the whole stored state:
+         *     an omitted position, preferences or bookmarks is stored as an empty object or
+         *     list rather than merged with the previous value.
+         */
         FileViewStateUpdate: {
+            /** @description Viewer the state is saved by. */
             kind: components["schemas"]["ViewerKind"];
+            /** @description Opaque JSON object; omitted stores an empty object. */
             position?: {
                 [key: string]: unknown;
             };
+            /** @description Opaque JSON object; omitted stores an empty object. */
             preferences?: {
                 [key: string]: unknown;
             };
+            /** @description Reader bookmarks; omitted stores an empty list, and more than 500 entries are rejected. */
             bookmarks?: {
                 [key: string]: unknown;
             }[];
         };
+        /** @description Entries a bulk operation affected. */
         FileBulkResult: {
+            /** @description Moved entries in request order, or every trashed entry including the descendants of the roots. */
             items: components["schemas"]["FileEntry"][];
         };
+        /** @description Batch move request; the whole batch is applied in a single transaction. */
         FileBulkMoveRequest: {
+            /** @description Entries to move, 1 to 500 IDs; every entry must belong to the destination's owner. */
             fileIds: components["schemas"]["Uuid"][];
+            /** @description Destination folder; absent moves the entries to the caller's own drive root. */
             parentId?: components["schemas"]["Uuid"];
-            /** @default fail */
+            /**
+             * @description How to resolve a name already taken at the destination; the default fails the whole batch.
+             * @default fail
+             */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
         };
+        /** @description Batch trash request; the whole batch is applied in a single transaction. */
         FileBulkTrashRequest: {
+            /** @description Entries to trash, 1 to 500 IDs; the root of a share the caller does not own cannot be trashed. */
             fileIds: components["schemas"]["Uuid"][];
         };
+        /** @description File count and bytes of one category bucket of a drive. */
         FileCategoryStatistics: {
+            /** @description Bucket the counted files fall into. */
             category: components["schemas"]["FileCategory"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of active files in the bucket; folders are never counted.
+             */
             totalFiles: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed size of those files in bytes.
+             */
             totalSize: number;
         };
+        /** @description Aggregate counters of one user's drive. */
         DriveStatistics: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of active files.
+             */
             totalFiles: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of active folders.
+             */
             totalFolders: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed size of the active files in bytes.
+             */
             totalBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of trashed files; trashed folders are not counted.
+             */
             trashedFiles: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Shares that are neither revoked nor expired.
+             */
             activeShares: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Upload sessions still open or completing.
+             */
             openUploads: number;
         };
+        /** @description Body of a folder creation request. */
         FolderCreateRequest: {
+            /** @description Parent folder; absent creates the folder in the caller's drive root. */
             parentId?: components["schemas"]["Uuid"];
+            /** @description Folder name, 1 to 255 characters and not blank. */
             name: string;
-            /** @default fail */
+            /**
+             * @description Only fail is accepted here; replace and rename are rejected as invalid input.
+             * @default fail
+             */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Modification time to record; absent records the current time.
+             */
             modTime?: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Lifecycle of an upload session. A session is created open and only an open
+         *     session accepts parts; completion publishes the file and moves the session
+         *     through completing to completed inside one transaction, while abort and the
+         *     expiry sweep retire it as aborted or expired.
+         * @enum {string}
+         */
         UploadState: "open" | "completing" | "completed" | "aborted" | "expired";
+        /**
+         * @description Durable upload session. It outlives the connection that created it: parts are
+         *     held in PostgreSQL and Telegram, so a client resumes by listing the parts it
+         *     already stored and continues from the first missing one.
+         */
         UploadSession: {
+            /** @description Session UUID; the uploadId path parameter of the session endpoints. */
             id: components["schemas"]["Uuid"];
+            /** @description Destination folder; absent means the drive root. */
             parentId?: components["schemas"]["Uuid"];
+            /** @description Destination file name; a rename-policy completion replaces it with a free " (n)" variant. */
             name: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total plaintext size in bytes, or -1 while unknown; completion then derives it from the stored parts.
+             */
             expectedSize: number;
+            /** @description Expected whole-file tree hash, compared at completion; absent skips that comparison. */
             expectedHash?: components["schemas"]["FileHash"];
+            /** @description Media type recorded at creation; absent when the request carried none. */
             mimeType?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Modification time recorded on the published file.
+             */
             modTime: string;
+            /** @description Whether the parts are stored encrypted and decrypted by the server on read. */
             encryption: boolean;
+            /** @description Policy completion applies to an occupied destination name (fail, replace or rename). */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Plaintext size in bytes every part but the last must have; the last part holds the remainder.
+             */
             partSize: number;
+            /** @description Lifecycle state of the session; see UploadState. */
             state: components["schemas"]["UploadState"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Deadline for claiming parts and completing, fixed at creation (the server's
+             *     session TTL, 7 days by default). A past deadline makes part writes and
+             *     completion fail with 410 while the session is still open; the expiry sweep
+             *     then moves it to expired.
+             */
             expiresAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the session was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time completion published the file; absent until the session reaches completed.
+             */
             completedAt?: string;
+            /** @description The published file; absent until the session reaches completed. */
             fileId?: components["schemas"]["Uuid"];
         };
+        /**
+         * @description One UTC day of completed upload activity; days without a completion are
+         *     reported as zero rows instead of being omitted.
+         */
         UploadDailyStatistics: {
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Day the totals cover, at midnight UTC.
+             */
             date: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed plaintext bytes of the sessions completed that day.
+             */
             uploadedBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of sessions completed that day.
+             */
             completedFiles: number;
         };
-        /** @enum {string} */
+        /**
+         * @description Lifecycle state of a River job. A job becomes available or scheduled, turns
+         *     running while a worker holds it, and ends in completed, cancelled or
+         *     discarded.
+         * @enum {string}
+         */
         JobState: "available" | "cancelled" | "completed" | "discarded" | "pending" | "retryable" | "running" | "scheduled";
+        /** @description One failed attempt of a job, as recorded by River. */
         JobAttemptError: {
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description 1-based number of the attempt that failed.
+             */
             attempt: number;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the attempt failed.
+             */
             at: string;
+            /** @description Error message reported by the worker. */
             error: string;
+            /** @description Stack trace captured for the attempt; absent when River stored none. */
             trace?: string;
         };
+        /** @description A River job as the management API exposes it; the values are a snapshot and may already be stale. */
         Job: {
+            /** @description River job ID, unique across all kinds and queues. */
             id: string;
+            /** @description Lifecycle state of the job. */
             status: components["schemas"]["JobState"];
+            /** @description Worker kind that executes the job, for example "teldrive_cleanup_uploads". */
             type: string;
+            /** @description Identifier of the job this one is grouped under; absent unless the producer set one. */
             parentId?: string;
+            /** @description Queue the job was inserted into. */
             queue: string;
+            /** @description Human-readable description taken from the job metadata; absent when none is set. */
             description?: string;
+            /** @description Message taken from the job metadata, falling back to the most recent attempt error. */
             message?: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Number of attempts already made, including the current one.
+             */
             attempt: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Attempt budget; the job is discarded once it is exhausted.
+             */
             maxAttempts: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description River priority, 1 being the highest and 4 the lowest.
+             */
             priority: number;
+            /** @description Operator-supplied labels attached to the job. */
             tags: string[];
+            /** @description Job arguments keyed by JSON field name; credential-like values are redacted. */
             args: {
                 [key: string]: unknown;
             };
+            /** @description JSON object the worker recorded on success; absent when it recorded none. */
             output?: {
                 [key: string]: unknown;
             };
+            /** @description Failed attempts in chronological order. */
             errors: components["schemas"]["JobAttemptError"][];
+            /** @description Worker clients that picked the job up. */
             attemptedBy: string[];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the job was inserted.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the job became or becomes eligible to run.
+             */
             scheduledAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the current or last attempt started; absent while the job has never been attempted.
+             */
             startedAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the job reached a terminal state; absent while it is still active.
+             */
             completedAt?: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Kind of source a background import reads from, which decides the required field.
+         * @enum {string}
+         */
         UploadImportSourceType: "local" | "http";
+        /**
+         * @description One import source. The type decides whether path or url is required, and the
+         *     remaining fields narrow what the source expands to.
+         */
         UploadImportSource: {
+            /** @description Source kind; selects whether path or url is used. */
             type: components["schemas"]["UploadImportSourceType"];
+            /** @description Absolute path of a file, or of a directory walked recursively; required for a local source. */
             path?: string;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description http or https URL of a single file; required for an http source.
+             */
             url?: string;
+            /** @description Extra request headers for this URL, merged over the batch headers with these winning. */
             headers?: {
                 [key: string]: string;
             };
+            /** @description Slash-separated path to store the file at inside the destination, overriding its derived name. */
             destinationPath?: string;
+            /** @description Globs that skip matching files of this source, relative to the source or its URL. */
             exclude?: string[];
         };
+        /**
+         * @description Server-side batch import: the request is queued as a background job, so the
+         *     response is the job, not the imported files.
+         */
         UploadImportRequest: {
             /** @description Destination folder UUID or absolute drive path from root. */
             destination: string;
+            /** @description Sources to import; at least one is required. */
             sources: components["schemas"]["UploadImportSource"][];
+            /** @description Default request headers for every remote source, overridden per source. */
             headers?: {
                 [key: string]: string;
             };
+            /** @description Globs that skip files of every source, applied on top of the per-source patterns. */
             exclude?: string[];
+            /** @description Smallest file size to import, inclusive, written as a human-readable size such as "10MiB". */
             minSize?: string;
+            /** @description Largest file size to import, inclusive and written like minSize; a smaller maxSize fails the job. */
             maxSize?: string;
             /**
              * Format: int32
+             * @description Parts of one file transferred at once; a value above 16 is rejected.
              * @default 4
              */
             partConcurrency: number;
@@ -1933,24 +2660,46 @@ export interface components {
              * @default 536870912
              */
             chunkSize: number;
-            /** @default false */
+            /**
+             * @description Store the imported files encrypted under the active key; requires a configured key version.
+             * @default false
+             */
             encryption: boolean;
         };
+        /**
+         * @description Request that opens a durable upload session. The destination name is not
+         *     reserved here: a clash with an existing entry is resolved when the session is
+         *     completed, following the requested conflict policy.
+         */
         UploadCreateRequest: {
+            /** @description Destination folder; absent uploads into the caller's own drive root. */
             parentId?: components["schemas"]["Uuid"];
+            /** @description Destination file name, 1 to 255 characters and not blank; stored verbatim. */
             name: string;
             /**
              * Format: int64
              * @description Expected size in bytes, or -1 when the size is unknown until completion.
              */
             size: number;
+            /** @description Media type to record on the published file; absent leaves the entry without one. */
             mimeType?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Modification time to record on the published file; the zero instant means the current time.
+             */
             modTime: string;
+            /** @description Expected whole-file BLAKE3 tree hash, compared at completion; absent skips the comparison. */
             hash?: components["schemas"]["FileHash"];
-            /** @default false */
+            /**
+             * @description Store the content encrypted under the caller's key; rejected when the deployment has no active key.
+             * @default false
+             */
             encryption: boolean;
-            /** @default fail */
+            /**
+             * @description How completion resolves an occupied destination name: fail, replace or
+             *     rename; anything else is rejected, and replace overwrites only a regular file.
+             * @default fail
+             */
             conflictPolicy: components["schemas"]["NameConflictPolicy"];
             /**
              * Format: int64
@@ -1958,346 +2707,772 @@ export interface components {
              */
             preferredPartSize?: number;
         };
-        /** @enum {string} */
+        /**
+         * @description Lifecycle of one part. A part is claimed under a lease as uploading, becomes
+         *     stored once its bytes are readable, or failed when the attempt was abandoned;
+         *     a stored or failed part can be claimed again under a new lease.
+         * @enum {string}
+         */
         UploadPartState: "reserved" | "uploading" | "stored" | "failed";
+        /**
+         * @description One part of an upload session: a fixed slice of the plaintext, written under a
+         *     lease so a stalled writer cannot overwrite a newer attempt, and copied into the
+         *     published file's parts on completion.
+         */
         UploadPart: {
+            /** @description Session the part belongs to. */
             uploadId: components["schemas"]["Uuid"];
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description 1-based part number; the stored parts of a session tile the file from 1 without gaps.
+             */
             partNo: number;
+            /** @description Lease and write state of this part; see UploadPartState. */
             state: components["schemas"]["UploadPartState"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Plaintext bytes this part covers, as declared when it was claimed.
+             */
             plainSize: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Bytes the part occupies in storage, larger than plainSize once encrypted; absent until stored.
+             */
             storedSize?: number;
+            /**
+             * @description BLAKE3 tree hash of the part plaintext in lowercase hex; absent until the
+             *     part is stored, and for a part stored without hashing.
+             */
             checksum?: components["schemas"]["Checksum"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the part was first claimed.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the part row last changed, through claim, lease renewal, store or failure.
+             */
             updatedAt: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Access level a share or grant confers.
+         * @enum {string}
+         */
         SharePermission: "read" | "edit";
+        /** @description A freshly created share, including the token that is returned only here. */
         ShareCreated: {
+            /** @description Share identifier used to update or revoke the link. */
             id: components["schemas"]["Uuid"];
+            /** @description File or folder the link exposes. */
             fileId: components["schemas"]["Uuid"];
             /** @description Opaque public token returned only when the share is created. */
             token: string;
+            /**
+             * @description Path of the link on the deployment host, `/share/<token>`; resolve it against the
+             *     origin to build a URL.
+             */
             publicUrl: components["schemas"]["Uri"];
+            /** @description True when the link asks for a password. */
             passwordProtected: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working; omitted when it never expires.
+             */
             expiresAt?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Download limit; omitted when unlimited.
+             */
             maxDownloads?: number;
+            /** @description Access level the link confers. */
             permission: components["schemas"]["SharePermission"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link was created.
+             */
             createdAt: string;
         };
+        /** @description Request to mint a public share link for one file or folder the caller owns. */
         ShareCreateRequest: {
             /** @description Optional password. The server stores only a password hash. */
             password?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working; must be in the future, and omitted means it never expires.
+             */
             expiresAt?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Downloads allowed before the link is exhausted; must be positive, and omitted means
+             *     unlimited.
+             */
             maxDownloads?: number;
-            /** @default read */
+            /**
+             * @description Access level of the link; omitted means `read`.
+             * @default read
+             */
             permission: components["schemas"]["SharePermission"];
         };
+        /** @description One share of a file, without its token. */
         ShareSummary: {
+            /** @description Share identifier used to update or revoke the link. */
             id: components["schemas"]["Uuid"];
+            /** @description File or folder the link exposes. */
             fileId: components["schemas"]["Uuid"];
+            /** @description True when the link asks for a password. */
             passwordProtected: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working; omitted when it never expires.
+             */
             expiresAt?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Download limit; omitted when unlimited.
+             */
             maxDownloads?: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Downloads already charged against the link.
+             */
             downloadCount: number;
+            /** @description Access level the link confers. */
             permission: components["schemas"]["SharePermission"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link was created.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link was revoked; revoked shares stay listed with their state.
+             */
             revokedAt?: string;
         };
+        /**
+         * @description Partial update of a share; omitted fields keep their value, the `clear*` flags remove
+         *     one, and a request that sets nothing is rejected.
+         */
         ShareUpdateRequest: {
+            /** @description Replacement password; must not be combined with `clearPassword`. */
             password?: string;
-            /** @default false */
+            /**
+             * @description True removes the password so the link becomes public; must not be combined with
+             *     `password`.
+             * @default false
+             */
             clearPassword: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Replacement expiry; must be in the future and must not be combined with
+             *     `clearExpiresAt`.
+             */
             expiresAt?: string;
-            /** @default false */
+            /**
+             * @description True removes the expiry so the link no longer ages out; must not be combined with
+             *     `expiresAt`.
+             * @default false
+             */
             clearExpiresAt: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Replacement download limit, which cannot be set below the downloads already
+             *     counted; must not be combined with `clearMaxDownloads`.
+             */
             maxDownloads?: number;
-            /** @default false */
+            /**
+             * @description True removes the download limit; must not be combined with `maxDownloads`.
+             * @default false
+             */
             clearMaxDownloads: boolean;
+            /** @description Replacement access level. */
             permission?: components["schemas"]["SharePermission"];
         };
+        /** @description One access grant on a file, including the grantee identity. */
         FileAccessGrantSummary: {
+            /** @description Grant identifier used to update or revoke it. */
             id: components["schemas"]["Uuid"];
+            /** @description File the grant applies to. */
             fileId: components["schemas"]["Uuid"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Account that owns the file.
+             */
             ownerId: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram user ID of the account that received access.
+             */
             granteeUserId: number;
+            /** @description Grantee display name; omitted when unset. */
             granteeDisplayName?: string;
+            /** @description Grantee */
             granteeUsername?: string;
+            /** @description Access level the grant confers. */
             permission: components["schemas"]["SharePermission"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the grant stops applying; omitted when it never expires.
+             */
             expiresAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the grant was created.
+             */
             createdAt: string;
         };
+        /** @description Request to grant another account access to one of the caller's files. */
         FileAccessGrantCreateRequest: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram user ID of the account to grant; it must exist, be enabled and differ from
+             *     the caller.
+             */
             granteeUserId: number;
-            /** @default read */
+            /**
+             * @description Access level to grant; omitted means `read`.
+             * @default read
+             */
             permission: components["schemas"]["SharePermission"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the grant stops applying; must be in the future, and omitted means it never
+             *     expires.
+             */
             expiresAt?: string;
         };
+        /**
+         * @description Partial update of a grant; at least one field must be present or the request is
+         *     rejected with 422.
+         */
         FileAccessGrantUpdateRequest: {
+            /** @description Replacement access level. */
             permission?: components["schemas"]["SharePermission"];
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Replacement expiry, which must be in the future and must not be combined with
+             *     `clearExpiresAt`.
+             */
             expiresAt?: string;
-            /** @default false */
+            /**
+             * @description True removes the expiry so the grant no longer ages out.
+             * @default false
+             */
             clearExpiresAt: boolean;
         };
+        /** @description A file another owner granted the caller, with the level granted. */
         SharedWithMeEntry: {
+            /** @description The granted file. */
             file: components["schemas"]["FileEntry"];
+            /** @description Access level the caller holds on it. */
             permission: components["schemas"]["SharePermission"];
         };
+        /** @description Public view of a share, returned to whoever holds its token. */
         PublicShare: {
+            /** @description Share identifier. */
             id: components["schemas"]["Uuid"];
+            /** @description The shared file, or the folder acting as the share root. */
             file: components["schemas"]["FileEntry"];
+            /** @description True when the link requires the `X-Share-Password` header. */
             passwordProtected: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the link stops working; omitted when it never expires.
+             */
             expiresAt?: string;
+            /** @description Access level the link confers. */
             permission: components["schemas"]["SharePermission"];
         };
+        /** @description Paging metadata of a job listing. */
         JobPageMeta: {
+            /** @description Opaque cursor for the next page; absent when this was the last page. */
             nextCursor?: components["schemas"]["Cursor"];
         };
+        /** @description One page of jobs. */
         JobPage: {
+            /** @description Jobs of the page, newest first. */
             tasks: components["schemas"]["Job"][];
+            /** @description Cursor for the following page. */
             meta: components["schemas"]["JobPageMeta"];
         };
+        /** @description A one-off maintenance job to enqueue. */
         JobCreate: {
+            /**
+             * @description Worker kind to run: one of the cleanup sweeps this deployment registered a
+             *     worker for ("teldrive_cleanup_uploads", "teldrive_cleanup_user_events",
+             *     "teldrive_cleanup_trash", "teldrive_purge_pending_files" or
+             *     "teldrive_cleanup_orphaned_telegram_parts"). Any other kind is rejected with
+             *     422.
+             */
             type: string;
+            /** @description Job arguments keyed by JSON field name; the worker applies its own defaults to absent fields. */
             args: {
                 [key: string]: unknown;
             };
+            /** @description Target queue; absent selects River's default queue. */
             queue?: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description River priority from 1 (highest) to 4 (lowest); absent or not positive selects the default.
+             */
             priority?: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Attempt budget; absent or not positive selects River's default.
+             */
             maxAttempts?: number;
+            /** @description Labels attached to the job. */
             tags?: string[];
         };
+        /** @description Number of jobs per lifecycle state; a zero field means no job was observed in that state. */
         JobStatistics: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs queued and ready to be worked.
+             */
             available: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs cancelled before they could finish.
+             */
             cancelled: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs that finished successfully.
+             */
             completed: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs that exhausted their attempts.
+             */
             discarded: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs waiting on an external dependency.
+             */
             pending: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Failed jobs waiting for another attempt.
+             */
             retryable: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs currently being worked.
+             */
             running: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs waiting for their scheduled time.
+             */
             scheduled: number;
         };
+        /** @description One River queue with the counters the job dashboard shows. */
         JobQueue: {
+            /** @description Queue name; River only tracks queues that have held at least one job. */
             name: string;
+            /** @description Whether the queue is paused and therefore hands out no new jobs. */
             paused: boolean;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs ready to run in this queue.
+             */
             available: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs of this queue currently being worked.
+             */
             running: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Failed jobs of this queue waiting for another attempt; the administrator listing leaves it 0.
+             */
             retryable: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Jobs of this queue waiting for their scheduled time; the administrator listing leaves it 0.
+             */
             scheduled: number;
         };
+        /** @description Queues visible to the caller. */
         JobQueueList: {
+            /** @description Every known queue for an administrator, otherwise only the queues holding the caller's jobs. */
             queues: components["schemas"]["JobQueue"][];
         };
+        /** @description Outcome of a job purge. */
         JobPurgeResult: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of job rows deleted.
+             */
             count: number;
         };
+        /** @description A stored periodic job definition with its runtime bookkeeping. */
         PeriodicJob: {
+            /** @description Durable identifier; update, pause, resume and delete refer to it. */
             id: string;
+            /** @description Worker kind each run uses. */
             kind: string;
+            /** @description Arguments inserted with every run, keyed by JSON field name. */
             args: {
                 [key: string]: unknown;
             };
+            /** @description Queue the runs are inserted into. */
             queue: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description River priority of the runs, 1 being the highest.
+             */
             priority: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Attempt budget of each run.
+             */
             maxAttempts: number;
+            /** @description Labels attached to each run. */
             tags: string[];
+            /** @description Cron expression, or River's " */
             cronExpression: string;
+            /** @description IANA timezone the expression is evaluated in; never blank. */
             cronTimezone: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the next run is due.
+             */
             nextRunAt: string;
+            /** @description Whether the schedule is suspended. */
             paused: boolean;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the schedule was paused; absent while it is active.
+             */
             pausedAt?: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the definition was first stored.
+             */
             createdAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Time the definition was last changed.
+             */
             updatedAt: string;
         };
+        /** @description The stored periodic job definitions. */
         PeriodicJobList: {
+            /** @description Definitions known to the instance, at most 1000. */
             jobs: components["schemas"]["PeriodicJob"][];
         };
+        /** @description A periodic job definition to store. */
         PeriodicJobCreate: {
+            /** @description Identifier to create; it must not be in use yet. */
             id: string;
+            /** @description Worker kind each run uses; the same cleanup sweep kinds JobCreate accepts. */
             kind: string;
+            /** @description Arguments inserted with every run, keyed by JSON field name. */
             args: {
                 [key: string]: unknown;
             };
+            /** @description Queue the runs are inserted into; blank selects River's default queue. */
             queue: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description River priority of the runs, 1 being the highest; 0 or less selects the default.
+             */
             priority: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Attempt budget of each run; 0 or less selects the default.
+             */
             maxAttempts: number;
+            /** @description Labels attached to each run. */
             tags: string[];
+            /** @description Cron expression, or River's " */
             cronExpression: string;
+            /** @description IANA timezone the expression is evaluated in; blank is stored as UTC. */
             cronTimezone: string;
+            /** @description Store the schedule paused instead of active; absent stores it active. */
             paused?: boolean;
         };
+        /** @description A built-in periodic job offered by the catalog, with the defaults a client prefills. */
         PeriodicJobTemplate: {
+            /** @description Worker kind the schedule inserts. */
             kind: string;
+            /** @description Name shown in the console. */
             label: string;
+            /** @description What the schedule does. */
             description: string;
+            /** @description Identifier the periodic job is created with. */
             defaultId: string;
+            /** @description Arguments the schedule is created with. */
             defaultArgs: {
                 [key: string]: unknown;
             };
+            /** @description Queue the runs are inserted into. */
             defaultQueue: string;
+            /** @description Recommended schedule, a cron expression or " */
             recommendedCron: string;
         };
+        /** @description The built-in schedules this deployment is able to run. */
         PeriodicJobCatalog: {
+            /** @description One template per enabled feature; a schedule whose worker is unavailable is absent. */
             templates: components["schemas"]["PeriodicJobTemplate"][];
         };
+        /**
+         * @description Replacement state of a periodic job. Every field is taken from the body, so
+         *     leaving paused unset resumes a paused schedule, and a blank queue, a
+         *     non-positive priority or maxAttempts, or a blank cronTimezone selects the
+         *     default instead of keeping the stored value.
+         */
         PeriodicJobUpdate: {
+            /** @description Worker kind each run uses; the same cleanup sweep kinds JobCreate accepts. */
             kind: string;
+            /** @description Arguments inserted with every run, keyed by JSON field name. */
             args: {
                 [key: string]: unknown;
             };
+            /** @description Queue the runs are inserted into; blank selects River's default queue. */
             queue: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description River priority of the runs, 1 being the highest; 0 or less selects the default.
+             */
             priority: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Attempt budget of each run; 0 or less selects the default.
+             */
             maxAttempts: number;
+            /** @description Labels attached to each run. */
             tags: string[];
+            /** @description Cron expression, or River's " */
             cronExpression: string;
+            /** @description IANA timezone the expression is evaluated in; blank is stored as UTC. */
             cronTimezone: string;
+            /** @description Leave the schedule paused instead of active; absent resumes a paused schedule. */
             paused?: boolean;
         };
+        /** @description Current totals of one drive. */
         StorageSummary: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed size of the active files, in bytes.
+             */
             logicalBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of active file entries.
+             */
             activeFiles: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of active folder entries.
+             */
             activeFolders: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of trashed file entries; trashed folders are not counted.
+             */
             trashedFiles: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed size of those trashed files, in bytes.
+             */
             trashBytes: number;
         };
+        /** @description One day of the thirty-day growth series. */
         StorageGrowthPoint: {
-            /** Format: date */
+            /**
+             * Format: date
+             * @description Calendar day the point covers, in UTC.
+             */
             day: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Size of the files created that day and still active, in bytes.
+             */
             addedBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Cumulative size of all active files up to and including that day, in bytes.
+             */
             logicalBytes: number;
         };
+        /** @description One Telegram channel of the account and how much of the drive it holds. */
         StorageChannelStatistic: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Telegram channel ID.
+             */
             channelId: number;
+            /** @description Channel title. */
             name: string;
+            /** @description True for the channel new uploads currently target; at most one channel per account. */
             selected: boolean;
+            /**
+             * @description Last recorded health as a plain string: `unknown`, `healthy`, `degraded` or
+             *     `unavailable`.
+             */
             health: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the health was last recorded; omitted when the channel was never checked.
+             */
             lastCheckedAt?: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of stored parts of the account's active files on this channel.
+             */
             partCount: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Summed stored size of those parts, in bytes: the on-Telegram figure, not the
+             *     plaintext size.
+             */
             storedBytes: number;
         };
+        /** @description Space that emptying the trash and dropping stale upload parts would reclaim. */
         StorageCleanupStatistics: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Stored size of the parts of trashed files, in bytes.
+             */
             trashBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Stored size of the parts left behind by expired upload sessions, in bytes.
+             */
             staleUploadBytes: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Number of expired upload sessions, whether or not they still hold stored parts.
+             */
             staleUploads: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description `trashBytes` plus `staleUploadBytes`, in bytes.
+             */
             totalReclaimableBytes: number;
         };
+        /** @description One entry of the recent-activity feed. */
         StorageActivity: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Event row ID; the feed is ordered by it, newest first.
+             */
             id: number;
+            /** @description Event type, for example `file.created` or `share.deleted`. */
             type: string;
+            /** @description Kind of resource the event is about, for example `file` or `channel`. */
             resourceType: string;
+            /** @description Identifier of that resource; omitted when the event names no single resource. */
             resourceId?: string;
+            /** @description Human-readable name taken from the event payload, falling back to the event type. */
             label: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the event happened, in UTC.
+             */
             occurredAt: string;
         };
+        /** @description Aggregated storage view of one account. */
         StorageDashboard: {
+            /** @description Current byte and entry totals. */
             summary: components["schemas"]["StorageSummary"];
+            /** @description One point per day for the last thirty days, oldest first. */
             growth: components["schemas"]["StorageGrowthPoint"][];
+            /** @description Active files broken down by category bucket. */
             categories: components["schemas"]["FileCategoryStatistics"][];
+            /** @description Every channel of the account with the bytes it stores. */
             channels: components["schemas"]["StorageChannelStatistic"][];
+            /** @description Reclaimable space estimates. */
             cleanup: components["schemas"]["StorageCleanupStatistics"];
+            /**
+             * @description Up to eight recent events, newest first, limited to file, upload, share and channel
+             *     events.
+             */
             activity: components["schemas"]["StorageActivity"][];
         };
     };
     responses: never;
     parameters: {
+        /** @description Cookie value set by a cookie login or a cookie refresh. */
         RefreshCookie: string;
+        /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
         "CursorQuery.cursor": components["schemas"]["Cursor"];
+        /**
+         * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+         *     size, so a full page can be shorter.
+         */
         "CursorQuery.limit": number;
+        /** @description Region of the drive to list; the wider scopes list active entries only. */
         "FileListQuery.scope": components["schemas"]["FileListScope"];
+        /** @description Folder to list, or the root of a recursive listing; absent means the drive root. */
         "FileListQuery.parentId": components["schemas"]["Uuid"];
         /** @description Resolve the listing root relative to the user's drive root. */
         "FileListQuery.path": string;
+        /** @description Keep only files or only folders; absent lists both. */
         "FileListQuery.kind": components["schemas"]["FileKind"];
+        /** @description Lifecycle state to list; the drive and recursive scopes accept only active. */
         "FileListQuery.status": components["schemas"]["FileStatus"];
         /** @description File-name search. Text search is case-insensitive; regex uses PostgreSQL-compatible regular expressions. */
         "FileListQuery.search": string;
+        /** @description Match mode of search; it has no effect on a listing without a search term. */
         "FileListQuery.searchType": components["schemas"]["FileSearchType"];
+        /** @description Keep only entries of these derived categories; absent disables the filter. */
         "FileListQuery.category": components["schemas"]["FileCategory"][];
+        /** @description Keep entries whose metadata was updated at or after this instant. */
         "FileListQuery.updatedAfter": string;
+        /** @description Keep entries whose metadata was updated strictly before this instant. */
         "FileListQuery.updatedBefore": string;
+        /** @description Sort key of the listing; a value that is not one of the enum members is rejected. */
         "FileListQuery.sort": components["schemas"]["FileSort"];
+        /** @description Sort direction; a value that is not one of the enum members is rejected. */
         "FileListQuery.order": components["schemas"]["SortOrder"];
+        /**
+         * @description Generation ETag the change is conditional on, for example "7"; a value that
+         *     no longer matches the stored generation fails the request with 412, and an
+         *     absent header applies the change unconditionally.
+         */
         OptionalIfMatchHeader: components["schemas"]["ETag"];
+        /**
+         * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+         *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+         *     be served is rejected with 416.
+         */
         "FileContentRequestOptions.range": string;
+        /**
+         * @description Content ETag of an earlier response; a full-file request that still matches
+         *     is answered with 304 and no body, while a ranged request ignores it.
+         */
         "FileContentRequestOptions.ifNoneMatch": components["schemas"]["ETag"];
         /** @description Force a browser download instead of inline display. */
         "FileContentRequestOptions.download": "1";
+        /**
+         * @description Byte length of the plaintext part. It must equal the session's partSize
+         *     except for the final part, the body must yield exactly this many bytes, and
+         *     a zero length is rejected as invalid.
+         */
         "UploadPartHeaders.contentLength": number;
         /** @description BLAKE3 checksum of the plaintext part. */
         "UploadPartHeaders.checksum": components["schemas"]["Checksum"];
+        /** @description Password of the link; omit it for a share that is not password protected. */
         SharePasswordHeader: string;
         /** @description Folder path relative to the shared folder root. */
         "PublicShareListQuery.path": string;
+        /**
+         * @description Text matched as a substring or similarity against entry names; omitted lists the
+         *     whole folder.
+         */
         "PublicShareListQuery.search": string;
+        /** @description Keep only jobs in this state; absent lists every state. */
         "JobListQuery.status": components["schemas"]["JobState"];
+        /** @description Keep only jobs of this worker kind; absent lists every kind. */
         "JobListQuery.type": string;
+        /** @description Keep only jobs of this queue; absent lists every queue. */
         "JobListQuery.queue": string;
+        /** @description Only cancelled, completed and discarded are accepted; any other state is rejected with 409. */
         JobPurgeQuery: components["schemas"]["JobState"];
     };
     requestBodies: never;
@@ -2315,7 +3490,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2335,7 +3510,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2344,7 +3519,10 @@ export interface operations {
                     "application/json": components["schemas"]["HealthStatus"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2368,7 +3546,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -2377,7 +3555,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramLoginStartResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2386,7 +3567,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2395,7 +3579,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2404,7 +3591,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2424,7 +3614,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -2433,7 +3623,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramQRLoginResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2442,7 +3635,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2451,7 +3647,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2460,7 +3659,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2484,7 +3686,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2493,7 +3695,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description The request has been accepted for processing, but processing has not yet completed. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2502,7 +3704,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramQRLoginResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2511,7 +3716,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2520,7 +3728,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2529,7 +3740,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2538,7 +3752,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2562,7 +3779,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2571,7 +3788,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description The request has been accepted for processing, but processing has not yet completed. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2580,7 +3797,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramLoginStartResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2589,7 +3809,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2598,7 +3821,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2607,7 +3833,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2616,7 +3845,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2640,7 +3872,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2649,7 +3881,10 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2658,7 +3893,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2667,7 +3905,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2676,7 +3917,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2685,7 +3929,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2709,7 +3956,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2718,7 +3965,10 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2727,7 +3977,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2751,9 +4004,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Cookie login response: sets both session cookies and returns the new session state. */
             200: {
                 headers: {
+                    /** @description `Set-Cookie` values for the access and refresh cookies; all of them must be stored. */
                     "Set-Cookie": string[];
                     [name: string]: unknown;
                 };
@@ -2761,7 +4015,7 @@ export interface operations {
                     "application/json": components["schemas"]["CookieSession"];
                 };
             };
-            /** @description The request has been accepted for processing, but processing has not yet completed. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2770,7 +4024,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramLoginStartResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2779,7 +4036,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2788,7 +4048,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2797,7 +4060,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2806,7 +4072,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2830,9 +4099,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Cookie login response: sets both session cookies and returns the new session state. */
             200: {
                 headers: {
+                    /** @description `Set-Cookie` values for the access and refresh cookies; all of them must be stored. */
                     "Set-Cookie": string[];
                     [name: string]: unknown;
                 };
@@ -2840,7 +4110,10 @@ export interface operations {
                     "application/json": components["schemas"]["CookieSession"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2849,7 +4122,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2858,7 +4134,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2867,7 +4146,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2876,7 +4158,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2900,9 +4185,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Cookie login response: sets both session cookies and returns the new session state. */
             200: {
                 headers: {
+                    /** @description `Set-Cookie` values for the access and refresh cookies; all of them must be stored. */
                     "Set-Cookie": string[];
                     [name: string]: unknown;
                 };
@@ -2910,7 +4196,7 @@ export interface operations {
                     "application/json": components["schemas"]["CookieSession"];
                 };
             };
-            /** @description The request has been accepted for processing, but processing has not yet completed. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -2919,7 +4205,10 @@ export interface operations {
                     "application/json": components["schemas"]["TelegramQRLoginResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2928,7 +4217,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2937,7 +4229,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -2946,7 +4241,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -2955,7 +4253,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -2972,14 +4273,16 @@ export interface operations {
             header?: never;
             path?: never;
             cookie: {
+                /** @description Cookie value set by a cookie login or a cookie refresh. */
                 teldrive_refresh: components["parameters"]["RefreshCookie"];
             };
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Cookie login response: sets both session cookies and returns the new session state. */
             200: {
                 headers: {
+                    /** @description `Set-Cookie` values for the access and refresh cookies; all of them must be stored. */
                     "Set-Cookie": string[];
                     [name: string]: unknown;
                 };
@@ -2987,7 +4290,10 @@ export interface operations {
                     "application/json": components["schemas"]["CookieSession"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -2996,7 +4302,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3016,15 +4325,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Cookie logout response: clears both session cookies and carries no body. */
             204: {
                 headers: {
+                    /** @description Already expired `Set-Cookie` values that delete both session cookies. */
                     "Set-Cookie": string[];
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3044,7 +4357,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3053,7 +4366,10 @@ export interface operations {
                     "application/json": components["schemas"]["UserProfile"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3073,12 +4389,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Small Telegram profile photo of the authenticated account. */
             200: {
                 headers: {
+                    /** @description Photo size in bytes. */
                     "Content-Length": number;
+                    /** @description Cache directive the server sends; the photo may be cached privately for a day. */
                     "Cache-Control": string;
+                    /** @description Version of the photo, derived from the Telegram photo ID. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Always `inline; filename="profile.jpeg"`. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -3086,14 +4406,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3102,7 +4425,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -3111,7 +4437,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3131,14 +4460,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3152,6 +4484,7 @@ export interface operations {
     searchUsers: {
         parameters: {
             query: {
+                /** @description Text matched against display name and username, or an exact user ID. */
                 search: string;
             };
             header?: never;
@@ -3160,7 +4493,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3169,7 +4502,10 @@ export interface operations {
                     "application/json": components["schemas"]["UserSearchResult"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3178,7 +4514,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3200,7 +4539,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3209,7 +4548,10 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUserSummary"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3218,7 +4560,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3244,7 +4589,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3253,7 +4598,10 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUserSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3262,7 +4610,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3271,7 +4622,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3280,7 +4634,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3302,14 +4659,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3318,7 +4678,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -3327,7 +4690,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3341,7 +4707,12 @@ export interface operations {
     listApiKeys: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -3350,19 +4721,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["ApiKeySummary"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3371,7 +4747,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3395,7 +4774,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -3404,7 +4783,10 @@ export interface operations {
                     "application/json": components["schemas"]["ApiKeyCreated"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3413,7 +4795,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3422,7 +4807,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3444,14 +4832,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3460,7 +4851,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3474,7 +4868,12 @@ export interface operations {
     listSessions: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -3483,19 +4882,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["SessionSummary"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3504,7 +4908,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3526,14 +4933,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3542,7 +4952,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3556,7 +4969,12 @@ export interface operations {
     listChannels: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -3565,19 +4983,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["ChannelSummary"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3586,7 +5009,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3610,7 +5036,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -3619,7 +5045,10 @@ export interface operations {
                     "application/json": components["schemas"]["ChannelSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3628,7 +5057,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3637,7 +5069,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3646,7 +5081,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3666,7 +5104,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3675,7 +5113,10 @@ export interface operations {
                     "application/json": components["schemas"]["DiscoveredChannel"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3684,7 +5125,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3704,7 +5148,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3713,7 +5157,10 @@ export interface operations {
                     "application/json": components["schemas"]["ChannelSummary"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3722,7 +5169,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3731,7 +5181,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3753,7 +5206,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3762,7 +5215,10 @@ export interface operations {
                     "application/json": components["schemas"]["ChannelSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3771,7 +5227,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3780,7 +5239,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3802,14 +5264,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3818,7 +5283,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3827,7 +5295,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3841,7 +5312,12 @@ export interface operations {
     listBots: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -3850,19 +5326,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["BotSummary"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3871,7 +5352,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3895,7 +5379,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3904,7 +5388,10 @@ export interface operations {
                     "application/json": components["schemas"]["BotCreateResponse"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3913,7 +5400,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3922,7 +5412,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -3931,7 +5424,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -3953,14 +5449,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -3969,7 +5468,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3978,7 +5480,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3998,7 +5503,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4007,7 +5512,10 @@ export interface operations {
                     "application/json": components["schemas"]["EventStreamTicket"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4016,7 +5524,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -4044,9 +5555,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Server-sent event stream response; the body stays open until the client disconnects. */
             200: {
                 headers: {
+                    /** @description Always `no-cache, no-transform`, so proxies do not buffer the stream. */
                     "Cache-Control": "no-cache, no-transform";
                     [name: string]: unknown;
                 };
@@ -4054,7 +5566,10 @@ export interface operations {
                     "text/event-stream": string;
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4063,7 +5578,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4072,7 +5590,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -4081,7 +5602,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -4095,21 +5619,36 @@ export interface operations {
     listFiles: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
+                /** @description Region of the drive to list; the wider scopes list active entries only. */
                 scope?: components["parameters"]["FileListQuery.scope"];
+                /** @description Folder to list, or the root of a recursive listing; absent means the drive root. */
                 parentId?: components["parameters"]["FileListQuery.parentId"];
                 /** @description Resolve the listing root relative to the user's drive root. */
                 path?: components["parameters"]["FileListQuery.path"];
+                /** @description Keep only files or only folders; absent lists both. */
                 kind?: components["parameters"]["FileListQuery.kind"];
+                /** @description Lifecycle state to list; the drive and recursive scopes accept only active. */
                 status?: components["parameters"]["FileListQuery.status"];
                 /** @description File-name search. Text search is case-insensitive; regex uses PostgreSQL-compatible regular expressions. */
                 search?: components["parameters"]["FileListQuery.search"];
+                /** @description Match mode of search; it has no effect on a listing without a search term. */
                 searchType?: components["parameters"]["FileListQuery.searchType"];
+                /** @description Keep only entries of these derived categories; absent disables the filter. */
                 category?: components["parameters"]["FileListQuery.category"];
+                /** @description Keep entries whose metadata was updated at or after this instant. */
                 updatedAfter?: components["parameters"]["FileListQuery.updatedAfter"];
+                /** @description Keep entries whose metadata was updated strictly before this instant. */
                 updatedBefore?: components["parameters"]["FileListQuery.updatedBefore"];
+                /** @description Sort key of the listing; a value that is not one of the enum members is rejected. */
                 sort?: components["parameters"]["FileListQuery.sort"];
+                /** @description Sort direction; a value that is not one of the enum members is rejected. */
                 order?: components["parameters"]["FileListQuery.order"];
             };
             header?: never;
@@ -4118,19 +5657,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["FileEntry"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4139,7 +5683,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4148,7 +5695,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4170,9 +5720,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A changed entry: 200 with the entry body and its fresh generation ETag. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the entry after the change. */
                     Etag: components["schemas"]["ETag"];
                     [name: string]: unknown;
                 };
@@ -4180,7 +5731,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4189,7 +5743,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4211,14 +5768,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4227,7 +5787,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4236,7 +5799,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4245,7 +5811,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4260,6 +5829,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description Generation ETag the change is conditional on, for example "7"; a value that
+                 *     no longer matches the stored generation fails the request with 412, and an
+                 *     absent header applies the change unconditionally.
+                 */
                 "If-Match"?: components["parameters"]["OptionalIfMatchHeader"];
             };
             path: {
@@ -4273,9 +5847,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A changed entry: 200 with the entry body and its fresh generation ETag. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the entry after the change. */
                     Etag: components["schemas"]["ETag"];
                     [name: string]: unknown;
                 };
@@ -4283,7 +5858,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4292,7 +5870,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4301,7 +5882,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4310,7 +5894,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Precondition failed. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -4319,7 +5906,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4334,6 +5924,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description Generation ETag the change is conditional on, for example "7"; a value that
+                 *     no longer matches the stored generation fails the request with 412, and an
+                 *     absent header applies the change unconditionally.
+                 */
                 "If-Match"?: components["parameters"]["OptionalIfMatchHeader"];
             };
             path: {
@@ -4347,9 +5942,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A changed entry: 200 with the entry body and its fresh generation ETag. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the entry after the change. */
                     Etag: components["schemas"]["ETag"];
                     [name: string]: unknown;
                 };
@@ -4357,7 +5953,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4366,7 +5965,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4375,7 +5977,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4384,7 +5989,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4393,7 +6001,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Precondition failed. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -4402,7 +6013,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4428,10 +6042,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description A created entry: 201 with the entry body, its generation ETag and its location. */
             201: {
                 headers: {
+                    /** @description Generation ETag of the created entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the created entry. */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -4439,7 +6055,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4448,7 +6067,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4457,7 +6079,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4466,7 +6091,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4475,7 +6103,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4497,9 +6128,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A changed entry: 200 with the entry body and its fresh generation ETag. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the entry after the change. */
                     Etag: components["schemas"]["ETag"];
                     [name: string]: unknown;
                 };
@@ -4507,7 +6139,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4516,7 +6151,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4525,7 +6163,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4547,14 +6188,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4563,7 +6207,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4572,7 +6219,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -4592,14 +6242,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4617,7 +6270,16 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -4628,13 +6290,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -4642,14 +6309,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -4657,14 +6330,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4673,7 +6349,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4682,7 +6361,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -4691,7 +6373,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -4700,7 +6385,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -4723,19 +6411,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4744,7 +6440,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4762,7 +6461,16 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -4772,13 +6480,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -4786,14 +6499,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -4801,14 +6520,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4817,7 +6539,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4826,7 +6551,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -4835,7 +6563,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -4844,7 +6575,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -4866,19 +6600,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4887,7 +6629,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4909,7 +6654,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4918,14 +6663,17 @@ export interface operations {
                     "application/json": components["schemas"]["FileViewState"];
                 };
             };
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4934,7 +6682,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4960,7 +6711,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4969,7 +6720,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileViewState"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4978,7 +6732,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -4987,7 +6744,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5009,14 +6769,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5040,7 +6803,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5049,7 +6812,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileBulkResult"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5058,7 +6824,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5067,7 +6836,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5076,7 +6848,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5085,7 +6860,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5109,7 +6887,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5118,7 +6896,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileBulkResult"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5127,7 +6908,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5136,7 +6920,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5145,7 +6932,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5154,7 +6944,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5174,7 +6967,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5183,7 +6976,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileCategoryStatistics"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5203,7 +6999,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5212,7 +7008,10 @@ export interface operations {
                     "application/json": components["schemas"]["DriveStatistics"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5236,10 +7035,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description A created entry: 201 with the entry body, its generation ETag and its location. */
             201: {
                 headers: {
+                    /** @description Generation ETag of the created entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the created entry. */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -5247,7 +7048,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5256,7 +7060,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5265,7 +7072,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5274,7 +7084,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5288,7 +7101,12 @@ export interface operations {
     listUploads: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
                 state?: components["schemas"]["UploadState"];
             };
@@ -5298,19 +7116,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["UploadSession"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5319,7 +7142,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5343,7 +7169,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5352,7 +7178,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadSession"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5361,7 +7190,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5370,7 +7202,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5379,7 +7214,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -5388,7 +7226,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5397,7 +7238,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -5411,6 +7255,7 @@ export interface operations {
     getUploadStatistics: {
         parameters: {
             query?: {
+                /** @description Number of days to report, 1 to 366, ending with today in UTC; omitted means 30. */
                 days?: number;
             };
             header?: never;
@@ -5419,7 +7264,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5428,7 +7273,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadDailyStatistics"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5437,7 +7285,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5461,7 +7312,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has been accepted for processing, but processing has not yet completed. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -5470,7 +7321,10 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5479,7 +7333,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5488,7 +7345,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5497,7 +7357,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5506,7 +7369,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5528,7 +7394,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5537,7 +7403,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadSession"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5546,7 +7415,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5555,7 +7427,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5564,7 +7439,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -5586,14 +7464,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5602,7 +7483,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5611,7 +7495,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5620,7 +7507,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5634,7 +7524,12 @@ export interface operations {
     listUploadParts: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -5645,19 +7540,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["UploadPart"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5666,7 +7566,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5675,7 +7578,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5684,7 +7590,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -5693,7 +7602,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5708,6 +7620,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description Byte length of the plaintext part. It must equal the session's partSize
+                 *     except for the final part, the body must yield exactly this many bytes, and
+                 *     a zero length is rejected as invalid.
+                 */
                 "Content-Length": components["parameters"]["UploadPartHeaders.contentLength"];
                 /** @description BLAKE3 checksum of the plaintext part. */
                 "X-Part-Checksum"?: components["parameters"]["UploadPartHeaders.checksum"];
@@ -5724,7 +7641,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Result of storing one part: 200 when it was already stored, 201 when it was written. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -5733,7 +7650,7 @@ export interface operations {
                     "application/json": components["schemas"]["UploadPart"];
                 };
             };
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Result of storing one part: 200 when it was already stored, 201 when it was written. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -5742,7 +7659,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadPart"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5751,7 +7671,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5760,7 +7683,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5769,7 +7695,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5778,7 +7707,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5787,7 +7719,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -5796,7 +7731,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -5805,7 +7743,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5814,7 +7755,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -5823,7 +7767,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5845,10 +7792,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Successful completion: the published entry, its generation ETag and its location. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the published entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the published entry, "/files/{fileId}". */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -5856,10 +7805,12 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Successful completion: the published entry, its generation ETag and its location. */
             201: {
                 headers: {
+                    /** @description Generation ETag of the published entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the published entry, "/files/{fileId}". */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -5867,7 +7818,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5876,7 +7830,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5885,7 +7842,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5894,7 +7854,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5903,7 +7866,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -5912,7 +7878,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5926,7 +7895,12 @@ export interface operations {
     listFileShares: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -5937,19 +7911,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["ShareSummary"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5958,7 +7937,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -5967,7 +7949,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5993,7 +7978,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -6002,7 +7987,10 @@ export interface operations {
                     "application/json": components["schemas"]["ShareCreated"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6011,7 +7999,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6020,7 +8011,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6029,7 +8023,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6051,14 +8048,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6067,7 +8067,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6093,7 +8096,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6102,7 +8105,10 @@ export interface operations {
                     "application/json": components["schemas"]["ShareSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6111,7 +8117,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6120,7 +8129,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6142,7 +8154,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6151,7 +8163,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileAccessGrantSummary"][];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6160,7 +8175,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6186,7 +8204,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -6195,7 +8213,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileAccessGrantSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6204,7 +8225,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6213,7 +8237,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6222,7 +8249,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6244,14 +8274,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6260,7 +8293,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6286,7 +8322,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6295,7 +8331,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileAccessGrantSummary"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6304,7 +8343,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6313,7 +8355,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6327,7 +8372,12 @@ export interface operations {
     listShared: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -6336,19 +8386,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["FileEntry"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6357,7 +8412,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6371,7 +8429,12 @@ export interface operations {
     listSharedWithMe: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
             };
             header?: never;
@@ -6380,19 +8443,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["SharedWithMeEntry"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6401,7 +8469,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6416,6 +8487,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -6425,7 +8497,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6434,7 +8506,10 @@ export interface operations {
                     "application/json": components["schemas"]["PublicShare"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6443,7 +8518,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6452,7 +8530,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6461,7 +8542,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6475,13 +8559,23 @@ export interface operations {
     listPublicShareFiles: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
                 /** @description Folder path relative to the shared folder root. */
                 path?: components["parameters"]["PublicShareListQuery.path"];
+                /**
+                 * @description Text matched as a substring or similarity against entry names; omitted lists the
+                 *     whole folder.
+                 */
                 search?: components["parameters"]["PublicShareListQuery.search"];
             };
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -6491,19 +8585,24 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
+                        /** @description Rows of this page, possibly empty but never null. */
                         items: components["schemas"]["FileEntry"][];
+                        /** @description Cursor to send as `cursor` on the next request; omitted when the listing is exhausted. */
                         nextCursor?: components["schemas"]["Cursor"];
                     };
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6512,7 +8611,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6521,7 +8623,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6530,7 +8635,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -6539,7 +8647,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6557,8 +8668,18 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -6570,13 +8691,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6584,14 +8710,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6599,14 +8731,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6615,7 +8750,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6624,7 +8762,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6633,7 +8774,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -6642,7 +8786,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6651,7 +8798,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6666,6 +8816,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -6677,19 +8828,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6698,7 +8857,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6707,7 +8869,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6716,7 +8881,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6725,7 +8893,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6743,8 +8914,18 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -6755,13 +8936,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6769,14 +8955,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6784,14 +8976,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6800,7 +8995,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6809,7 +9007,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6818,7 +9019,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -6827,7 +9031,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6836,7 +9043,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6851,6 +9061,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -6861,19 +9072,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6882,7 +9101,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6891,7 +9113,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -6900,7 +9125,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -6909,7 +9137,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -6927,8 +9158,18 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -6939,13 +9180,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6953,14 +9199,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -6968,14 +9220,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -6984,7 +9239,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6993,7 +9251,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7002,7 +9263,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -7011,7 +9275,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -7020,7 +9287,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7035,6 +9305,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7045,19 +9316,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7066,7 +9345,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7075,7 +9357,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7084,7 +9369,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -7093,7 +9381,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7111,8 +9402,18 @@ export interface operations {
                 download?: components["parameters"]["FileContentRequestOptions.download"];
             };
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
+                /**
+                 * @description Byte range to stream in the single "bytes=start-end", "bytes=start-" or
+                 *     "bytes=-suffix" form; absent streams the whole file and a range that cannot
+                 *     be served is rejected with 416.
+                 */
                 Range?: components["parameters"]["FileContentRequestOptions.range"];
+                /**
+                 * @description Content ETag of an earlier response; a full-file request that still matches
+                 *     is answered with 304 and no body, while a ranged request ignores it.
+                 */
                 "If-None-Match"?: components["parameters"]["FileContentRequestOptions.ifNoneMatch"];
             };
             path: {
@@ -7122,13 +9423,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description A complete file body with its caching and disposition metadata. */
             200: {
                 headers: {
+                    /** @description Length of the delivered body in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -7136,14 +9442,20 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description Successful */
+            /** @description A single requested byte range: 206 with the range headers of the file. */
             206: {
                 headers: {
+                    /** @description Length of the delivered range in bytes, not of the whole file. */
                     "Content-Length": number;
+                    /** @description Delivered range and total file size, for example "bytes 0-99/1000". */
                     "Content-Range": string;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
@@ -7151,14 +9463,17 @@ export interface operations {
                     "application/octet-stream": string;
                 };
             };
-            /** @description The client has made a conditional request and the resource has not been modified. */
+            /** @description Declared success response with the given status and no body. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7167,7 +9482,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7176,7 +9494,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7185,7 +9506,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -7194,7 +9518,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -7203,7 +9530,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7218,6 +9548,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7227,19 +9558,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Content metadata without a body, used to probe a download before requesting it. */
             200: {
                 headers: {
+                    /** @description Length of the whole file in bytes. */
                     "Content-Length": number;
+                    /** @description The server always accepts byte ranges. */
                     "Accept-Ranges": "bytes";
+                    /** @description Strong ETag of the content hash, or of the generation when no hash is recorded. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Modification time of the content, sent as an HTTP date. */
                     "Last-Modified": string;
+                    /** @description "inline" or "attachment" plus the RFC 2231 encoded file name. */
                     "Content-Disposition": string;
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7248,7 +9587,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7257,7 +9599,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7266,7 +9611,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -7275,7 +9623,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7290,6 +9641,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7303,7 +9655,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7312,7 +9664,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7321,7 +9676,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7330,7 +9688,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7339,7 +9700,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7348,7 +9712,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7363,6 +9730,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7373,14 +9741,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7389,7 +9760,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7398,7 +9772,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7407,7 +9784,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7422,6 +9802,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
                 "If-Match": components["schemas"]["ETag"];
             };
@@ -7437,7 +9818,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7446,7 +9827,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7455,7 +9839,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7464,7 +9851,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7473,7 +9863,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7482,7 +9875,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Precondition failed. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -7491,7 +9887,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7506,6 +9905,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7519,7 +9919,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7528,7 +9928,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadSession"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7537,7 +9940,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7546,7 +9952,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7555,7 +9964,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7564,7 +9976,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7573,7 +9988,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7588,7 +10006,13 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
+                /**
+                 * @description Byte length of the plaintext part. It must equal the session's partSize
+                 *     except for the final part, the body must yield exactly this many bytes, and
+                 *     a zero length is rejected as invalid.
+                 */
                 "Content-Length": components["parameters"]["UploadPartHeaders.contentLength"];
                 /** @description BLAKE3 checksum of the plaintext part. */
                 "X-Part-Checksum"?: components["parameters"]["UploadPartHeaders.checksum"];
@@ -7606,7 +10030,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Result of storing one part: 200 when it was already stored, 201 when it was written. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7615,7 +10039,7 @@ export interface operations {
                     "application/json": components["schemas"]["UploadPart"];
                 };
             };
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Result of storing one part: 200 when it was already stored, 201 when it was written. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7624,7 +10048,10 @@ export interface operations {
                     "application/json": components["schemas"]["UploadPart"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7633,7 +10060,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7642,7 +10072,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7651,7 +10084,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7660,7 +10096,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7669,7 +10108,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7678,7 +10120,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7687,7 +10132,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Service unavailable. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -7702,6 +10150,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7712,10 +10161,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Successful completion: the published entry, its generation ETag and its location. */
             200: {
                 headers: {
+                    /** @description Generation ETag of the published entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the published entry, "/files/{fileId}". */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -7723,10 +10174,12 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Successful completion: the published entry, its generation ETag and its location. */
             201: {
                 headers: {
+                    /** @description Generation ETag of the published entry. */
                     Etag: components["schemas"]["ETag"];
+                    /** @description Server-relative location of the published entry, "/files/{fileId}". */
                     Location: components["schemas"]["Uri"];
                     [name: string]: unknown;
                 };
@@ -7734,7 +10187,10 @@ export interface operations {
                     "application/json": components["schemas"]["FileEntry"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7743,7 +10199,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7752,7 +10211,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7761,7 +10223,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7770,7 +10235,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7779,7 +10247,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7794,6 +10265,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Password of the link; omit it for a share that is not password protected. */
                 "X-Share-Password"?: components["parameters"]["SharePasswordHeader"];
             };
             path: {
@@ -7804,14 +10276,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7820,7 +10295,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7829,7 +10307,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7838,7 +10319,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             410: {
                 headers: {
                     [name: string]: unknown;
@@ -7852,10 +10336,18 @@ export interface operations {
     listJobs: {
         parameters: {
             query?: {
+                /** @description Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422. */
                 cursor?: components["parameters"]["CursorQuery.cursor"];
+                /**
+                 * @description Requested page size, 1-500; omitted means 100 and the server caps the effective
+                 *     size, so a full page can be shorter.
+                 */
                 limit?: components["parameters"]["CursorQuery.limit"];
+                /** @description Keep only jobs in this state; absent lists every state. */
                 status?: components["parameters"]["JobListQuery.status"];
+                /** @description Keep only jobs of this worker kind; absent lists every kind. */
                 type?: components["parameters"]["JobListQuery.type"];
+                /** @description Keep only jobs of this queue; absent lists every queue. */
                 queue?: components["parameters"]["JobListQuery.queue"];
             };
             header?: never;
@@ -7864,7 +10356,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7873,7 +10365,10 @@ export interface operations {
                     "application/json": components["schemas"]["JobPage"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7882,7 +10377,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7891,7 +10389,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7915,7 +10416,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7924,7 +10425,10 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7933,7 +10437,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -7942,7 +10449,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7951,7 +10461,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7960,7 +10473,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -7980,7 +10496,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7989,7 +10505,10 @@ export interface operations {
                     "application/json": components["schemas"]["JobStatistics"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8009,7 +10528,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8018,7 +10537,10 @@ export interface operations {
                     "application/json": components["schemas"]["JobQueueList"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8040,14 +10562,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8056,7 +10581,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8078,14 +10606,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8094,7 +10625,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8108,6 +10642,7 @@ export interface operations {
     purgeJobs: {
         parameters: {
             query: {
+                /** @description Only cancelled, completed and discarded are accepted; any other state is rejected with 409. */
                 status: components["parameters"]["JobPurgeQuery"];
             };
             header?: never;
@@ -8116,7 +10651,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8125,7 +10660,10 @@ export interface operations {
                     "application/json": components["schemas"]["JobPurgeResult"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8134,7 +10672,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8156,7 +10697,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8165,7 +10706,10 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8174,7 +10718,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8196,14 +10743,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8212,7 +10762,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8221,7 +10774,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8243,7 +10799,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8252,7 +10808,10 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8261,7 +10820,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8270,7 +10832,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8292,7 +10857,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8301,7 +10866,10 @@ export interface operations {
                     "application/json": components["schemas"]["Job"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8310,7 +10878,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8319,7 +10890,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8339,7 +10913,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8348,7 +10922,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJobList"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8357,7 +10934,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8381,7 +10961,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded and a new resource has been created as a result. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -8390,7 +10970,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJob"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8399,7 +10982,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8408,7 +10994,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8417,7 +11006,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The request conflicts with the current state of the server. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8426,7 +11018,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -8446,7 +11041,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8455,7 +11050,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJobCatalog"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8464,7 +11062,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8484,7 +11085,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8493,7 +11094,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJobList"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8502,7 +11106,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8528,7 +11135,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8537,7 +11144,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJob"];
                 };
             };
-            /** @description The server could not understand the request due to invalid syntax. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8546,7 +11156,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8555,7 +11168,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8564,7 +11180,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8573,7 +11192,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Client error */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -8595,14 +11217,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description There is no content to send for this request, but the headers may be useful. */
+            /** @description Declared success response with the given status and no body. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8611,7 +11236,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8620,7 +11248,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8642,7 +11273,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8651,7 +11282,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJob"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8660,7 +11294,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8669,7 +11306,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8691,7 +11331,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8700,7 +11340,10 @@ export interface operations {
                     "application/json": components["schemas"]["PeriodicJob"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -8709,7 +11352,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description Access is forbidden. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8718,7 +11364,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
-            /** @description The server cannot find the requested resource. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8738,7 +11387,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The request has succeeded. */
+            /** @description Declared success response carrying a JSON body of type `Body`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8747,7 +11396,10 @@ export interface operations {
                     "application/json": components["schemas"]["StorageDashboard"];
                 };
             };
-            /** @description Access is unauthorized. */
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;

@@ -16,10 +16,13 @@ type SecurityHandler interface {
 	// HandleBearerAuth handles BearerAuth security.
 	HandleBearerAuth(ctx context.Context, operationName OperationName, t BearerAuth) (context.Context, error)
 	// HandleCookieAuth handles CookieAuth security.
+	// Auth scheme for the HttpOnly session cookie set by the `/v1/auth/cookie/*` endpoints.
 	HandleCookieAuth(ctx context.Context, operationName OperationName, t CookieAuth) (context.Context, error)
 	// HandleEventTicketAuth handles EventTicketAuth security.
+	// Auth scheme for the short-lived `ticket` query parameter that browser EventSource clients use.
 	HandleEventTicketAuth(ctx context.Context, operationName OperationName, t EventTicketAuth) (context.Context, error)
 	// HandleExternalApiKeyAuth handles ExternalApiKeyAuth security.
+	// Auth scheme for long-lived API keys, sent in the `X-Api-Key` header.
 	HandleExternalApiKeyAuth(ctx context.Context, operationName OperationName, t ExternalApiKeyAuth) (context.Context, error)
 }
 
@@ -462,10 +465,13 @@ type SecuritySource interface {
 	// BearerAuth provides BearerAuth security value.
 	BearerAuth(ctx context.Context, operationName OperationName) (BearerAuth, error)
 	// CookieAuth provides CookieAuth security value.
+	// Auth scheme for the HttpOnly session cookie set by the `/v1/auth/cookie/*` endpoints.
 	CookieAuth(ctx context.Context, operationName OperationName) (CookieAuth, error)
 	// EventTicketAuth provides EventTicketAuth security value.
+	// Auth scheme for the short-lived `ticket` query parameter that browser EventSource clients use.
 	EventTicketAuth(ctx context.Context, operationName OperationName) (EventTicketAuth, error)
 	// ExternalApiKeyAuth provides ExternalApiKeyAuth security value.
+	// Auth scheme for long-lived API keys, sent in the `X-Api-Key` header.
 	ExternalApiKeyAuth(ctx context.Context, operationName OperationName) (ExternalApiKeyAuth, error)
 }
 

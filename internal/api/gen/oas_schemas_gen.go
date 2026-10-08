@@ -55,16 +55,25 @@ type AbortUploadUnauthorized ErrorEnvelope
 
 func (*AbortUploadUnauthorized) abortUploadRes() {}
 
+// Account row as shown in the admin console.
 // Ref: #/components/schemas/AdminUserSummary
 type AdminUserSummary struct {
-	UserId      int64     `json:"userId"`
+	// Telegram user ID of the account.
+	UserId int64 `json:"userId"`
+	// Telegram display name; omitted when Telegram reports none.
 	DisplayName OptString `json:"displayName"`
-	Username    OptString `json:"username"`
-	Premium     bool      `json:"premium"`
-	Role        UserRole  `json:"role"`
-	Disabled    bool      `json:"disabled"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	// Telegram.
+	Username OptString `json:"username"`
+	// Whether the Telegram account has a premium subscription.
+	Premium bool `json:"premium"`
+	// Current role of the account.
+	Role UserRole `json:"role"`
+	// Whether the account is disabled and therefore refuses to authenticate.
+	Disabled bool `json:"disabled"`
+	// When the account first signed in to this deployment.
+	CreatedAt time.Time `json:"createdAt"`
+	// When the account row was last changed.
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // GetUserId returns the value of UserId.
@@ -149,9 +158,12 @@ func (s *AdminUserSummary) SetUpdatedAt(val time.Time) {
 
 func (*AdminUserSummary) updateAdminUserRes() {}
 
+// Request to mint an API key for the authenticated account.
 // Ref: #/components/schemas/ApiKeyCreateRequest
 type ApiKeyCreateRequest struct {
-	Name      string      `json:"name"`
+	// Label shown in key listings, 1 to 120 characters.
+	Name string `json:"name"`
+	// When the key stops authenticating; omitted means it never expires.
 	ExpiresAt OptDateTime `json:"expiresAt"`
 }
 
@@ -175,13 +187,18 @@ func (s *ApiKeyCreateRequest) SetExpiresAt(val OptDateTime) {
 	s.ExpiresAt = val
 }
 
+// Newly minted API key; its plaintext secret is returned only in this response.
 // Ref: #/components/schemas/ApiKeyCreated
 type ApiKeyCreated struct {
-	ID   UUID   `json:"id"`
+	// Key identifier used to revoke it.
+	ID UUID `json:"id"`
+	// Label given at creation.
 	Name string `json:"name"`
 	// Returned once. The server stores only a hash.
-	Secret    string      `json:"secret"`
-	CreatedAt time.Time   `json:"createdAt"`
+	Secret string `json:"secret"`
+	// When the key was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// Expiry given at creation; omitted when the key never expires.
 	ExpiresAt OptDateTime `json:"expiresAt"`
 }
 
@@ -237,14 +254,21 @@ func (s *ApiKeyCreated) SetExpiresAt(val OptDateTime) {
 
 func (*ApiKeyCreated) createApiKeyRes() {}
 
+// One API key of the account, without its secret.
 // Ref: #/components/schemas/ApiKeySummary
 type ApiKeySummary struct {
-	ID         UUID        `json:"id"`
-	Name       string      `json:"name"`
-	CreatedAt  time.Time   `json:"createdAt"`
+	// Key identifier used to revoke it.
+	ID UUID `json:"id"`
+	// Label given at creation.
+	Name string `json:"name"`
+	// When the key was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// When the key last authenticated a request; omitted while it has never been used.
 	LastUsedAt OptDateTime `json:"lastUsedAt"`
-	ExpiresAt  OptDateTime `json:"expiresAt"`
-	RevokedAt  OptDateTime `json:"revokedAt"`
+	// When the key stops authenticating; a key past its expiry is never listed.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// When the key was revoked; revoked keys are not listed, so this is normally absent.
+	RevokedAt OptDateTime `json:"revokedAt"`
 }
 
 // GetID returns the value of ID.
@@ -332,6 +356,7 @@ func (s *BearerAuth) SetRoles(val []string) {
 	s.Roles = val
 }
 
+// Request to register Telegram bots by token.
 // Ref: #/components/schemas/BotCreateRequest
 type BotCreateRequest struct {
 	// Telegram bot tokens. Tokens are never returned by the API.
@@ -348,10 +373,13 @@ func (s *BotCreateRequest) SetTokens(val []string) {
 	s.Tokens = val
 }
 
+// Result of registering a batch of bot tokens.
 // Ref: #/components/schemas/BotCreateResponse
 type BotCreateResponse struct {
-	Bots          []BotSummary `json:"bots"`
-	FailedIndexes []int32      `json:"failedIndexes"`
+	// Bots stored by this request, in the order their tokens were accepted.
+	Bots []BotSummary `json:"bots"`
+	// Zero-based indexes into the request's `tokens` that were rejected as malformed or duplicated.
+	FailedIndexes []int32 `json:"failedIndexes"`
 	// Present only when existing channels need background bot provisioning.
 	JobId OptString `json:"jobId"`
 }
@@ -388,11 +416,17 @@ func (s *BotCreateResponse) SetJobId(val OptString) {
 
 func (*BotCreateResponse) createBotsRes() {}
 
+// One registered Telegram bot.
 // Ref: #/components/schemas/BotSummary
 type BotSummary struct {
-	ID        int64     `json:"id"`
-	Username  OptString `json:"username"`
-	Enabled   bool      `json:"enabled"`
+	// Telegram bot user ID parsed from the token.
+	ID int64 `json:"id"`
+	// Bot.
+	Username OptString `json:"username"`
+	// True once provisioning verified the token with Telegram; a pending or failed bot is false and cannot
+	// be used for uploads.
+	Enabled bool `json:"enabled"`
+	// When the token was registered with TelDrive.
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -488,11 +522,14 @@ type CancelJobUnauthorized ErrorEnvelope
 
 func (*CancelJobUnauthorized) cancelJobRes() {}
 
+// Request to create a new Telegram channel and register it.
 // Ref: #/components/schemas/ChannelCreateRequest
 type ChannelCreateRequest struct {
 	// Optional display name. Telegram may choose the final title.
-	Name     OptString `json:"name"`
-	Selected OptBool   `json:"selected"`
+	Name OptString `json:"name"`
+	// Whether to make the new channel the upload target; omitted or false leaves the current selection
+	// unchanged.
+	Selected OptBool `json:"selected"`
 }
 
 // GetName returns the value of Name.
@@ -515,6 +552,7 @@ func (s *ChannelCreateRequest) SetSelected(val OptBool) {
 	s.Selected = val
 }
 
+// Last recorded health of a channel; `unavailable` keeps the channel out of uploads.
 // Ref: #/components/schemas/ChannelHealth
 type ChannelHealth string
 
@@ -571,13 +609,19 @@ func (s *ChannelHealth) UnmarshalText(data []byte) error {
 	}
 }
 
+// One Telegram channel registered to the account.
 // Ref: #/components/schemas/ChannelSummary
 type ChannelSummary struct {
-	ID        int64         `json:"id"`
-	Name      string        `json:"name"`
-	Selected  bool          `json:"selected"`
-	Health    ChannelHealth `json:"health"`
-	CreatedAt time.Time     `json:"createdAt"`
+	// Telegram channel ID.
+	ID int64 `json:"id"`
+	// Channel title.
+	Name string `json:"name"`
+	// True for the channel new uploads currently target; at most one channel per account.
+	Selected bool `json:"selected"`
+	// Last recorded health of this channel.
+	Health ChannelHealth `json:"health"`
+	// When the channel was registered with TelDrive.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // GetID returns the value of ID.
@@ -729,10 +773,13 @@ func (s *CookieAuth) SetRoles(val []string) {
 	s.Roles = val
 }
 
+// Session state returned by a browser cookie login; the tokens themselves stay in HttpOnly cookies.
 // Ref: #/components/schemas/CookieSession
 type CookieSession struct {
+	// Always true: the model is only returned once a session was established.
 	Authenticated CookieSessionAuthenticated `json:"authenticated"`
-	ExpiresAt     time.Time                  `json:"expiresAt"`
+	// When the refresh session expires; the access cookie is renewed silently before then.
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // GetAuthenticated returns the value of Authenticated.
@@ -755,6 +802,7 @@ func (s *CookieSession) SetExpiresAt(val time.Time) {
 	s.ExpiresAt = val
 }
 
+// Always true: the model is only returned once a session was established.
 type CookieSessionAuthenticated bool
 
 const (
@@ -1234,9 +1282,12 @@ type DiscoverChannelsUnauthorized ErrorEnvelope
 
 func (*DiscoverChannelsUnauthorized) discoverChannelsRes() {}
 
+// A channel Telegram reports the account can manage, registered with TelDrive or not.
 // Ref: #/components/schemas/DiscoveredChannel
 type DiscoveredChannel struct {
-	ID   int64  `json:"id"`
+	// Telegram channel ID.
+	ID int64 `json:"id"`
+	// Channel title reported by Telegram.
 	Name string `json:"name"`
 }
 
@@ -3115,14 +3166,21 @@ type DownloadPublicShareUnauthorized ErrorEnvelope
 
 func (*DownloadPublicShareUnauthorized) downloadPublicShareRes() {}
 
+// Aggregate counters of one user's drive.
 // Ref: #/components/schemas/DriveStatistics
 type DriveStatistics struct {
-	TotalFiles   int64 `json:"totalFiles"`
+	// Number of active files.
+	TotalFiles int64 `json:"totalFiles"`
+	// Number of active folders.
 	TotalFolders int64 `json:"totalFolders"`
-	TotalBytes   int64 `json:"totalBytes"`
+	// Summed size of the active files in bytes.
+	TotalBytes int64 `json:"totalBytes"`
+	// Number of trashed files; trashed folders are not counted.
 	TrashedFiles int64 `json:"trashedFiles"`
+	// Shares that are neither revoked nor expired.
 	ActiveShares int64 `json:"activeShares"`
-	OpenUploads  int64 `json:"openUploads"`
+	// Upload sessions still open or completing.
+	OpenUploads int64 `json:"openUploads"`
 }
 
 // GetTotalFiles returns the value of TotalFiles.
@@ -3189,6 +3247,7 @@ func (*DriveStatistics) getDriveStatisticsRes() {}
 
 type ETag string
 
+// One failure: a stable code for clients, a message for humans and optional structured context.
 // Ref: #/components/schemas/ErrorDetail
 type ErrorDetail struct {
 	// Stable machine-readable error code.
@@ -3241,8 +3300,10 @@ func (s *ErrorDetailDetails) init() ErrorDetailDetails {
 	return m
 }
 
+// Payload every failing request returns, whatever the status code.
 // Ref: #/components/schemas/ErrorEnvelope
 type ErrorEnvelope struct {
+	// Machine-readable error code of the failure.
 	Error ErrorDetail `json:"error"`
 }
 
@@ -3268,10 +3329,13 @@ func (*ErrorEnvelope) listJobQueuesRes()             {}
 func (*ErrorEnvelope) logoutCookieSessionRes()       {}
 func (*ErrorEnvelope) logoutSessionRes()             {}
 
+// Credential that lets an EventSource URL authenticate without headers.
 // Ref: #/components/schemas/EventStreamTicket
 type EventStreamTicket struct {
 	// Short-lived credential suitable for a browser EventSource URL.
-	Ticket    string    `json:"ticket"`
+	Ticket string `json:"ticket"`
+	// When the ticket stops authenticating; it is bound to the issuing account and its default lifetime is
+	// two minutes.
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
@@ -3347,11 +3411,15 @@ func (s *ExternalApiKeyAuth) SetRoles(val []string) {
 	s.Roles = val
 }
 
+// Request to grant another account access to one of the caller's files.
 // Ref: #/components/schemas/FileAccessGrantCreateRequest
 type FileAccessGrantCreateRequest struct {
-	GranteeUserId int64                                     `json:"granteeUserId"`
-	Permission    OptFileAccessGrantCreateRequestPermission `json:"permission"`
-	ExpiresAt     OptDateTime                               `json:"expiresAt"`
+	// Telegram user ID of the account to grant; it must exist, be enabled and differ from the caller.
+	GranteeUserId int64 `json:"granteeUserId"`
+	// Access level to grant; omitted means `read`.
+	Permission OptFileAccessGrantCreateRequestPermission `json:"permission"`
+	// When the grant stops applying; must be in the future, and omitted means it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
 }
 
 // GetGranteeUserId returns the value of GranteeUserId.
@@ -3426,17 +3494,27 @@ func (s *FileAccessGrantCreateRequestPermission) UnmarshalText(data []byte) erro
 	}
 }
 
+// One access grant on a file, including the grantee identity.
 // Ref: #/components/schemas/FileAccessGrantSummary
 type FileAccessGrantSummary struct {
-	ID                 UUID            `json:"id"`
-	FileId             UUID            `json:"fileId"`
-	OwnerId            int64           `json:"ownerId"`
-	GranteeUserId      int64           `json:"granteeUserId"`
-	GranteeDisplayName OptString       `json:"granteeDisplayName"`
-	GranteeUsername    OptString       `json:"granteeUsername"`
-	Permission         SharePermission `json:"permission"`
-	ExpiresAt          OptDateTime     `json:"expiresAt"`
-	CreatedAt          time.Time       `json:"createdAt"`
+	// Grant identifier used to update or revoke it.
+	ID UUID `json:"id"`
+	// File the grant applies to.
+	FileId UUID `json:"fileId"`
+	// Account that owns the file.
+	OwnerId int64 `json:"ownerId"`
+	// Telegram user ID of the account that received access.
+	GranteeUserId int64 `json:"granteeUserId"`
+	// Grantee display name; omitted when unset.
+	GranteeDisplayName OptString `json:"granteeDisplayName"`
+	// Grantee.
+	GranteeUsername OptString `json:"granteeUsername"`
+	// Access level the grant confers.
+	Permission SharePermission `json:"permission"`
+	// When the grant stops applying; omitted when it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// When the grant was created.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // GetID returns the value of ID.
@@ -3532,11 +3610,15 @@ func (s *FileAccessGrantSummary) SetCreatedAt(val time.Time) {
 func (*FileAccessGrantSummary) createFileAccessGrantRes() {}
 func (*FileAccessGrantSummary) updateFileAccessGrantRes() {}
 
+// Partial update of a grant; at least one field must be present or the request is rejected with 422.
 // Ref: #/components/schemas/FileAccessGrantUpdateRequest
 type FileAccessGrantUpdateRequest struct {
-	Permission     OptSharePermission `json:"permission"`
-	ExpiresAt      OptDateTime        `json:"expiresAt"`
-	ClearExpiresAt OptBool            `json:"clearExpiresAt"`
+	// Replacement access level.
+	Permission OptSharePermission `json:"permission"`
+	// Replacement expiry, which must be in the future and must not be combined with `clearExpiresAt`.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// True removes the expiry so the grant no longer ages out.
+	ClearExpiresAt OptBool `json:"clearExpiresAt"`
 }
 
 // GetPermission returns the value of Permission.
@@ -3569,10 +3651,14 @@ func (s *FileAccessGrantUpdateRequest) SetClearExpiresAt(val OptBool) {
 	s.ClearExpiresAt = val
 }
 
+// Batch move request; the whole batch is applied in a single transaction.
 // Ref: #/components/schemas/FileBulkMoveRequest
 type FileBulkMoveRequest struct {
-	FileIds        []UUID                               `json:"fileIds"`
-	ParentId       OptUUID                              `json:"parentId"`
+	// Entries to move, 1 to 500 IDs; every entry must belong to the destination's owner.
+	FileIds []UUID `json:"fileIds"`
+	// Destination folder; absent moves the entries to the caller's own drive root.
+	ParentId OptUUID `json:"parentId"`
+	// How to resolve a name already taken at the destination; the default fails the whole batch.
 	ConflictPolicy OptFileBulkMoveRequestConflictPolicy `json:"conflictPolicy"`
 }
 
@@ -3655,8 +3741,10 @@ func (s *FileBulkMoveRequestConflictPolicy) UnmarshalText(data []byte) error {
 	}
 }
 
+// Entries a bulk operation affected.
 // Ref: #/components/schemas/FileBulkResult
 type FileBulkResult struct {
+	// Moved entries in request order, or every trashed entry including the descendants of the roots.
 	Items []FileEntry `json:"items"`
 }
 
@@ -3673,8 +3761,10 @@ func (s *FileBulkResult) SetItems(val []FileEntry) {
 func (*FileBulkResult) bulkMoveFilesRes()  {}
 func (*FileBulkResult) bulkTrashFilesRes() {}
 
+// Batch trash request; the whole batch is applied in a single transaction.
 // Ref: #/components/schemas/FileBulkTrashRequest
 type FileBulkTrashRequest struct {
+	// Entries to trash, 1 to 500 IDs; the root of a share the caller does not own cannot be trashed.
 	FileIds []UUID `json:"fileIds"`
 }
 
@@ -3688,6 +3778,7 @@ func (s *FileBulkTrashRequest) SetFileIds(val []UUID) {
 	s.FileIds = val
 }
 
+// Bucket the server derives from an entry's MIME type, falling back to the file name.
 // Ref: #/components/schemas/FileCategory
 type FileCategory string
 
@@ -3758,11 +3849,15 @@ func (s *FileCategory) UnmarshalText(data []byte) error {
 	}
 }
 
+// File count and bytes of one category bucket of a drive.
 // Ref: #/components/schemas/FileCategoryStatistics
 type FileCategoryStatistics struct {
-	Category   FileCategory `json:"category"`
-	TotalFiles int64        `json:"totalFiles"`
-	TotalSize  int64        `json:"totalSize"`
+	// Bucket the counted files fall into.
+	Category FileCategory `json:"category"`
+	// Number of active files in the bucket; folders are never counted.
+	TotalFiles int64 `json:"totalFiles"`
+	// Summed size of those files in bytes.
+	TotalSize int64 `json:"totalSize"`
 }
 
 // GetCategory returns the value of Category.
@@ -3829,10 +3924,14 @@ func (s *FileContentRequestOptionsDownload) UnmarshalText(data []byte) error {
 	}
 }
 
+// Destination and naming of a copy.
 // Ref: #/components/schemas/FileCopyRequest
 type FileCopyRequest struct {
-	ParentId       OptUUID                          `json:"parentId"`
-	Name           OptString                        `json:"name"`
+	// Destination folder; absent copies into the source owner's drive root.
+	ParentId OptUUID `json:"parentId"`
+	// Name of the copied root, 1 to 255 characters; absent keeps the source name.
+	Name OptString `json:"name"`
+	// How to resolve a name already taken at the destination.
 	ConflictPolicy OptFileCopyRequestConflictPolicy `json:"conflictPolicy"`
 }
 
@@ -3915,21 +4014,35 @@ func (s *FileCopyRequestConflictPolicy) UnmarshalText(data []byte) error {
 	}
 }
 
+// One catalog entry with its metadata, as returned by every file endpoint.
 // Ref: #/components/schemas/FileEntry
 type FileEntry struct {
-	ID         UUID        `json:"id"`
-	ParentId   OptUUID     `json:"parentId"`
-	Name       string      `json:"name"`
-	Kind       FileKind    `json:"kind"`
-	MimeType   OptString   `json:"mimeType"`
-	Size       OptInt64    `json:"size"`
-	Hash       OptFileHash `json:"hash"`
-	Encryption bool        `json:"encryption"`
-	Status     FileStatus  `json:"status"`
-	ModTime    time.Time   `json:"modTime"`
-	Generation int64       `json:"generation"`
-	CreatedAt  time.Time   `json:"createdAt"`
-	UpdatedAt  time.Time   `json:"updatedAt"`
+	// Entry UUID; this is the fileId path parameter of the single-entry endpoints.
+	ID UUID `json:"id"`
+	// Containing folder; absent for an entry sitting in the drive root.
+	ParentId OptUUID `json:"parentId"`
+	// Entry name, unique among the active entries of the same parent and never blank.
+	Name string `json:"name"`
+	// Whether this entry is a file or a folder.
+	Kind FileKind `json:"kind"`
+	// Media type recorded at upload time; absent when the upload supplied none.
+	MimeType OptString `json:"mimeType"`
+	// Content size in bytes; absent for folders, which never carry a size.
+	Size OptInt64 `json:"size"`
+	// Content checksum (BLAKE3 tree hash) recorded on completion; absent when no part hash was stored.
+	Hash OptFileHash `json:"hash"`
+	// Whether the content parts are stored encrypted and decrypted by the server on read.
+	Encryption bool `json:"encryption"`
+	// Lifecycle state of the entry.
+	Status FileStatus `json:"status"`
+	// Modification time of the content, as supplied when the entry was created or last updated.
+	ModTime time.Time `json:"modTime"`
+	// Revision of the metadata; it is incremented by every rename, move, trash and restore.
+	Generation int64 `json:"generation"`
+	// Time the entry row was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// Time the entry row was last changed.
+	UpdatedAt time.Time `json:"updatedAt"`
 	// Location path, included for drive and recursive listings.
 	ParentPath OptString `json:"parentPath"`
 }
@@ -4108,10 +4221,13 @@ func (*FileEntryHeaders) moveFileRes()    {}
 func (*FileEntryHeaders) restoreFileRes() {}
 func (*FileEntryHeaders) updateFileRes()  {}
 
+// Content digest of a file or upload, used to verify transfers.
 // Ref: #/components/schemas/FileHash
 type FileHash struct {
+	// Algorithm that produced `value`.
 	Algorithm HashAlgorithm `json:"algorithm"`
-	Value     Checksum      `json:"value"`
+	// Digest of the plaintext content in that algorithm's encoding.
+	Value Checksum `json:"value"`
 }
 
 // GetAlgorithm returns the value of Algorithm.
@@ -4134,6 +4250,7 @@ func (s *FileHash) SetValue(val Checksum) {
 	s.Value = val
 }
 
+// Whether a catalog entry holds content or groups other entries.
 // Ref: #/components/schemas/FileKind
 type FileKind string
 
@@ -4414,9 +4531,12 @@ func (s *FileListQueryStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Destination of a single-entry move within one owner's drive.
 // Ref: #/components/schemas/FileMoveRequest
 type FileMoveRequest struct {
-	ParentId       OptUUID                          `json:"parentId"`
+	// Destination folder; absent moves the entry to the caller's drive root.
+	ParentId OptUUID `json:"parentId"`
+	// How to resolve a name already taken at the destination.
 	ConflictPolicy OptFileMoveRequestConflictPolicy `json:"conflictPolicy"`
 }
 
@@ -4489,6 +4609,8 @@ func (s *FileMoveRequestConflictPolicy) UnmarshalText(data []byte) error {
 	}
 }
 
+// Lifecycle of a catalog entry. Trashing only flips the status and keeps the content parts; the purge
+// sweep later deletes the parts of a deletion-pending entry.
 // Ref: #/components/schemas/FileStatus
 type FileStatus string
 
@@ -4538,9 +4660,12 @@ func (s *FileStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Partial metadata change of one entry; at least one of name and modTime must be set.
 // Ref: #/components/schemas/FileUpdateRequest
 type FileUpdateRequest struct {
-	Name    OptString   `json:"name"`
+	// New name, 1 to 255 characters and not blank; absent keeps the current name.
+	Name OptString `json:"name"`
+	// New modification time; absent keeps the current one.
 	ModTime OptDateTime `json:"modTime"`
 }
 
@@ -4564,14 +4689,21 @@ func (s *FileUpdateRequest) SetModTime(val OptDateTime) {
 	s.ModTime = val
 }
 
+// Reader state one user saved for one file; the server treats every payload as opaque JSON.
 // Ref: #/components/schemas/FileViewState
 type FileViewState struct {
-	FileId      UUID                         `json:"fileId"`
-	Kind        ViewerKind                   `json:"kind"`
-	Position    FileViewStatePosition        `json:"position"`
-	Preferences FileViewStatePreferences     `json:"preferences"`
-	Bookmarks   []FileViewStateBookmarksItem `json:"bookmarks"`
-	UpdatedAt   time.Time                    `json:"updatedAt"`
+	// File the state belongs to.
+	FileId UUID `json:"fileId"`
+	// Viewer the state was saved by.
+	Kind ViewerKind `json:"kind"`
+	// Opaque JSON object, for example the reading or playback position.
+	Position FileViewStatePosition `json:"position"`
+	// Opaque JSON object with the viewer settings chosen by the user.
+	Preferences FileViewStatePreferences `json:"preferences"`
+	// Reader bookmarks, each an opaque JSON value; at most 500 entries.
+	Bookmarks []FileViewStateBookmarksItem `json:"bookmarks"`
+	// Time the state was last written.
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // GetFileId returns the value of FileId.
@@ -4648,6 +4780,7 @@ func (s *FileViewStateBookmarksItem) init() FileViewStateBookmarksItem {
 	return m
 }
 
+// Opaque JSON object, for example the reading or playback position.
 type FileViewStatePosition map[string]jx.Raw
 
 func (s *FileViewStatePosition) init() FileViewStatePosition {
@@ -4659,6 +4792,7 @@ func (s *FileViewStatePosition) init() FileViewStatePosition {
 	return m
 }
 
+// Opaque JSON object with the viewer settings chosen by the user.
 type FileViewStatePreferences map[string]jx.Raw
 
 func (s *FileViewStatePreferences) init() FileViewStatePreferences {
@@ -4670,12 +4804,19 @@ func (s *FileViewStatePreferences) init() FileViewStatePreferences {
 	return m
 }
 
+// Reader state to store for one file. The write replaces the whole stored state: an omitted position,
+// preferences or bookmarks is stored as an empty object or list rather than merged with the previous
+// value.
 // Ref: #/components/schemas/FileViewStateUpdate
 type FileViewStateUpdate struct {
-	Kind        ViewerKind                         `json:"kind"`
-	Position    OptFileViewStateUpdatePosition     `json:"position"`
-	Preferences OptFileViewStateUpdatePreferences  `json:"preferences"`
-	Bookmarks   []FileViewStateUpdateBookmarksItem `json:"bookmarks"`
+	// Viewer the state is saved by.
+	Kind ViewerKind `json:"kind"`
+	// Opaque JSON object; omitted stores an empty object.
+	Position OptFileViewStateUpdatePosition `json:"position"`
+	// Opaque JSON object; omitted stores an empty object.
+	Preferences OptFileViewStateUpdatePreferences `json:"preferences"`
+	// Reader bookmarks; omitted stores an empty list, and more than 500 entries are rejected.
+	Bookmarks []FileViewStateUpdateBookmarksItem `json:"bookmarks"`
 }
 
 // GetKind returns the value of Kind.
@@ -4729,6 +4870,7 @@ func (s *FileViewStateUpdateBookmarksItem) init() FileViewStateUpdateBookmarksIt
 	return m
 }
 
+// Opaque JSON object; omitted stores an empty object.
 type FileViewStateUpdatePosition map[string]jx.Raw
 
 func (s *FileViewStateUpdatePosition) init() FileViewStateUpdatePosition {
@@ -4740,6 +4882,7 @@ func (s *FileViewStateUpdatePosition) init() FileViewStateUpdatePosition {
 	return m
 }
 
+// Opaque JSON object; omitted stores an empty object.
 type FileViewStateUpdatePreferences map[string]jx.Raw
 
 func (s *FileViewStateUpdatePreferences) init() FileViewStateUpdatePreferences {
@@ -4751,12 +4894,17 @@ func (s *FileViewStateUpdatePreferences) init() FileViewStateUpdatePreferences {
 	return m
 }
 
+// Body of a folder creation request.
 // Ref: #/components/schemas/FolderCreateRequest
 type FolderCreateRequest struct {
-	ParentId       OptUUID                              `json:"parentId"`
-	Name           string                               `json:"name"`
+	// Parent folder; absent creates the folder in the caller's drive root.
+	ParentId OptUUID `json:"parentId"`
+	// Folder name, 1 to 255 characters and not blank.
+	Name string `json:"name"`
+	// Only fail is accepted here; replace and rename are rejected as invalid input.
 	ConflictPolicy OptFolderCreateRequestConflictPolicy `json:"conflictPolicy"`
-	ModTime        OptDateTime                          `json:"modTime"`
+	// Modification time to record; absent records the current time.
+	ModTime OptDateTime `json:"modTime"`
 }
 
 // GetParentId returns the value of ParentId.
@@ -5025,6 +5173,7 @@ type GetUploadUnauthorized ErrorEnvelope
 
 func (*GetUploadUnauthorized) getUploadRes() {}
 
+// Content-digest algorithms the contract accepts; only BLAKE3 is advertised today.
 // Ref: #/components/schemas/HashAlgorithm
 type HashAlgorithm string
 
@@ -5726,10 +5875,13 @@ type HeadPublicShareUnauthorized ErrorEnvelope
 
 func (*HeadPublicShareUnauthorized) headPublicShareRes() {}
 
+// Result of a health probe: the state observed at that moment and the version that answered.
 // Ref: #/components/schemas/HealthStatus
 type HealthStatus struct {
-	Status  HealthStatusStatus `json:"status"`
-	Version string             `json:"version"`
+	// `ok` when the probe passed; `degraded` when a required dependency failed or was never configured.
+	Status HealthStatusStatus `json:"status"`
+	// Build version of the answering process; may be empty when the binary carries no version information.
+	Version string `json:"version"`
 }
 
 // GetStatus returns the value of Status.
@@ -5754,6 +5906,7 @@ func (s *HealthStatus) SetVersion(val string) {
 
 func (*HealthStatus) healthReadyRes() {}
 
+// `ok` when the probe passed; `degraded` when a required dependency failed or was never configured.
 type HealthStatusStatus string
 
 const (
@@ -5795,27 +5948,47 @@ func (s *HealthStatusStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// A River job as the management API exposes it; the values are a snapshot and may already be stale.
 // Ref: #/components/schemas/Job
 type Job struct {
-	ID          string            `json:"id"`
-	Status      JobState          `json:"status"`
-	Type        string            `json:"type"`
-	ParentId    OptString         `json:"parentId"`
-	Queue       string            `json:"queue"`
-	Description OptString         `json:"description"`
-	Message     OptString         `json:"message"`
-	Attempt     int32             `json:"attempt"`
-	MaxAttempts int32             `json:"maxAttempts"`
-	Priority    int32             `json:"priority"`
-	Tags        []string          `json:"tags"`
-	Args        JobArgs           `json:"args"`
-	Output      OptJobOutput      `json:"output"`
-	Errors      []JobAttemptError `json:"errors"`
-	AttemptedBy []string          `json:"attemptedBy"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	ScheduledAt time.Time         `json:"scheduledAt"`
-	StartedAt   OptDateTime       `json:"startedAt"`
-	CompletedAt OptDateTime       `json:"completedAt"`
+	// River job ID, unique across all kinds and queues.
+	ID string `json:"id"`
+	// Lifecycle state of the job.
+	Status JobState `json:"status"`
+	// Worker kind that executes the job, for example "teldrive_cleanup_uploads".
+	Type string `json:"type"`
+	// Identifier of the job this one is grouped under; absent unless the producer set one.
+	ParentId OptString `json:"parentId"`
+	// Queue the job was inserted into.
+	Queue string `json:"queue"`
+	// Human-readable description taken from the job metadata; absent when none is set.
+	Description OptString `json:"description"`
+	// Message taken from the job metadata, falling back to the most recent attempt error.
+	Message OptString `json:"message"`
+	// Number of attempts already made, including the current one.
+	Attempt int32 `json:"attempt"`
+	// Attempt budget; the job is discarded once it is exhausted.
+	MaxAttempts int32 `json:"maxAttempts"`
+	// River priority, 1 being the highest and 4 the lowest.
+	Priority int32 `json:"priority"`
+	// Operator-supplied labels attached to the job.
+	Tags []string `json:"tags"`
+	// Job arguments keyed by JSON field name; credential-like values are redacted.
+	Args JobArgs `json:"args"`
+	// JSON object the worker recorded on success; absent when it recorded none.
+	Output OptJobOutput `json:"output"`
+	// Failed attempts in chronological order.
+	Errors []JobAttemptError `json:"errors"`
+	// Worker clients that picked the job up.
+	AttemptedBy []string `json:"attemptedBy"`
+	// Time the job was inserted.
+	CreatedAt time.Time `json:"createdAt"`
+	// Time the job became or becomes eligible to run.
+	ScheduledAt time.Time `json:"scheduledAt"`
+	// Time the current or last attempt started; absent while the job has never been attempted.
+	StartedAt OptDateTime `json:"startedAt"`
+	// Time the job reached a terminal state; absent while it is still active.
+	CompletedAt OptDateTime `json:"completedAt"`
 }
 
 // GetID returns the value of ID.
@@ -6014,6 +6187,7 @@ func (*Job) createUploadImportRes() {}
 func (*Job) getJobRes()             {}
 func (*Job) retryJobRes()           {}
 
+// Job arguments keyed by JSON field name; credential-like values are redacted.
 type JobArgs map[string]jx.Raw
 
 func (s *JobArgs) init() JobArgs {
@@ -6025,12 +6199,17 @@ func (s *JobArgs) init() JobArgs {
 	return m
 }
 
+// One failed attempt of a job, as recorded by River.
 // Ref: #/components/schemas/JobAttemptError
 type JobAttemptError struct {
-	Attempt int32     `json:"attempt"`
-	At      time.Time `json:"at"`
-	Error   string    `json:"error"`
-	Trace   OptString `json:"trace"`
+	// 1-based number of the attempt that failed.
+	Attempt int32 `json:"attempt"`
+	// Time the attempt failed.
+	At time.Time `json:"at"`
+	// Error message reported by the worker.
+	Error string `json:"error"`
+	// Stack trace captured for the attempt; absent when River stored none.
+	Trace OptString `json:"trace"`
 }
 
 // GetAttempt returns the value of Attempt.
@@ -6073,14 +6252,24 @@ func (s *JobAttemptError) SetTrace(val OptString) {
 	s.Trace = val
 }
 
+// A one-off maintenance job to enqueue.
 // Ref: #/components/schemas/JobCreate
 type JobCreate struct {
-	Type        string        `json:"type"`
-	Args        JobCreateArgs `json:"args"`
-	Queue       OptString     `json:"queue"`
-	Priority    OptInt32      `json:"priority"`
-	MaxAttempts OptInt32      `json:"maxAttempts"`
-	Tags        []string      `json:"tags"`
+	// Worker kind to run: one of the cleanup sweeps this deployment registered a worker for
+	// ("teldrive_cleanup_uploads", "teldrive_cleanup_user_events", "teldrive_cleanup_trash",
+	// "teldrive_purge_pending_files" or "teldrive_cleanup_orphaned_telegram_parts"). Any other kind is
+	// rejected with 422.
+	Type string `json:"type"`
+	// Job arguments keyed by JSON field name; the worker applies its own defaults to absent fields.
+	Args JobCreateArgs `json:"args"`
+	// Target queue; absent selects River's default queue.
+	Queue OptString `json:"queue"`
+	// River priority from 1 (highest) to 4 (lowest); absent or not positive selects the default.
+	Priority OptInt32 `json:"priority"`
+	// Attempt budget; absent or not positive selects River's default.
+	MaxAttempts OptInt32 `json:"maxAttempts"`
+	// Labels attached to the job.
+	Tags []string `json:"tags"`
 }
 
 // GetType returns the value of Type.
@@ -6143,6 +6332,7 @@ func (s *JobCreate) SetTags(val []string) {
 	s.Tags = val
 }
 
+// Job arguments keyed by JSON field name; the worker applies its own defaults to absent fields.
 type JobCreateArgs map[string]jx.Raw
 
 func (s *JobCreateArgs) init() JobCreateArgs {
@@ -6154,6 +6344,7 @@ func (s *JobCreateArgs) init() JobCreateArgs {
 	return m
 }
 
+// JSON object the worker recorded on success; absent when it recorded none.
 type JobOutput map[string]jx.Raw
 
 func (s *JobOutput) init() JobOutput {
@@ -6165,10 +6356,13 @@ func (s *JobOutput) init() JobOutput {
 	return m
 }
 
+// One page of jobs.
 // Ref: #/components/schemas/JobPage
 type JobPage struct {
-	Tasks []Job       `json:"tasks"`
-	Meta  JobPageMeta `json:"meta"`
+	// Jobs of the page, newest first.
+	Tasks []Job `json:"tasks"`
+	// Cursor for the following page.
+	Meta JobPageMeta `json:"meta"`
 }
 
 // GetTasks returns the value of Tasks.
@@ -6193,8 +6387,10 @@ func (s *JobPage) SetMeta(val JobPageMeta) {
 
 func (*JobPage) listJobsRes() {}
 
+// Paging metadata of a job listing.
 // Ref: #/components/schemas/JobPageMeta
 type JobPageMeta struct {
+	// Opaque cursor for the next page; absent when this was the last page.
 	NextCursor OptCursor `json:"nextCursor"`
 }
 
@@ -6208,8 +6404,10 @@ func (s *JobPageMeta) SetNextCursor(val OptCursor) {
 	s.NextCursor = val
 }
 
+// Outcome of a job purge.
 // Ref: #/components/schemas/JobPurgeResult
 type JobPurgeResult struct {
+	// Number of job rows deleted.
 	Count int64 `json:"count"`
 }
 
@@ -6225,14 +6423,21 @@ func (s *JobPurgeResult) SetCount(val int64) {
 
 func (*JobPurgeResult) purgeJobsRes() {}
 
+// One River queue with the counters the job dashboard shows.
 // Ref: #/components/schemas/JobQueue
 type JobQueue struct {
-	Name      string `json:"name"`
-	Paused    bool   `json:"paused"`
-	Available int64  `json:"available"`
-	Running   int64  `json:"running"`
-	Retryable int64  `json:"retryable"`
-	Scheduled int64  `json:"scheduled"`
+	// Queue name; River only tracks queues that have held at least one job.
+	Name string `json:"name"`
+	// Whether the queue is paused and therefore hands out no new jobs.
+	Paused bool `json:"paused"`
+	// Jobs ready to run in this queue.
+	Available int64 `json:"available"`
+	// Jobs of this queue currently being worked.
+	Running int64 `json:"running"`
+	// Failed jobs of this queue waiting for another attempt; the administrator listing leaves it 0.
+	Retryable int64 `json:"retryable"`
+	// Jobs of this queue waiting for their scheduled time; the administrator listing leaves it 0.
+	Scheduled int64 `json:"scheduled"`
 }
 
 // GetName returns the value of Name.
@@ -6295,8 +6500,10 @@ func (s *JobQueue) SetScheduled(val int64) {
 	s.Scheduled = val
 }
 
+// Queues visible to the caller.
 // Ref: #/components/schemas/JobQueueList
 type JobQueueList struct {
+	// Every known queue for an administrator, otherwise only the queues holding the caller's jobs.
 	Queues []JobQueue `json:"queues"`
 }
 
@@ -6312,6 +6519,8 @@ func (s *JobQueueList) SetQueues(val []JobQueue) {
 
 func (*JobQueueList) listJobQueuesRes() {}
 
+// Lifecycle state of a River job. A job becomes available or scheduled, turns running while a worker
+// holds it, and ends in completed, cancelled or discarded.
 // Ref: #/components/schemas/JobState
 type JobState string
 
@@ -6396,15 +6605,24 @@ func (s *JobState) UnmarshalText(data []byte) error {
 	}
 }
 
+// Number of jobs per lifecycle state; a zero field means no job was observed in that state.
 // Ref: #/components/schemas/JobStatistics
 type JobStatistics struct {
+	// Jobs queued and ready to be worked.
 	Available int64 `json:"available"`
+	// Jobs cancelled before they could finish.
 	Cancelled int64 `json:"cancelled"`
+	// Jobs that finished successfully.
 	Completed int64 `json:"completed"`
+	// Jobs that exhausted their attempts.
 	Discarded int64 `json:"discarded"`
-	Pending   int64 `json:"pending"`
+	// Jobs waiting on an external dependency.
+	Pending int64 `json:"pending"`
+	// Failed jobs waiting for another attempt.
 	Retryable int64 `json:"retryable"`
-	Running   int64 `json:"running"`
+	// Jobs currently being worked.
+	Running int64 `json:"running"`
+	// Jobs waiting for their scheduled time.
 	Scheduled int64 `json:"scheduled"`
 }
 
@@ -6502,9 +6720,12 @@ type ListAdminUsersUnauthorized ErrorEnvelope
 
 func (*ListAdminUsersUnauthorized) listAdminUsersRes() {}
 
+// One page of a keyset-paginated listing.
 type ListApiKeysOK struct {
-	Items      []ApiKeySummary `json:"items"`
-	NextCursor OptCursor       `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []ApiKeySummary `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6537,9 +6758,12 @@ type ListApiKeysUnprocessableEntity ErrorEnvelope
 
 func (*ListApiKeysUnprocessableEntity) listApiKeysRes() {}
 
+// One page of a keyset-paginated listing.
 type ListBotsOK struct {
-	Items      []BotSummary `json:"items"`
-	NextCursor OptCursor    `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []BotSummary `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6572,9 +6796,12 @@ type ListBotsUnprocessableEntity ErrorEnvelope
 
 func (*ListBotsUnprocessableEntity) listBotsRes() {}
 
+// One page of a keyset-paginated listing.
 type ListChannelsOK struct {
-	Items      []ChannelSummary `json:"items"`
-	NextCursor OptCursor        `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []ChannelSummary `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6623,9 +6850,12 @@ type ListFileSharesNotFound ErrorEnvelope
 
 func (*ListFileSharesNotFound) listFileSharesRes() {}
 
+// One page of a keyset-paginated listing.
 type ListFileSharesOK struct {
-	Items      []ShareSummary `json:"items"`
-	NextCursor OptCursor      `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []ShareSummary `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6662,9 +6892,12 @@ type ListFilesNotFound ErrorEnvelope
 
 func (*ListFilesNotFound) listFilesRes() {}
 
+// One page of a keyset-paginated listing.
 type ListFilesOK struct {
-	Items      []FileEntry `json:"items"`
-	NextCursor OptCursor   `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []FileEntry `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6725,9 +6958,12 @@ type ListPublicShareFilesNotFound ErrorEnvelope
 
 func (*ListPublicShareFilesNotFound) listPublicShareFilesRes() {}
 
+// One page of a keyset-paginated listing.
 type ListPublicShareFilesOK struct {
-	Items      []FileEntry `json:"items"`
-	NextCursor OptCursor   `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []FileEntry `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6764,9 +7000,12 @@ type ListPublicShareFilesUnprocessableEntity ErrorEnvelope
 
 func (*ListPublicShareFilesUnprocessableEntity) listPublicShareFilesRes() {}
 
+// One page of a keyset-paginated listing.
 type ListSessionsOK struct {
-	Items      []SessionSummary `json:"items"`
-	NextCursor OptCursor        `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []SessionSummary `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6799,9 +7038,12 @@ type ListSessionsUnprocessableEntity ErrorEnvelope
 
 func (*ListSessionsUnprocessableEntity) listSessionsRes() {}
 
+// One page of a keyset-paginated listing.
 type ListSharedOK struct {
-	Items      []FileEntry `json:"items"`
-	NextCursor OptCursor   `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []FileEntry `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6834,9 +7076,12 @@ type ListSharedUnprocessableEntity ErrorEnvelope
 
 func (*ListSharedUnprocessableEntity) listSharedRes() {}
 
+// One page of a keyset-paginated listing.
 type ListSharedWithMeOK struct {
-	Items      []SharedWithMeEntry `json:"items"`
-	NextCursor OptCursor           `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []SharedWithMeEntry `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6881,9 +7126,12 @@ type ListUploadPartsNotFound ErrorEnvelope
 
 func (*ListUploadPartsNotFound) listUploadPartsRes() {}
 
+// One page of a keyset-paginated listing.
 type ListUploadPartsOK struct {
-	Items      []UploadPart `json:"items"`
-	NextCursor OptCursor    `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []UploadPart `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6916,9 +7164,12 @@ type ListUploadPartsUnprocessableEntity ErrorEnvelope
 
 func (*ListUploadPartsUnprocessableEntity) listUploadPartsRes() {}
 
+// One page of a keyset-paginated listing.
 type ListUploadsOK struct {
-	Items      []UploadSession `json:"items"`
-	NextCursor OptCursor       `json:"nextCursor"`
+	// Rows of this page, possibly empty but never null.
+	Items []UploadSession `json:"items"`
+	// Cursor to send as `cursor` on the next request; omitted when the listing is exhausted.
+	NextCursor OptCursor `json:"nextCursor"`
 }
 
 // GetItems returns the value of Items.
@@ -6997,6 +7248,7 @@ type MoveFileUnprocessableEntity ErrorEnvelope
 
 func (*MoveFileUnprocessableEntity) moveFileRes() {}
 
+// What a move, copy or create does when an entry of that name already exists at the destination.
 // Ref: #/components/schemas/NameConflictPolicy
 type NameConflictPolicy string
 
@@ -8681,22 +8933,37 @@ type PausePeriodicJobUnauthorized ErrorEnvelope
 
 func (*PausePeriodicJobUnauthorized) pausePeriodicJobRes() {}
 
+// A stored periodic job definition with its runtime bookkeeping.
 // Ref: #/components/schemas/PeriodicJob
 type PeriodicJob struct {
-	ID             string          `json:"id"`
-	Kind           string          `json:"kind"`
-	Args           PeriodicJobArgs `json:"args"`
-	Queue          string          `json:"queue"`
-	Priority       int32           `json:"priority"`
-	MaxAttempts    int32           `json:"maxAttempts"`
-	Tags           []string        `json:"tags"`
-	CronExpression string          `json:"cronExpression"`
-	CronTimezone   string          `json:"cronTimezone"`
-	NextRunAt      time.Time       `json:"nextRunAt"`
-	Paused         bool            `json:"paused"`
-	PausedAt       OptDateTime     `json:"pausedAt"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	// Durable identifier; update, pause, resume and delete refer to it.
+	ID string `json:"id"`
+	// Worker kind each run uses.
+	Kind string `json:"kind"`
+	// Arguments inserted with every run, keyed by JSON field name.
+	Args PeriodicJobArgs `json:"args"`
+	// Queue the runs are inserted into.
+	Queue string `json:"queue"`
+	// River priority of the runs, 1 being the highest.
+	Priority int32 `json:"priority"`
+	// Attempt budget of each run.
+	MaxAttempts int32 `json:"maxAttempts"`
+	// Labels attached to each run.
+	Tags []string `json:"tags"`
+	// Cron expression, or River's ".
+	CronExpression string `json:"cronExpression"`
+	// IANA timezone the expression is evaluated in; never blank.
+	CronTimezone string `json:"cronTimezone"`
+	// Time the next run is due.
+	NextRunAt time.Time `json:"nextRunAt"`
+	// Whether the schedule is suspended.
+	Paused bool `json:"paused"`
+	// Time the schedule was paused; absent while it is active.
+	PausedAt OptDateTime `json:"pausedAt"`
+	// Time the definition was first stored.
+	CreatedAt time.Time `json:"createdAt"`
+	// Time the definition was last changed.
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // GetID returns the value of ID.
@@ -8844,6 +9111,7 @@ func (*PeriodicJob) pausePeriodicJobRes()  {}
 func (*PeriodicJob) resumePeriodicJobRes() {}
 func (*PeriodicJob) updatePeriodicJobRes() {}
 
+// Arguments inserted with every run, keyed by JSON field name.
 type PeriodicJobArgs map[string]jx.Raw
 
 func (s *PeriodicJobArgs) init() PeriodicJobArgs {
@@ -8855,8 +9123,10 @@ func (s *PeriodicJobArgs) init() PeriodicJobArgs {
 	return m
 }
 
+// The built-in schedules this deployment is able to run.
 // Ref: #/components/schemas/PeriodicJobCatalog
 type PeriodicJobCatalog struct {
+	// One template per enabled feature; a schedule whose worker is unavailable is absent.
 	Templates []PeriodicJobTemplate `json:"templates"`
 }
 
@@ -8872,18 +9142,29 @@ func (s *PeriodicJobCatalog) SetTemplates(val []PeriodicJobTemplate) {
 
 func (*PeriodicJobCatalog) getPeriodicJobCatalogRes() {}
 
+// A periodic job definition to store.
 // Ref: #/components/schemas/PeriodicJobCreate
 type PeriodicJobCreate struct {
-	ID             string                `json:"id"`
-	Kind           string                `json:"kind"`
-	Args           PeriodicJobCreateArgs `json:"args"`
-	Queue          string                `json:"queue"`
-	Priority       int32                 `json:"priority"`
-	MaxAttempts    int32                 `json:"maxAttempts"`
-	Tags           []string              `json:"tags"`
-	CronExpression string                `json:"cronExpression"`
-	CronTimezone   string                `json:"cronTimezone"`
-	Paused         OptBool               `json:"paused"`
+	// Identifier to create; it must not be in use yet.
+	ID string `json:"id"`
+	// Worker kind each run uses; the same cleanup sweep kinds JobCreate accepts.
+	Kind string `json:"kind"`
+	// Arguments inserted with every run, keyed by JSON field name.
+	Args PeriodicJobCreateArgs `json:"args"`
+	// Queue the runs are inserted into; blank selects River's default queue.
+	Queue string `json:"queue"`
+	// River priority of the runs, 1 being the highest; 0 or less selects the default.
+	Priority int32 `json:"priority"`
+	// Attempt budget of each run; 0 or less selects the default.
+	MaxAttempts int32 `json:"maxAttempts"`
+	// Labels attached to each run.
+	Tags []string `json:"tags"`
+	// Cron expression, or River's ".
+	CronExpression string `json:"cronExpression"`
+	// IANA timezone the expression is evaluated in; blank is stored as UTC.
+	CronTimezone string `json:"cronTimezone"`
+	// Store the schedule paused instead of active; absent stores it active.
+	Paused OptBool `json:"paused"`
 }
 
 // GetID returns the value of ID.
@@ -8986,6 +9267,7 @@ func (s *PeriodicJobCreate) SetPaused(val OptBool) {
 	s.Paused = val
 }
 
+// Arguments inserted with every run, keyed by JSON field name.
 type PeriodicJobCreateArgs map[string]jx.Raw
 
 func (s *PeriodicJobCreateArgs) init() PeriodicJobCreateArgs {
@@ -8997,8 +9279,10 @@ func (s *PeriodicJobCreateArgs) init() PeriodicJobCreateArgs {
 	return m
 }
 
+// The stored periodic job definitions.
 // Ref: #/components/schemas/PeriodicJobList
 type PeriodicJobList struct {
+	// Definitions known to the instance, at most 1000.
 	Jobs []PeriodicJob `json:"jobs"`
 }
 
@@ -9015,15 +9299,23 @@ func (s *PeriodicJobList) SetJobs(val []PeriodicJob) {
 func (*PeriodicJobList) listPeriodicJobsRes()  {}
 func (*PeriodicJobList) resetPeriodicJobsRes() {}
 
+// A built-in periodic job offered by the catalog, with the defaults a client prefills.
 // Ref: #/components/schemas/PeriodicJobTemplate
 type PeriodicJobTemplate struct {
-	Kind            string                         `json:"kind"`
-	Label           string                         `json:"label"`
-	Description     string                         `json:"description"`
-	DefaultId       string                         `json:"defaultId"`
-	DefaultArgs     PeriodicJobTemplateDefaultArgs `json:"defaultArgs"`
-	DefaultQueue    string                         `json:"defaultQueue"`
-	RecommendedCron string                         `json:"recommendedCron"`
+	// Worker kind the schedule inserts.
+	Kind string `json:"kind"`
+	// Name shown in the console.
+	Label string `json:"label"`
+	// What the schedule does.
+	Description string `json:"description"`
+	// Identifier the periodic job is created with.
+	DefaultId string `json:"defaultId"`
+	// Arguments the schedule is created with.
+	DefaultArgs PeriodicJobTemplateDefaultArgs `json:"defaultArgs"`
+	// Queue the runs are inserted into.
+	DefaultQueue string `json:"defaultQueue"`
+	// Recommended schedule, a cron expression or ".
+	RecommendedCron string `json:"recommendedCron"`
 }
 
 // GetKind returns the value of Kind.
@@ -9096,6 +9388,7 @@ func (s *PeriodicJobTemplate) SetRecommendedCron(val string) {
 	s.RecommendedCron = val
 }
 
+// Arguments the schedule is created with.
 type PeriodicJobTemplateDefaultArgs map[string]jx.Raw
 
 func (s *PeriodicJobTemplateDefaultArgs) init() PeriodicJobTemplateDefaultArgs {
@@ -9107,17 +9400,29 @@ func (s *PeriodicJobTemplateDefaultArgs) init() PeriodicJobTemplateDefaultArgs {
 	return m
 }
 
+// Replacement state of a periodic job. Every field is taken from the body, so leaving paused unset
+// resumes a paused schedule, and a blank queue, a non-positive priority or maxAttempts, or a blank
+// cronTimezone selects the default instead of keeping the stored value.
 // Ref: #/components/schemas/PeriodicJobUpdate
 type PeriodicJobUpdate struct {
-	Kind           string                `json:"kind"`
-	Args           PeriodicJobUpdateArgs `json:"args"`
-	Queue          string                `json:"queue"`
-	Priority       int32                 `json:"priority"`
-	MaxAttempts    int32                 `json:"maxAttempts"`
-	Tags           []string              `json:"tags"`
-	CronExpression string                `json:"cronExpression"`
-	CronTimezone   string                `json:"cronTimezone"`
-	Paused         OptBool               `json:"paused"`
+	// Worker kind each run uses; the same cleanup sweep kinds JobCreate accepts.
+	Kind string `json:"kind"`
+	// Arguments inserted with every run, keyed by JSON field name.
+	Args PeriodicJobUpdateArgs `json:"args"`
+	// Queue the runs are inserted into; blank selects River's default queue.
+	Queue string `json:"queue"`
+	// River priority of the runs, 1 being the highest; 0 or less selects the default.
+	Priority int32 `json:"priority"`
+	// Attempt budget of each run; 0 or less selects the default.
+	MaxAttempts int32 `json:"maxAttempts"`
+	// Labels attached to each run.
+	Tags []string `json:"tags"`
+	// Cron expression, or River's ".
+	CronExpression string `json:"cronExpression"`
+	// IANA timezone the expression is evaluated in; blank is stored as UTC.
+	CronTimezone string `json:"cronTimezone"`
+	// Leave the schedule paused instead of active; absent resumes a paused schedule.
+	Paused OptBool `json:"paused"`
 }
 
 // GetKind returns the value of Kind.
@@ -9210,6 +9515,7 @@ func (s *PeriodicJobUpdate) SetPaused(val OptBool) {
 	s.Paused = val
 }
 
+// Arguments inserted with every run, keyed by JSON field name.
 type PeriodicJobUpdateArgs map[string]jx.Raw
 
 func (s *PeriodicJobUpdateArgs) init() PeriodicJobUpdateArgs {
@@ -9221,13 +9527,19 @@ func (s *PeriodicJobUpdateArgs) init() PeriodicJobUpdateArgs {
 	return m
 }
 
+// Public view of a share, returned to whoever holds its token.
 // Ref: #/components/schemas/PublicShare
 type PublicShare struct {
-	ID                UUID            `json:"id"`
-	File              FileEntry       `json:"file"`
-	PasswordProtected bool            `json:"passwordProtected"`
-	ExpiresAt         OptDateTime     `json:"expiresAt"`
-	Permission        SharePermission `json:"permission"`
+	// Share identifier.
+	ID UUID `json:"id"`
+	// The shared file, or the folder acting as the share root.
+	File FileEntry `json:"file"`
+	// True when the link requires the `X-Share-Password` header.
+	PasswordProtected bool `json:"passwordProtected"`
+	// When the link stops working; omitted when it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// Access level the link confers.
+	Permission SharePermission `json:"permission"`
 }
 
 // GetID returns the value of ID.
@@ -9451,8 +9763,11 @@ type RefreshSessionUnauthorized ErrorEnvelope
 
 func (*RefreshSessionUnauthorized) refreshSessionRes() {}
 
+// Token refresh request; the refresh token is itself the credential, so no Authorization header is
+// needed.
 // Ref: #/components/schemas/RefreshTokenRequest
 type RefreshTokenRequest struct {
+	// Refresh token from a previous login or refresh; it is rotated, so the value sent stops working.
 	RefreshToken string `json:"refreshToken"`
 }
 
@@ -9616,14 +9931,21 @@ type SelectChannelUnauthorized ErrorEnvelope
 
 func (*SelectChannelUnauthorized) selectChannelRes() {}
 
+// One TelDrive login session of the account.
 // Ref: #/components/schemas/SessionSummary
 type SessionSummary struct {
-	ID         UUID        `json:"id"`
-	Current    bool        `json:"current"`
-	CreatedAt  time.Time   `json:"createdAt"`
+	// Session identifier used to revoke it.
+	ID UUID `json:"id"`
+	// True for the session backing the credential that made this request.
+	Current bool `json:"current"`
+	// When the session was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// When the session last authenticated a request; omitted while it has not been used yet.
 	LastUsedAt OptDateTime `json:"lastUsedAt"`
-	ExpiresAt  time.Time   `json:"expiresAt"`
-	RevokedAt  OptDateTime `json:"revokedAt"`
+	// When the session stops being usable.
+	ExpiresAt time.Time `json:"expiresAt"`
+	// When the session was revoked; the listing only returns live sessions, so this is normally absent.
+	RevokedAt OptDateTime `json:"revokedAt"`
 }
 
 // GetID returns the value of ID.
@@ -9686,13 +10008,17 @@ func (s *SessionSummary) SetRevokedAt(val OptDateTime) {
 	s.RevokedAt = val
 }
 
+// Request to mint a public share link for one file or folder the caller owns.
 // Ref: #/components/schemas/ShareCreateRequest
 type ShareCreateRequest struct {
 	// Optional password. The server stores only a password hash.
-	Password     OptString                       `json:"password"`
-	ExpiresAt    OptDateTime                     `json:"expiresAt"`
-	MaxDownloads OptInt64                        `json:"maxDownloads"`
-	Permission   OptShareCreateRequestPermission `json:"permission"`
+	Password OptString `json:"password"`
+	// When the link stops working; must be in the future, and omitted means it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// Downloads allowed before the link is exhausted; must be positive, and omitted means unlimited.
+	MaxDownloads OptInt64 `json:"maxDownloads"`
+	// Access level of the link; omitted means `read`.
+	Permission OptShareCreateRequestPermission `json:"permission"`
 }
 
 // GetPassword returns the value of Password.
@@ -9777,18 +10103,28 @@ func (s *ShareCreateRequestPermission) UnmarshalText(data []byte) error {
 	}
 }
 
+// A freshly created share, including the token that is returned only here.
 // Ref: #/components/schemas/ShareCreated
 type ShareCreated struct {
-	ID     UUID `json:"id"`
+	// Share identifier used to update or revoke the link.
+	ID UUID `json:"id"`
+	// File or folder the link exposes.
 	FileId UUID `json:"fileId"`
 	// Opaque public token returned only when the share is created.
-	Token             string          `json:"token"`
-	PublicUrl         URI             `json:"publicUrl"`
-	PasswordProtected bool            `json:"passwordProtected"`
-	ExpiresAt         OptDateTime     `json:"expiresAt"`
-	MaxDownloads      OptInt64        `json:"maxDownloads"`
-	Permission        SharePermission `json:"permission"`
-	CreatedAt         time.Time       `json:"createdAt"`
+	Token string `json:"token"`
+	// Path of the link on the deployment host, `/share/<token>`; resolve it against the origin to build a
+	// URL.
+	PublicUrl URI `json:"publicUrl"`
+	// True when the link asks for a password.
+	PasswordProtected bool `json:"passwordProtected"`
+	// When the link stops working; omitted when it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// Download limit; omitted when unlimited.
+	MaxDownloads OptInt64 `json:"maxDownloads"`
+	// Access level the link confers.
+	Permission SharePermission `json:"permission"`
+	// When the link was created.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // GetID returns the value of ID.
@@ -9883,6 +10219,7 @@ func (s *ShareCreated) SetCreatedAt(val time.Time) {
 
 func (*ShareCreated) createShareRes() {}
 
+// Access level a share or grant confers.
 // Ref: #/components/schemas/SharePermission
 type SharePermission string
 
@@ -9925,17 +10262,27 @@ func (s *SharePermission) UnmarshalText(data []byte) error {
 	}
 }
 
+// One share of a file, without its token.
 // Ref: #/components/schemas/ShareSummary
 type ShareSummary struct {
-	ID                UUID            `json:"id"`
-	FileId            UUID            `json:"fileId"`
-	PasswordProtected bool            `json:"passwordProtected"`
-	ExpiresAt         OptDateTime     `json:"expiresAt"`
-	MaxDownloads      OptInt64        `json:"maxDownloads"`
-	DownloadCount     int64           `json:"downloadCount"`
-	Permission        SharePermission `json:"permission"`
-	CreatedAt         time.Time       `json:"createdAt"`
-	RevokedAt         OptDateTime     `json:"revokedAt"`
+	// Share identifier used to update or revoke the link.
+	ID UUID `json:"id"`
+	// File or folder the link exposes.
+	FileId UUID `json:"fileId"`
+	// True when the link asks for a password.
+	PasswordProtected bool `json:"passwordProtected"`
+	// When the link stops working; omitted when it never expires.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// Download limit; omitted when unlimited.
+	MaxDownloads OptInt64 `json:"maxDownloads"`
+	// Downloads already charged against the link.
+	DownloadCount int64 `json:"downloadCount"`
+	// Access level the link confers.
+	Permission SharePermission `json:"permission"`
+	// When the link was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// When the link was revoked; revoked shares stay listed with their state.
+	RevokedAt OptDateTime `json:"revokedAt"`
 }
 
 // GetID returns the value of ID.
@@ -10030,15 +10377,25 @@ func (s *ShareSummary) SetRevokedAt(val OptDateTime) {
 
 func (*ShareSummary) updateShareRes() {}
 
+// Partial update of a share; omitted fields keep their value, the `clear*` flags remove one, and a
+// request that sets nothing is rejected.
 // Ref: #/components/schemas/ShareUpdateRequest
 type ShareUpdateRequest struct {
-	Password          OptString          `json:"password"`
-	ClearPassword     OptBool            `json:"clearPassword"`
-	ExpiresAt         OptDateTime        `json:"expiresAt"`
-	ClearExpiresAt    OptBool            `json:"clearExpiresAt"`
-	MaxDownloads      OptInt64           `json:"maxDownloads"`
-	ClearMaxDownloads OptBool            `json:"clearMaxDownloads"`
-	Permission        OptSharePermission `json:"permission"`
+	// Replacement password; must not be combined with `clearPassword`.
+	Password OptString `json:"password"`
+	// True removes the password so the link becomes public; must not be combined with `password`.
+	ClearPassword OptBool `json:"clearPassword"`
+	// Replacement expiry; must be in the future and must not be combined with `clearExpiresAt`.
+	ExpiresAt OptDateTime `json:"expiresAt"`
+	// True removes the expiry so the link no longer ages out; must not be combined with `expiresAt`.
+	ClearExpiresAt OptBool `json:"clearExpiresAt"`
+	// Replacement download limit, which cannot be set below the downloads already counted; must not be
+	// combined with `clearMaxDownloads`.
+	MaxDownloads OptInt64 `json:"maxDownloads"`
+	// True removes the download limit; must not be combined with `maxDownloads`.
+	ClearMaxDownloads OptBool `json:"clearMaxDownloads"`
+	// Replacement access level.
+	Permission OptSharePermission `json:"permission"`
 }
 
 // GetPassword returns the value of Password.
@@ -10111,9 +10468,12 @@ func (s *ShareUpdateRequest) SetPermission(val OptSharePermission) {
 	s.Permission = val
 }
 
+// A file another owner granted the caller, with the level granted.
 // Ref: #/components/schemas/SharedWithMeEntry
 type SharedWithMeEntry struct {
-	File       FileEntry       `json:"file"`
+	// The granted file.
+	File FileEntry `json:"file"`
+	// Access level the caller holds on it.
 	Permission SharePermission `json:"permission"`
 }
 
@@ -10137,14 +10497,21 @@ func (s *SharedWithMeEntry) SetPermission(val SharePermission) {
 	s.Permission = val
 }
 
+// One entry of the recent-activity feed.
 // Ref: #/components/schemas/StorageActivity
 type StorageActivity struct {
-	ID           int64     `json:"id"`
-	Type         string    `json:"type"`
-	ResourceType string    `json:"resourceType"`
-	ResourceId   OptString `json:"resourceId"`
-	Label        string    `json:"label"`
-	OccurredAt   time.Time `json:"occurredAt"`
+	// Event row ID; the feed is ordered by it, newest first.
+	ID int64 `json:"id"`
+	// Event type, for example `file.created` or `share.deleted`.
+	Type string `json:"type"`
+	// Kind of resource the event is about, for example `file` or `channel`.
+	ResourceType string `json:"resourceType"`
+	// Identifier of that resource; omitted when the event names no single resource.
+	ResourceId OptString `json:"resourceId"`
+	// Human-readable name taken from the event payload, falling back to the event type.
+	Label string `json:"label"`
+	// When the event happened, in UTC.
+	OccurredAt time.Time `json:"occurredAt"`
 }
 
 // GetID returns the value of ID.
@@ -10207,15 +10574,23 @@ func (s *StorageActivity) SetOccurredAt(val time.Time) {
 	s.OccurredAt = val
 }
 
+// One Telegram channel of the account and how much of the drive it holds.
 // Ref: #/components/schemas/StorageChannelStatistic
 type StorageChannelStatistic struct {
-	ChannelId     int64       `json:"channelId"`
-	Name          string      `json:"name"`
-	Selected      bool        `json:"selected"`
-	Health        string      `json:"health"`
+	// Telegram channel ID.
+	ChannelId int64 `json:"channelId"`
+	// Channel title.
+	Name string `json:"name"`
+	// True for the channel new uploads currently target; at most one channel per account.
+	Selected bool `json:"selected"`
+	// Last recorded health as a plain string: `unknown`, `healthy`, `degraded` or `unavailable`.
+	Health string `json:"health"`
+	// When the health was last recorded; omitted when the channel was never checked.
 	LastCheckedAt OptDateTime `json:"lastCheckedAt"`
-	PartCount     int64       `json:"partCount"`
-	StoredBytes   int64       `json:"storedBytes"`
+	// Number of stored parts of the account's active files on this channel.
+	PartCount int64 `json:"partCount"`
+	// Summed stored size of those parts, in bytes: the on-Telegram figure, not the plaintext size.
+	StoredBytes int64 `json:"storedBytes"`
 }
 
 // GetChannelId returns the value of ChannelId.
@@ -10288,11 +10663,16 @@ func (s *StorageChannelStatistic) SetStoredBytes(val int64) {
 	s.StoredBytes = val
 }
 
+// Space that emptying the trash and dropping stale upload parts would reclaim.
 // Ref: #/components/schemas/StorageCleanupStatistics
 type StorageCleanupStatistics struct {
-	TrashBytes            int64 `json:"trashBytes"`
-	StaleUploadBytes      int64 `json:"staleUploadBytes"`
-	StaleUploads          int64 `json:"staleUploads"`
+	// Stored size of the parts of trashed files, in bytes.
+	TrashBytes int64 `json:"trashBytes"`
+	// Stored size of the parts left behind by expired upload sessions, in bytes.
+	StaleUploadBytes int64 `json:"staleUploadBytes"`
+	// Number of expired upload sessions, whether or not they still hold stored parts.
+	StaleUploads int64 `json:"staleUploads"`
+	// `trashBytes` plus `staleUploadBytes`, in bytes.
 	TotalReclaimableBytes int64 `json:"totalReclaimableBytes"`
 }
 
@@ -10336,14 +10716,21 @@ func (s *StorageCleanupStatistics) SetTotalReclaimableBytes(val int64) {
 	s.TotalReclaimableBytes = val
 }
 
+// Aggregated storage view of one account.
 // Ref: #/components/schemas/StorageDashboard
 type StorageDashboard struct {
-	Summary    StorageSummary            `json:"summary"`
-	Growth     []StorageGrowthPoint      `json:"growth"`
-	Categories []FileCategoryStatistics  `json:"categories"`
-	Channels   []StorageChannelStatistic `json:"channels"`
-	Cleanup    StorageCleanupStatistics  `json:"cleanup"`
-	Activity   []StorageActivity         `json:"activity"`
+	// Current byte and entry totals.
+	Summary StorageSummary `json:"summary"`
+	// One point per day for the last thirty days, oldest first.
+	Growth []StorageGrowthPoint `json:"growth"`
+	// Active files broken down by category bucket.
+	Categories []FileCategoryStatistics `json:"categories"`
+	// Every channel of the account with the bytes it stores.
+	Channels []StorageChannelStatistic `json:"channels"`
+	// Reclaimable space estimates.
+	Cleanup StorageCleanupStatistics `json:"cleanup"`
+	// Up to eight recent events, newest first, limited to file, upload, share and channel events.
+	Activity []StorageActivity `json:"activity"`
 }
 
 // GetSummary returns the value of Summary.
@@ -10408,11 +10795,15 @@ func (s *StorageDashboard) SetActivity(val []StorageActivity) {
 
 func (*StorageDashboard) getStorageStatsRes() {}
 
+// One day of the thirty-day growth series.
 // Ref: #/components/schemas/StorageGrowthPoint
 type StorageGrowthPoint struct {
-	Day          time.Time `json:"day"`
-	AddedBytes   int64     `json:"addedBytes"`
-	LogicalBytes int64     `json:"logicalBytes"`
+	// Calendar day the point covers, in UTC.
+	Day time.Time `json:"day"`
+	// Size of the files created that day and still active, in bytes.
+	AddedBytes int64 `json:"addedBytes"`
+	// Cumulative size of all active files up to and including that day, in bytes.
+	LogicalBytes int64 `json:"logicalBytes"`
 }
 
 // GetDay returns the value of Day.
@@ -10445,13 +10836,19 @@ func (s *StorageGrowthPoint) SetLogicalBytes(val int64) {
 	s.LogicalBytes = val
 }
 
+// Current totals of one drive.
 // Ref: #/components/schemas/StorageSummary
 type StorageSummary struct {
-	LogicalBytes  int64 `json:"logicalBytes"`
-	ActiveFiles   int64 `json:"activeFiles"`
+	// Summed size of the active files, in bytes.
+	LogicalBytes int64 `json:"logicalBytes"`
+	// Number of active file entries.
+	ActiveFiles int64 `json:"activeFiles"`
+	// Number of active folder entries.
 	ActiveFolders int64 `json:"activeFolders"`
-	TrashedFiles  int64 `json:"trashedFiles"`
-	TrashBytes    int64 `json:"trashBytes"`
+	// Number of trashed file entries; trashed folders are not counted.
+	TrashedFiles int64 `json:"trashedFiles"`
+	// Summed size of those trashed files, in bytes.
+	TrashBytes int64 `json:"trashBytes"`
 }
 
 // GetLogicalBytes returns the value of LogicalBytes.
@@ -10627,10 +11024,13 @@ type SyncChannelsUnprocessableEntity ErrorEnvelope
 
 func (*SyncChannelsUnprocessableEntity) syncChannelsRes() {}
 
+// Login code that Telegram sent to the phone, submitted for a pending flow.
 // Ref: #/components/schemas/TelegramCodeVerifyRequest
 type TelegramCodeVerifyRequest struct {
-	FlowId UUID   `json:"flowId"`
-	Code   string `json:"code"`
+	// Identifier returned by a start operation; it must still be unexpired.
+	FlowId UUID `json:"flowId"`
+	// Code Telegram sent to the phone, 1 to 16 characters.
+	Code string `json:"code"`
 }
 
 // GetFlowId returns the value of FlowId.
@@ -10661,6 +11061,7 @@ type TelegramLoginStartConflict ErrorEnvelope
 
 func (*TelegramLoginStartConflict) telegramLoginStartRes() {}
 
+// Phone-number login request; the server asks Telegram to send a login code to that number.
 // Ref: #/components/schemas/TelegramLoginStartRequest
 type TelegramLoginStartRequest struct {
 	// Phone number in E.164 format.
@@ -10677,11 +11078,16 @@ func (s *TelegramLoginStartRequest) SetPhoneNumber(val string) {
 	s.PhoneNumber = val
 }
 
+// Pending phone login flow, continued with the verify-code and verify-password operations.
 // Ref: #/components/schemas/TelegramLoginStartResponse
 type TelegramLoginStartResponse struct {
-	FlowId           UUID      `json:"flowId"`
-	ExpiresAt        time.Time `json:"expiresAt"`
-	PasswordRequired bool      `json:"passwordRequired"`
+	// Opaque identifier of the flow; pass it back to the verify operations while it is unexpired.
+	FlowId UUID `json:"flowId"`
+	// When the flow stops being usable; later verify calls answer 410.
+	ExpiresAt time.Time `json:"expiresAt"`
+	// True while the account's two-step password is still needed, so the client must call the
+	// verify-password operation.
+	PasswordRequired bool `json:"passwordRequired"`
 }
 
 // GetFlowId returns the value of FlowId.
@@ -10766,9 +11172,12 @@ type TelegramLoginVerifyPasswordUnprocessableEntity ErrorEnvelope
 
 func (*TelegramLoginVerifyPasswordUnprocessableEntity) telegramLoginVerifyPasswordRes() {}
 
+// Two-step password submitted for a flow that reported `passwordRequired`.
 // Ref: #/components/schemas/TelegramPasswordVerifyRequest
 type TelegramPasswordVerifyRequest struct {
-	FlowId   UUID   `json:"flowId"`
+	// Identifier of the flow that asked for the password.
+	FlowId UUID `json:"flowId"`
+	// The account's Telegram two-step password.
 	Password string `json:"password"`
 }
 
@@ -10800,8 +11209,10 @@ type TelegramQRLoginPollGone ErrorEnvelope
 
 func (*TelegramQRLoginPollGone) telegramQRLoginPollRes() {}
 
+// Poll request naming the QR flow to advance.
 // Ref: #/components/schemas/TelegramQRLoginPollRequest
 type TelegramQRLoginPollRequest struct {
+	// Identifier returned by the QR start operation.
 	FlowId UUID `json:"flowId"`
 }
 
@@ -10827,13 +11238,20 @@ type TelegramQRLoginPollUnprocessableEntity ErrorEnvelope
 
 func (*TelegramQRLoginPollUnprocessableEntity) telegramQRLoginPollRes() {}
 
+// Current challenge of a QR login flow, repeated on every poll that has not completed.
 // Ref: #/components/schemas/TelegramQRLoginResponse
 type TelegramQRLoginResponse struct {
-	FlowId      UUID                 `json:"flowId"`
-	ExpiresAt   time.Time            `json:"expiresAt"`
-	State       TelegramQRLoginState `json:"state"`
-	QrUrl       OptString            `json:"qrUrl"`
-	QrExpiresAt OptDateTime          `json:"qrExpiresAt"`
+	// Opaque identifier of the flow; pass it back to the poll operations.
+	FlowId UUID `json:"flowId"`
+	// When the flow stops being usable; polling after this instant answers 410.
+	ExpiresAt time.Time `json:"expiresAt"`
+	// Which input the flow still needs.
+	State TelegramQRLoginState `json:"state"`
+	// `tg://` link to render as a QR code; omitted once the password prompt was reached.
+	QrUrl OptString `json:"qrUrl"`
+	// When Telegram stops accepting the QR token, after which a poll returns a fresh link; omitted at the
+	// password prompt.
+	QrExpiresAt OptDateTime `json:"qrExpiresAt"`
 }
 
 // GetFlowId returns the value of FlowId.
@@ -10906,6 +11324,7 @@ type TelegramQRLoginStartUnprocessableEntity ErrorEnvelope
 
 func (*TelegramQRLoginStartUnprocessableEntity) telegramQRLoginStartRes() {}
 
+// Input that a QR login flow is still waiting for.
 // Ref: #/components/schemas/TelegramQRLoginState
 type TelegramQRLoginState string
 
@@ -10948,12 +11367,18 @@ func (s *TelegramQRLoginState) UnmarshalText(data []byte) error {
 	}
 }
 
+// Credential pair issued by a completed login or a token refresh.
 // Ref: #/components/schemas/TokenPair
 type TokenPair struct {
-	AccessToken  string             `json:"accessToken"`
-	RefreshToken string             `json:"refreshToken"`
-	TokenType    TokenPairTokenType `json:"tokenType"`
-	ExpiresIn    int32              `json:"expiresIn"`
+	// Signed bearer token to send as `Authorization: Bearer` on API requests.
+	AccessToken string `json:"accessToken"`
+	// Opaque secret that obtains the next pair; it is rotated on every refresh, so the value just used
+	// becomes invalid.
+	RefreshToken string `json:"refreshToken"`
+	// Always `Bearer`.
+	TokenType TokenPairTokenType `json:"tokenType"`
+	// Access token lifetime in seconds.
+	ExpiresIn int32 `json:"expiresIn"`
 }
 
 // GetAccessToken returns the value of AccessToken.
@@ -11001,6 +11426,7 @@ func (*TokenPair) telegramLoginVerifyCodeRes()     {}
 func (*TokenPair) telegramLoginVerifyPasswordRes() {}
 func (*TokenPair) telegramQRLoginPollRes()         {}
 
+// Always `Bearer`.
 type TokenPairTokenType string
 
 const (
@@ -11185,16 +11611,27 @@ type UpdateShareUnprocessableEntity ErrorEnvelope
 
 func (*UpdateShareUnprocessableEntity) updateShareRes() {}
 
+// Request that opens a durable upload session. The destination name is not reserved here: a clash with
+// an existing entry is resolved when the session is completed, following the requested conflict
+// policy.
 // Ref: #/components/schemas/UploadCreateRequest
 type UploadCreateRequest struct {
+	// Destination folder; absent uploads into the caller's own drive root.
 	ParentId OptUUID `json:"parentId"`
-	Name     string  `json:"name"`
+	// Destination file name, 1 to 255 characters and not blank; stored verbatim.
+	Name string `json:"name"`
 	// Expected size in bytes, or -1 when the size is unknown until completion.
-	Size           int64                                `json:"size"`
-	MimeType       OptString                            `json:"mimeType"`
-	ModTime        time.Time                            `json:"modTime"`
-	Hash           OptFileHash                          `json:"hash"`
-	Encryption     OptBool                              `json:"encryption"`
+	Size int64 `json:"size"`
+	// Media type to record on the published file; absent leaves the entry without one.
+	MimeType OptString `json:"mimeType"`
+	// Modification time to record on the published file; the zero instant means the current time.
+	ModTime time.Time `json:"modTime"`
+	// Expected whole-file BLAKE3 tree hash, compared at completion; absent skips the comparison.
+	Hash OptFileHash `json:"hash"`
+	// Store the content encrypted under the caller's key; rejected when the deployment has no active key.
+	Encryption OptBool `json:"encryption"`
+	// How completion resolves an occupied destination name: fail, replace or rename; anything else is
+	// rejected, and replace overwrites only a regular file.
 	ConflictPolicy OptUploadCreateRequestConflictPolicy `json:"conflictPolicy"`
 	// Optional preferred part size. The server may choose a different value.
 	PreferredPartSize OptInt64 `json:"preferredPartSize"`
@@ -11339,11 +11776,16 @@ func (s *UploadCreateRequestConflictPolicy) UnmarshalText(data []byte) error {
 	}
 }
 
+// One UTC day of completed upload activity; days without a completion are reported as zero rows
+// instead of being omitted.
 // Ref: #/components/schemas/UploadDailyStatistics
 type UploadDailyStatistics struct {
-	Date           time.Time `json:"date"`
-	UploadedBytes  int64     `json:"uploadedBytes"`
-	CompletedFiles int64     `json:"completedFiles"`
+	// Day the totals cover, at midnight UTC.
+	Date time.Time `json:"date"`
+	// Summed plaintext bytes of the sessions completed that day.
+	UploadedBytes int64 `json:"uploadedBytes"`
+	// Number of sessions completed that day.
+	CompletedFiles int64 `json:"completedFiles"`
 }
 
 // GetDate returns the value of Date.
@@ -11376,19 +11818,28 @@ func (s *UploadDailyStatistics) SetCompletedFiles(val int64) {
 	s.CompletedFiles = val
 }
 
+// Server-side batch import: the request is queued as a background job, so the response is the job, not
+// the imported files.
 // Ref: #/components/schemas/UploadImportRequest
 type UploadImportRequest struct {
 	// Destination folder UUID or absolute drive path from root.
-	Destination     string                        `json:"destination"`
-	Sources         []UploadImportSource          `json:"sources"`
-	Headers         OptUploadImportRequestHeaders `json:"headers"`
-	Exclude         []string                      `json:"exclude"`
-	MinSize         OptString                     `json:"minSize"`
-	MaxSize         OptString                     `json:"maxSize"`
-	PartConcurrency OptInt32                      `json:"partConcurrency"`
+	Destination string `json:"destination"`
+	// Sources to import; at least one is required.
+	Sources []UploadImportSource `json:"sources"`
+	// Default request headers for every remote source, overridden per source.
+	Headers OptUploadImportRequestHeaders `json:"headers"`
+	// Globs that skip files of every source, applied on top of the per-source patterns.
+	Exclude []string `json:"exclude"`
+	// Smallest file size to import, inclusive, written as a human-readable size such as "10MiB".
+	MinSize OptString `json:"minSize"`
+	// Largest file size to import, inclusive and written like minSize; a smaller maxSize fails the job.
+	MaxSize OptString `json:"maxSize"`
+	// Parts of one file transferred at once; a value above 16 is rejected.
+	PartConcurrency OptInt32 `json:"partConcurrency"`
 	// Preferred upload part size. Values are aligned to the nearest 16 MiB.
-	ChunkSize  OptInt64 `json:"chunkSize"`
-	Encryption OptBool  `json:"encryption"`
+	ChunkSize OptInt64 `json:"chunkSize"`
+	// Store the imported files encrypted under the active key; requires a configured key version.
+	Encryption OptBool `json:"encryption"`
 }
 
 // GetDestination returns the value of Destination.
@@ -11481,6 +11932,7 @@ func (s *UploadImportRequest) SetEncryption(val OptBool) {
 	s.Encryption = val
 }
 
+// Default request headers for every remote source, overridden per source.
 type UploadImportRequestHeaders map[string]string
 
 func (s *UploadImportRequestHeaders) init() UploadImportRequestHeaders {
@@ -11492,14 +11944,22 @@ func (s *UploadImportRequestHeaders) init() UploadImportRequestHeaders {
 	return m
 }
 
+// One import source. The type decides whether path or url is required, and the remaining fields narrow
+// what the source expands to.
 // Ref: #/components/schemas/UploadImportSource
 type UploadImportSource struct {
-	Type            UploadImportSourceType       `json:"type"`
-	Path            OptString                    `json:"path"`
-	URL             OptURI                       `json:"url"`
-	Headers         OptUploadImportSourceHeaders `json:"headers"`
-	DestinationPath OptString                    `json:"destinationPath"`
-	Exclude         []string                     `json:"exclude"`
+	// Source kind; selects whether path or url is used.
+	Type UploadImportSourceType `json:"type"`
+	// Absolute path of a file, or of a directory walked recursively; required for a local source.
+	Path OptString `json:"path"`
+	// Http or https URL of a single file; required for an http source.
+	URL OptURI `json:"url"`
+	// Extra request headers for this URL, merged over the batch headers with these winning.
+	Headers OptUploadImportSourceHeaders `json:"headers"`
+	// Slash-separated path to store the file at inside the destination, overriding its derived name.
+	DestinationPath OptString `json:"destinationPath"`
+	// Globs that skip matching files of this source, relative to the source or its URL.
+	Exclude []string `json:"exclude"`
 }
 
 // GetType returns the value of Type.
@@ -11562,6 +12022,7 @@ func (s *UploadImportSource) SetExclude(val []string) {
 	s.Exclude = val
 }
 
+// Extra request headers for this URL, merged over the batch headers with these winning.
 type UploadImportSourceHeaders map[string]string
 
 func (s *UploadImportSourceHeaders) init() UploadImportSourceHeaders {
@@ -11573,6 +12034,7 @@ func (s *UploadImportSourceHeaders) init() UploadImportSourceHeaders {
 	return m
 }
 
+// Kind of source a background import reads from, which decides the required field.
 // Ref: #/components/schemas/UploadImportSourceType
 type UploadImportSourceType string
 
@@ -11615,16 +12077,27 @@ func (s *UploadImportSourceType) UnmarshalText(data []byte) error {
 	}
 }
 
+// One part of an upload session: a fixed slice of the plaintext, written under a lease so a stalled
+// writer cannot overwrite a newer attempt, and copied into the published file's parts on completion.
 // Ref: #/components/schemas/UploadPart
 type UploadPart struct {
-	UploadId   UUID            `json:"uploadId"`
-	PartNo     int32           `json:"partNo"`
-	State      UploadPartState `json:"state"`
-	PlainSize  int64           `json:"plainSize"`
-	StoredSize OptInt64        `json:"storedSize"`
-	Checksum   OptChecksum     `json:"checksum"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	UpdatedAt  time.Time       `json:"updatedAt"`
+	// Session the part belongs to.
+	UploadId UUID `json:"uploadId"`
+	// 1-based part number; the stored parts of a session tile the file from 1 without gaps.
+	PartNo int32 `json:"partNo"`
+	// Lease and write state of this part; see UploadPartState.
+	State UploadPartState `json:"state"`
+	// Plaintext bytes this part covers, as declared when it was claimed.
+	PlainSize int64 `json:"plainSize"`
+	// Bytes the part occupies in storage, larger than plainSize once encrypted; absent until stored.
+	StoredSize OptInt64 `json:"storedSize"`
+	// BLAKE3 tree hash of the part plaintext in lowercase hex; absent until the part is stored, and for a
+	// part stored without hashing.
+	Checksum OptChecksum `json:"checksum"`
+	// Time the part was first claimed.
+	CreatedAt time.Time `json:"createdAt"`
+	// Time the part row last changed, through claim, lease renewal, store or failure.
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // GetUploadId returns the value of UploadId.
@@ -11707,6 +12180,9 @@ func (s *UploadPart) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
+// Lifecycle of one part. A part is claimed under a lease as uploading, becomes stored once its bytes
+// are readable, or failed when the attempt was abandoned; a stored or failed part can be claimed again
+// under a new lease.
 // Ref: #/components/schemas/UploadPartState
 type UploadPartState string
 
@@ -11763,23 +12239,44 @@ func (s *UploadPartState) UnmarshalText(data []byte) error {
 	}
 }
 
+// Durable upload session. It outlives the connection that created it: parts are held in PostgreSQL and
+// Telegram, so a client resumes by listing the parts it already stored and continues from the first
+// missing one.
 // Ref: #/components/schemas/UploadSession
 type UploadSession struct {
-	ID             UUID               `json:"id"`
-	ParentId       OptUUID            `json:"parentId"`
-	Name           string             `json:"name"`
-	ExpectedSize   int64              `json:"expectedSize"`
-	ExpectedHash   OptFileHash        `json:"expectedHash"`
-	MimeType       OptString          `json:"mimeType"`
-	ModTime        time.Time          `json:"modTime"`
-	Encryption     bool               `json:"encryption"`
+	// Session UUID; the uploadId path parameter of the session endpoints.
+	ID UUID `json:"id"`
+	// Destination folder; absent means the drive root.
+	ParentId OptUUID `json:"parentId"`
+	// Destination file name; a rename-policy completion replaces it with a free " (n)" variant.
+	Name string `json:"name"`
+	// Total plaintext size in bytes, or -1 while unknown; completion then derives it from the stored
+	// parts.
+	ExpectedSize int64 `json:"expectedSize"`
+	// Expected whole-file tree hash, compared at completion; absent skips that comparison.
+	ExpectedHash OptFileHash `json:"expectedHash"`
+	// Media type recorded at creation; absent when the request carried none.
+	MimeType OptString `json:"mimeType"`
+	// Modification time recorded on the published file.
+	ModTime time.Time `json:"modTime"`
+	// Whether the parts are stored encrypted and decrypted by the server on read.
+	Encryption bool `json:"encryption"`
+	// Policy completion applies to an occupied destination name (fail, replace or rename).
 	ConflictPolicy NameConflictPolicy `json:"conflictPolicy"`
-	PartSize       int64              `json:"partSize"`
-	State          UploadState        `json:"state"`
-	ExpiresAt      time.Time          `json:"expiresAt"`
-	CreatedAt      time.Time          `json:"createdAt"`
-	CompletedAt    OptDateTime        `json:"completedAt"`
-	FileId         OptUUID            `json:"fileId"`
+	// Plaintext size in bytes every part but the last must have; the last part holds the remainder.
+	PartSize int64 `json:"partSize"`
+	// Lifecycle state of the session; see UploadState.
+	State UploadState `json:"state"`
+	// Deadline for claiming parts and completing, fixed at creation (the server's session TTL, 7 days by
+	// default). A past deadline makes part writes and completion fail with 410 while the session is still
+	// open; the expiry sweep then moves it to expired.
+	ExpiresAt time.Time `json:"expiresAt"`
+	// Time the session was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// Time completion published the file; absent until the session reaches completed.
+	CompletedAt OptDateTime `json:"completedAt"`
+	// The published file; absent until the session reaches completed.
+	FileId OptUUID `json:"fileId"`
 }
 
 // GetID returns the value of ID.
@@ -11936,6 +12433,9 @@ func (*UploadSession) createPublicShareUploadRes() {}
 func (*UploadSession) createUploadRes()            {}
 func (*UploadSession) getUploadRes()               {}
 
+// Lifecycle of an upload session. A session is created open and only an open session accepts parts;
+// completion publishes the file and moves the session through completing to completed inside one
+// transaction, while abort and the expiry sweep retire it as aborted or expired.
 // Ref: #/components/schemas/UploadState
 type UploadState string
 
@@ -11999,10 +12499,14 @@ func (s *UploadState) UnmarshalText(data []byte) error {
 	}
 }
 
+// Administrative patch of one account; at least one field must be present or the request is rejected
+// with 422.
 // Ref: #/components/schemas/UserAdminUpdateRequest
 type UserAdminUpdateRequest struct {
-	Role     OptUserRole `json:"role"`
-	Disabled OptBool     `json:"disabled"`
+	// New role; only `admin` and `user` are accepted, so no account can be promoted to owner here.
+	Role OptUserRole `json:"role"`
+	// True disables the account and revokes its sessions and API keys; false re-enables it.
+	Disabled OptBool `json:"disabled"`
 }
 
 // GetRole returns the value of Role.
@@ -12025,15 +12529,24 @@ func (s *UserAdminUpdateRequest) SetDisabled(val OptBool) {
 	s.Disabled = val
 }
 
+// Profile of the authenticated account.
 // Ref: #/components/schemas/UserProfile
 type UserProfile struct {
-	UserId       int64     `json:"userId"`
-	DisplayName  OptString `json:"displayName"`
-	Username     OptString `json:"username"`
-	Premium      bool      `json:"premium"`
-	Role         UserRole  `json:"role"`
-	Capabilities []string  `json:"capabilities"`
-	CreatedAt    time.Time `json:"createdAt"`
+	// Telegram user ID of the account.
+	UserId int64 `json:"userId"`
+	// Display name; omitted when unset.
+	DisplayName OptString `json:"displayName"`
+	// Telegram.
+	Username OptString `json:"username"`
+	// Whether the Telegram account has a premium subscription.
+	Premium bool `json:"premium"`
+	// Current role of the account.
+	Role UserRole `json:"role"`
+	// Permission strings derived from the role, for example `files.write` or `system.manageUsers`; clients
+	// use them to show or hide controls.
+	Capabilities []string `json:"capabilities"`
+	// When the account first signed in to this deployment.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // GetUserId returns the value of UserId.
@@ -12108,6 +12621,7 @@ func (s *UserProfile) SetCreatedAt(val time.Time) {
 
 func (*UserProfile) getCurrentUserRes() {}
 
+// Account role, in descending privilege.
 // Ref: #/components/schemas/UserRole
 type UserRole string
 
@@ -12157,11 +12671,15 @@ func (s *UserRole) UnmarshalText(data []byte) error {
 	}
 }
 
+// Lightweight account identity returned by user search.
 // Ref: #/components/schemas/UserSearchResult
 type UserSearchResult struct {
-	UserId      int64     `json:"userId"`
+	// Telegram user ID; pass it as `granteeUserId` when granting access.
+	UserId int64 `json:"userId"`
+	// Display name; omitted when unset.
 	DisplayName OptString `json:"displayName"`
-	Username    OptString `json:"username"`
+	// Telegram.
+	Username OptString `json:"username"`
 }
 
 // GetUserId returns the value of UserId.
@@ -12194,6 +12712,7 @@ func (s *UserSearchResult) SetUsername(val OptString) {
 	s.Username = val
 }
 
+// Viewer a saved reader state belongs to.
 // Ref: #/components/schemas/ViewerKind
 type ViewerKind string
 

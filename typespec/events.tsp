@@ -3,26 +3,43 @@ using TypeSpec.OpenAPI;
 
 namespace TelDrive;
 
+/**
+ * Auth scheme for the short-lived `ticket` query parameter that browser EventSource
+ * clients use.
+ */
 model EventTicketAuth is ApiKeyAuth<ApiKeyLocation.query, "ticket">;
 alias EventStreamAuth = BearerAuth | ExternalApiKeyAuth | EventTicketAuth;
 
+/** Credential that lets an EventSource URL authenticate without headers. */
 model EventStreamTicket {
   /** Short-lived credential suitable for a browser EventSource URL. */
   ticket: string;
 
+  /**
+   * When the ticket stops authenticating; it is bound to the issuing account and its
+   * default lifetime is two minutes.
+   */
   expiresAt: utcDateTime;
 }
 
+/** Server-sent event stream response; the body stays open until the client disconnects. */
 model EventStreamResponse {
+  /** Always 200 once the stream is established. */
   @statusCode
   statusCode: 200;
 
+  /** Always `text/event-stream`. */
   @header("Content-Type")
   contentType: "text/event-stream";
 
+  /** Always `no-cache, no-transform`, so proxies do not buffer the stream. */
   @header("Cache-Control")
   cacheControl: "no-cache, no-transform";
 
+  /**
+   * The stream itself: events carry an `id` cursor and a JSON envelope, and control
+   * events signal a reset.
+   */
   @body
   body: bytes;
 }

@@ -3,8 +3,20 @@ using TypeSpec.OpenAPI;
 
 namespace TelDrive;
 
+/**
+ * Result of a health probe: the state observed at that moment and the version that
+ * answered.
+ */
 model HealthStatus {
+  /**
+   * `ok` when the probe passed; `degraded` when a required dependency failed or was
+   * never configured.
+   */
   status: "ok" | "degraded";
+  /**
+   * Build version of the answering process; may be empty when the binary carries no
+   * version information.
+   */
   version: string;
 }
 

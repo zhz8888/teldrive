@@ -35,6 +35,8 @@ func (c *codeRecorder) Unwrap() http.ResponseWriter {
 
 // handleAbortPublicShareUploadRequest handles abortPublicShareUpload operation.
 //
+// Discard a public-share upload session and its stored parts.
+//
 // DELETE /v1/public/shares/{token}/uploads/{uploadId}
 func (s *Server) handleAbortPublicShareUploadRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -853,6 +855,10 @@ func (s *Server) handleBulkTrashFilesRequest(args [0]string, argsEscaped bool, w
 
 // handleCancelJobRequest handles cancelJob operation.
 //
+// Request cancellation of a job and return its record. A running job is only flagged for the job
+// rescuer rather than interrupted, so the returned state can still be running; the same visibility
+// rule as get applies.
+//
 // POST /v1/jobs/{jobId}/cancel
 func (s *Server) handleCancelJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -1281,6 +1287,9 @@ func (s *Server) handleCleanTrashRequest(args [0]string, argsEscaped bool, w htt
 }
 
 // handleCompletePublicShareUploadRequest handles completePublicShareUpload operation.
+//
+// Finalize a public-share upload into a file owned by the share owner and return the entry with its
+// ETag; missing parts answer 409.
 //
 // POST /v1/public/shares/{token}/uploads/{uploadId}/complete
 func (s *Server) handleCompletePublicShareUploadRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -2322,6 +2331,8 @@ func (s *Server) handleCopyFileRequest(args [1]string, argsEscaped bool, w http.
 
 // handleCreateApiKeyRequest handles createApiKey operation.
 //
+// Mint an API key and return its plaintext secret once, because only a hash is stored.
+//
 // POST /v1/api-keys
 func (s *Server) handleCreateApiKeyRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -2525,6 +2536,9 @@ func (s *Server) handleCreateApiKeyRequest(args [0]string, argsEscaped bool, w h
 
 // handleCreateBotsRequest handles createBots operation.
 //
+// Register bot tokens: valid ones are stored disabled and queued for provisioning, malformed or
+// duplicate ones come back in `failedIndexes`.
+//
 // POST /v1/bots
 func (s *Server) handleCreateBotsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -2727,6 +2741,9 @@ func (s *Server) handleCreateBotsRequest(args [0]string, argsEscaped bool, w htt
 }
 
 // handleCreateChannelRequest handles createChannel operation.
+//
+// Create a Telegram channel named by the request, register it and optionally select it; a blank name
+// gets a generated one.
 //
 // POST /v1/channels
 func (s *Server) handleCreateChannelRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -3157,6 +3174,9 @@ func (s *Server) handleCreateEventStreamTicketRequest(args [0]string, argsEscape
 
 // handleCreateFileAccessGrantRequest handles createFileAccessGrant operation.
 //
+// Grant another account access to one of the caller's files, replacing any live grant for the same
+// file and grantee.
+//
 // POST /v1/files/{fileId}/grants
 func (s *Server) handleCreateFileAccessGrantRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -3393,6 +3413,8 @@ func (s *Server) handleCreateFileAccessGrantRequest(args [1]string, argsEscaped 
 
 // handleCreateFolderRequest handles createFolder operation.
 //
+// Create a folder in an editable parent folder and return it with its generation ETag and location.
+//
 // POST /v1/folders
 func (s *Server) handleCreateFolderRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -3613,6 +3635,9 @@ func (s *Server) handleCreateFolderRequest(args [0]string, argsEscaped bool, w h
 }
 
 // handleCreateJobRequest handles createJob operation.
+//
+// Enqueue a one-off maintenance job and return it. The admin or owner role is required, and a job kind
+// this deployment has no worker for is rejected with 422 before anything is written.
 //
 // POST /v1/jobs
 func (s *Server) handleCreateJobRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -3835,6 +3860,10 @@ func (s *Server) handleCreateJobRequest(args [0]string, argsEscaped bool, w http
 
 // handleCreatePeriodicJobRequest handles createPeriodicJob operation.
 //
+// Store a new periodic job definition and return it. The admin or owner role is required, an
+// identifier already in use is reported as 409, and a kind this deployment has no worker for as 422
+// before anything is written.
+//
 // POST /v1/periodic-jobs
 func (s *Server) handleCreatePeriodicJobRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -4056,6 +4085,9 @@ func (s *Server) handleCreatePeriodicJobRequest(args [0]string, argsEscaped bool
 
 // handleCreatePublicShareFolderRequest handles createPublicShareFolder operation.
 //
+// Create a folder inside an edit-enabled share, attributed to the share owner; a read-only share
+// answers 403 and a duplicate name is a conflict.
+//
 // POST /v1/public/shares/{token}/folders
 func (s *Server) handleCreatePublicShareFolderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -4216,6 +4248,9 @@ func (s *Server) handleCreatePublicShareFolderRequest(args [1]string, argsEscape
 
 // handleCreatePublicShareUploadRequest handles createPublicShareUpload operation.
 //
+// Open an upload session inside an edit-enabled share; the finished file belongs to the share owner
+// and a name conflict answers 409.
+//
 // POST /v1/public/shares/{token}/uploads
 func (s *Server) handleCreatePublicShareUploadRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -4375,6 +4410,9 @@ func (s *Server) handleCreatePublicShareUploadRequest(args [1]string, argsEscape
 }
 
 // handleCreateShareRequest handles createShare operation.
+//
+// Create a public share link for one of the caller's active files; the plaintext token is returned
+// only here.
 //
 // POST /v1/files/{fileId}/shares
 func (s *Server) handleCreateShareRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -5058,6 +5096,8 @@ func (s *Server) handleCreateUploadImportRequest(args [0]string, argsEscaped boo
 
 // handleDeleteBotRequest handles deleteBot operation.
 //
+// Remove one registered bot by its Telegram bot ID; an unknown or foreign ID answers 404.
+//
 // DELETE /v1/bots/{botId}
 func (s *Server) handleDeleteBotRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -5260,6 +5300,9 @@ func (s *Server) handleDeleteBotRequest(args [1]string, argsEscaped bool, w http
 }
 
 // handleDeleteChannelRequest handles deleteChannel operation.
+//
+// Delete a registered channel and its Telegram channel; the selected channel and one still holding
+// stored parts are refused with 409.
 //
 // DELETE /v1/channels/{channelId}
 func (s *Server) handleDeleteChannelRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -5705,6 +5748,10 @@ func (s *Server) handleDeleteFileViewStateRequest(args [1]string, argsEscaped bo
 
 // handleDeleteJobRequest handles deleteJob operation.
 //
+// Remove a job permanently; an active job is cancelled instead, because River refuses to delete a job
+// a worker may still hold. Non-administrators can only delete their own jobs, and an unknown ID is
+// reported as 404.
+//
 // DELETE /v1/jobs/{jobId}
 func (s *Server) handleDeleteJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -5925,6 +5972,9 @@ func (s *Server) handleDeleteJobRequest(args [1]string, argsEscaped bool, w http
 }
 
 // handleDeletePeriodicJobRequest handles deletePeriodicJob operation.
+//
+// Remove a schedule permanently; the runs it already inserted stay in the job table and keep their
+// history. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // DELETE /v1/periodic-jobs/{periodicJobId}
 func (s *Server) handleDeletePeriodicJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -6810,6 +6860,9 @@ func (s *Server) handleDownloadFileLegacyRequest(args [1]string, argsEscaped boo
 
 // handleDownloadPublicShareRequest handles downloadPublicShare operation.
 //
+// Download the file a share token points at; a successful call consumes one download of the link's
+// quota.
+//
 // GET /v1/public/shares/{token}/content/{fileName}
 func (s *Server) handleDownloadPublicShareRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -6960,6 +7013,9 @@ func (s *Server) handleDownloadPublicShareRequest(args [2]string, argsEscaped bo
 }
 
 // handleDownloadPublicShareFileRequest handles downloadPublicShareFile operation.
+//
+// Download one file inside a shared folder; a successful call consumes one download of the link's
+// quota.
 //
 // GET /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 func (s *Server) handleDownloadPublicShareFileRequest(args [3]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -7116,6 +7172,9 @@ func (s *Server) handleDownloadPublicShareFileRequest(args [3]string, argsEscape
 
 // handleDownloadPublicShareFileLegacyRequest handles downloadPublicShareFileLegacy operation.
 //
+// Download one file inside a shared folder through the pre-v1 URL form that omits the filename;
+// otherwise identical to the current download.
+//
 // GET /v1/public/shares/{token}/files/{fileId}/content
 func (s *Server) handleDownloadPublicShareFileLegacyRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -7266,6 +7325,9 @@ func (s *Server) handleDownloadPublicShareFileLegacyRequest(args [2]string, args
 }
 
 // handleDownloadPublicShareLegacyRequest handles downloadPublicShareLegacy operation.
+//
+// Download the share root through the pre-v1 URL form that omits the filename; otherwise identical to
+// the current download.
 //
 // GET /v1/public/shares/{token}/content
 func (s *Server) handleDownloadPublicShareLegacyRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -8484,6 +8546,9 @@ func (s *Server) handleGetFileViewStateRequest(args [1]string, argsEscaped bool,
 
 // handleGetJobRequest handles getJob operation.
 //
+// Return one job by its decimal ID. Non-administrators only reach their own jobs, so an unknown or
+// foreign ID is reported as 404 without disclosing which IDs exist.
+//
 // GET /v1/jobs/{jobId}
 func (s *Server) handleGetJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -8705,6 +8770,9 @@ func (s *Server) handleGetJobRequest(args [1]string, argsEscaped bool, w http.Re
 
 // handleGetJobStatisticsRequest handles getJobStatistics operation.
 //
+// Count jobs per state: cluster-wide for administrators, and restricted to the caller's own jobs for
+// everyone else, which hides maintenance jobs that carry no user ID.
+//
 // GET /v1/jobs/statistics
 func (s *Server) handleGetJobStatisticsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -8910,6 +8978,10 @@ func (s *Server) handleGetJobStatisticsRequest(args [0]string, argsEscaped bool,
 }
 
 // handleGetPeriodicJobCatalogRequest handles getPeriodicJobCatalog operation.
+//
+// List the built-in schedule templates with their kind, label, default arguments, queue and
+// recommended cron expression, which clients use to create periodic jobs. The admin or owner role is
+// required, and templates of features this deployment cannot run are absent.
 //
 // GET /v1/periodic-jobs/catalog
 func (s *Server) handleGetPeriodicJobCatalogRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -9324,6 +9396,9 @@ func (s *Server) handleGetProfilePhotoRequest(args [0]string, argsEscaped bool, 
 }
 
 // handleGetPublicShareRequest handles getPublicShare operation.
+//
+// Resolve a share token and return the shared entry; a missing or wrong password answers 401 and a
+// revoked, expired or exhausted link 410.
 //
 // GET /v1/public/shares/{token}
 func (s *Server) handleGetPublicShareRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -10574,6 +10649,9 @@ func (s *Server) handleHeadFileLegacyRequest(args [1]string, argsEscaped bool, w
 
 // handleHeadPublicShareRequest handles headPublicShare operation.
 //
+// Return download metadata for the share root without a body, under the same token and password rules
+// as the download.
+//
 // HEAD /v1/public/shares/{token}/content/{fileName}
 func (s *Server) handleHeadPublicShareRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -10722,6 +10800,9 @@ func (s *Server) handleHeadPublicShareRequest(args [2]string, argsEscaped bool, 
 }
 
 // handleHeadPublicShareFileRequest handles headPublicShareFile operation.
+//
+// Return download metadata for one file inside a shared folder without a body, under the same token
+// and password rules as the download.
 //
 // HEAD /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 func (s *Server) handleHeadPublicShareFileRequest(args [3]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -10876,6 +10957,8 @@ func (s *Server) handleHeadPublicShareFileRequest(args [3]string, argsEscaped bo
 
 // handleHeadPublicShareFileLegacyRequest handles headPublicShareFileLegacy operation.
 //
+// HEAD form of the legacy single-file download path, kept for older clients.
+//
 // HEAD /v1/public/shares/{token}/files/{fileId}/content
 func (s *Server) handleHeadPublicShareFileLegacyRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -11024,6 +11107,8 @@ func (s *Server) handleHeadPublicShareFileLegacyRequest(args [2]string, argsEsca
 }
 
 // handleHeadPublicShareLegacyRequest handles headPublicShareLegacy operation.
+//
+// HEAD form of the legacy share-root download path, kept for older clients.
 //
 // HEAD /v1/public/shares/{token}/content
 func (s *Server) handleHeadPublicShareLegacyRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -11643,6 +11728,9 @@ func (s *Server) handleListAdminUsersRequest(args [0]string, argsEscaped bool, w
 
 // handleListApiKeysRequest handles listApiKeys operation.
 //
+// List the account's usable API keys, newest first, as a cursor page; revoked and expired keys are
+// omitted.
+//
 // GET /v1/api-keys
 func (s *Server) handleListApiKeysRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -11850,6 +11938,8 @@ func (s *Server) handleListApiKeysRequest(args [0]string, argsEscaped bool, w ht
 
 // handleListBotsRequest handles listBots operation.
 //
+// List the account's registered bots, newest first, as a cursor page.
+//
 // GET /v1/bots
 func (s *Server) handleListBotsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -12056,6 +12146,8 @@ func (s *Server) handleListBotsRequest(args [0]string, argsEscaped bool, w http.
 }
 
 // handleListChannelsRequest handles listChannels operation.
+//
+// List the account's registered channels, newest first, as a cursor page.
 //
 // GET /v1/channels
 func (s *Server) handleListChannelsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -12282,6 +12374,9 @@ func (s *Server) handleListChannelsRequest(args [0]string, argsEscaped bool, w h
 
 // handleListFileAccessGrantsRequest handles listFileAccessGrants operation.
 //
+// List the grants on one of the caller's files, newest first; expired grants stay listed and revoked
+// ones are omitted.
+//
 // GET /v1/files/{fileId}/grants
 func (s *Server) handleListFileAccessGrantsRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -12502,6 +12597,9 @@ func (s *Server) handleListFileAccessGrantsRequest(args [1]string, argsEscaped b
 }
 
 // handleListFileSharesRequest handles listFileShares operation.
+//
+// List every share created for one file, newest first, including revoked and expired ones so the owner
+// sees their state.
 //
 // GET /v1/files/{fileId}/shares
 func (s *Server) handleListFileSharesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -13007,6 +13105,9 @@ func (s *Server) handleListFilesRequest(args [0]string, argsEscaped bool, w http
 
 // handleListJobQueuesRequest handles listJobQueues operation.
 //
+// List the River queues with their paused flag and counters: every queue known to the instance for
+// administrators, otherwise only the queues holding the caller's jobs.
+//
 // GET /v1/jobs/queues
 func (s *Server) handleListJobQueuesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -13212,6 +13313,9 @@ func (s *Server) handleListJobQueuesRequest(args [0]string, argsEscaped bool, w 
 }
 
 // handleListJobsRequest handles listJobs operation.
+//
+// List jobs newest first. Administrators see every job; other callers only see the jobs that carry
+// their own user ID. A cursor that is not the opaque token of an earlier page is rejected with 422.
 //
 // GET /v1/jobs
 func (s *Server) handleListJobsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -13449,6 +13553,9 @@ func (s *Server) handleListJobsRequest(args [0]string, argsEscaped bool, w http.
 }
 
 // handleListPeriodicJobsRequest handles listPeriodicJobs operation.
+//
+// List every stored periodic job with its schedule, queue and pause state. The admin or owner role is
+// required: a schedule drives maintenance for every account on the instance.
 //
 // GET /v1/periodic-jobs
 func (s *Server) handleListPeriodicJobsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -15566,6 +15673,9 @@ func (s *Server) handleMoveFileRequest(args [1]string, argsEscaped bool, w http.
 
 // handlePauseJobQueueRequest handles pauseJobQueue operation.
 //
+// Pause a queue so it hands out no new jobs; jobs already running finish. Requires the admin or owner
+// role, and a queue that has never held a job is reported as 404.
+//
 // POST /v1/jobs/queues/{queue}/pause
 func (s *Server) handlePauseJobQueueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -15786,6 +15896,9 @@ func (s *Server) handlePauseJobQueueRequest(args [1]string, argsEscaped bool, w 
 }
 
 // handlePausePeriodicJobRequest handles pausePeriodicJob operation.
+//
+// Suspend a schedule so it inserts no further runs while keeping its configuration, and return the
+// updated definition. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // POST /v1/periodic-jobs/{periodicJobId}/pause
 func (s *Server) handlePausePeriodicJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -16230,6 +16343,10 @@ func (s *Server) handlePurgeFileRequest(args [1]string, argsEscaped bool, w http
 }
 
 // handlePurgeJobsRequest handles purgeJobs operation.
+//
+// Permanently delete the caller's jobs in one finalized state and report how many rows were removed;
+// administrators purge across all users. Only cancelled, completed and discarded are accepted, and any
+// other state is rejected with 409, so a job that may still run cannot be deleted here.
 //
 // DELETE /v1/jobs/purge
 func (s *Server) handlePurgeJobsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -16689,6 +16806,9 @@ func (s *Server) handlePutFileViewStateRequest(args [1]string, argsEscaped bool,
 }
 
 // handlePutPublicShareUploadPartRequest handles putPublicShareUploadPart operation.
+//
+// Store one part of a public-share upload; a repeated part with the same size and checksum returns 200
+// instead of 201.
 //
 // PUT /v1/public/shares/{token}/uploads/{uploadId}/parts/{partNo}
 func (s *Server) handlePutPublicShareUploadPartRequest(args [3]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -17403,6 +17523,10 @@ func (s *Server) handleRefreshSessionRequest(args [0]string, argsEscaped bool, w
 
 // handleResetPeriodicJobsRequest handles resetPeriodicJobs operation.
 //
+// Restore the built-in schedules to their catalog defaults and return them: every stored definition is
+// deleted and recreated active, so operator edits are lost while the runs the old definitions already
+// inserted stay in the job table. The admin or owner role is required.
+//
 // POST /v1/periodic-jobs/reset
 func (s *Server) handleResetPeriodicJobsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -17832,6 +17956,9 @@ func (s *Server) handleRestoreFileRequest(args [1]string, argsEscaped bool, w ht
 
 // handleResumeJobQueueRequest handles resumeJobQueue operation.
 //
+// Let a paused queue hand out jobs again. Requires the admin or owner role, and a queue that River has
+// never seen is reported as 404.
+//
 // POST /v1/jobs/queues/{queue}/resume
 func (s *Server) handleResumeJobQueueRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -18052,6 +18179,10 @@ func (s *Server) handleResumeJobQueueRequest(args [1]string, argsEscaped bool, w
 }
 
 // handleResumePeriodicJobRequest handles resumePeriodicJob operation.
+//
+// Reactivate a paused schedule and return the updated definition. Occurrences skipped while it was
+// paused are not replayed one by one, but a schedule whose stored next run has already passed fires
+// one catch-up run. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // POST /v1/periodic-jobs/{periodicJobId}/resume
 func (s *Server) handleResumePeriodicJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18274,6 +18405,10 @@ func (s *Server) handleResumePeriodicJobRequest(args [1]string, argsEscaped bool
 
 // handleRetryJobRequest handles retryJob operation.
 //
+// Put a job back on its queue and return the updated record, granting one extra attempt when the
+// budget was already exhausted. A job River would leave untouched, because it is running or already
+// queued, is rejected with 409.
+//
 // POST /v1/jobs/{jobId}/retry
 func (s *Server) handleRetryJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -18494,6 +18629,9 @@ func (s *Server) handleRetryJobRequest(args [1]string, argsEscaped bool, w http.
 }
 
 // handleRevokeAdminUserAccessRequest handles revokeAdminUserAccess operation.
+//
+// Revoke every session and API key of one account so its credentials stop working immediately. Owner
+// accounts are refused with 403.
 //
 // POST /v1/admin/users/{userId}/revoke-access
 func (s *Server) handleRevokeAdminUserAccessRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18716,6 +18854,8 @@ func (s *Server) handleRevokeAdminUserAccessRequest(args [1]string, argsEscaped 
 
 // handleRevokeApiKeyRequest handles revokeApiKey operation.
 //
+// Revoke one API key; an unknown, foreign or already revoked key answers 404.
+//
 // DELETE /v1/api-keys/{apiKeyId}
 func (s *Server) handleRevokeApiKeyRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -18918,6 +19058,9 @@ func (s *Server) handleRevokeApiKeyRequest(args [1]string, argsEscaped bool, w h
 }
 
 // handleRevokeFileAccessGrantRequest handles revokeFileAccessGrant operation.
+//
+// Revoke a grant, removing the grantee's access immediately; unknown, foreign or already revoked
+// grants answer 404.
 //
 // DELETE /v1/grants/{grantId}
 func (s *Server) handleRevokeFileAccessGrantRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19345,6 +19488,9 @@ func (s *Server) handleRevokeSessionRequest(args [1]string, argsEscaped bool, w 
 
 // handleRevokeShareRequest handles revokeShare operation.
 //
+// Revoke a share so every later use of its token fails with 410; unknown, foreign or already revoked
+// shares answer 404.
+//
 // DELETE /v1/shares/{shareId}
 func (s *Server) handleRevokeShareRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -19566,6 +19712,9 @@ func (s *Server) handleRevokeShareRequest(args [1]string, argsEscaped bool, w ht
 
 // handleSearchUsersRequest handles searchUsers operation.
 //
+// Find other accounts by display name, username or exact user ID so a share owner can pick a grantee;
+// at most twenty matches are returned.
+//
 // GET /v1/users/search
 func (s *Server) handleSearchUsersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -19786,6 +19935,9 @@ func (s *Server) handleSearchUsersRequest(args [0]string, argsEscaped bool, w ht
 }
 
 // handleSelectChannelRequest handles selectChannel operation.
+//
+// Make one registered channel the upload target, clearing the previous selection; an `unavailable`
+// channel is refused with 409.
 //
 // POST /v1/channels/{channelId}/select
 func (s *Server) handleSelectChannelRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21356,6 +21508,9 @@ func (s *Server) handleTrashFileRequest(args [1]string, argsEscaped bool, w http
 
 // handleTrashPublicShareFileRequest handles trashPublicShareFile operation.
 //
+// Move one entry inside an edit-enabled share to the owner's trash; the share root itself is refused
+// with 403.
+//
 // DELETE /v1/public/shares/{token}/files/{fileId}
 func (s *Server) handleTrashPublicShareFileRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -21504,6 +21659,9 @@ func (s *Server) handleTrashPublicShareFileRequest(args [2]string, argsEscaped b
 }
 
 // handleUpdateAdminUserRequest handles updateAdminUser operation.
+//
+// Apply a role and/or disabled flag to one account; disabling also revokes its sessions and API keys.
+// Owner accounts answer 403 and an empty body 422.
 //
 // PATCH /v1/admin/users/{userId}
 func (s *Server) handleUpdateAdminUserRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21983,6 +22141,9 @@ func (s *Server) handleUpdateFileRequest(args [1]string, argsEscaped bool, w htt
 
 // handleUpdateFileAccessGrantRequest handles updateFileAccessGrant operation.
 //
+// Patch a live grant with a new permission, a new expiry, or `clearExpiresAt` to drop the expiry; an
+// empty patch is rejected with 422.
+//
 // PATCH /v1/grants/{grantId}
 func (s *Server) handleUpdateFileAccessGrantRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -22218,6 +22379,9 @@ func (s *Server) handleUpdateFileAccessGrantRequest(args [1]string, argsEscaped 
 }
 
 // handleUpdatePeriodicJobRequest handles updatePeriodicJob operation.
+//
+// Replace the definition identified by the path ID and return the stored job. The admin or owner role
+// is required, an unknown ID is reported as 404, and a kind this deployment has no worker for as 422.
 //
 // PUT /v1/periodic-jobs/{periodicJobId}
 func (s *Server) handleUpdatePeriodicJobRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -22455,6 +22619,9 @@ func (s *Server) handleUpdatePeriodicJobRequest(args [1]string, argsEscaped bool
 
 // handleUpdatePublicShareFileRequest handles updatePublicShareFile operation.
 //
+// Rename one entry inside an edit-enabled share; `If-Match` must carry the entry's current generation
+// or the call answers 412.
+//
 // PATCH /v1/public/shares/{token}/files/{fileId}
 func (s *Server) handleUpdatePublicShareFileRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
 	statusWriter := &codeRecorder{ResponseWriter: w}
@@ -22622,6 +22789,9 @@ func (s *Server) handleUpdatePublicShareFileRequest(args [2]string, argsEscaped 
 }
 
 // handleUpdateShareRequest handles updateShare operation.
+//
+// Apply a partial update to a share; omitted fields keep their value and the `clear*` flags remove
+// one.
 //
 // PATCH /v1/shares/{shareId}
 func (s *Server) handleUpdateShareRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

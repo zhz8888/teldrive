@@ -19,6 +19,7 @@ import (
 
 // AbortPublicShareUploadParams is parameters of abortPublicShareUpload operation.
 type AbortPublicShareUploadParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	UploadId       UUID
@@ -331,6 +332,7 @@ func decodeCancelJobParams(args [1]string, argsEscaped bool, r *http.Request) (p
 
 // CompletePublicShareUploadParams is parameters of completePublicShareUpload operation.
 type CompletePublicShareUploadParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	UploadId       UUID
@@ -722,6 +724,7 @@ func decodeCreateFileAccessGrantParams(args [1]string, argsEscaped bool, r *http
 
 // CreatePublicShareFolderParams is parameters of createPublicShareFolder operation.
 type CreatePublicShareFolderParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 }
@@ -837,6 +840,7 @@ func decodeCreatePublicShareFolderParams(args [1]string, argsEscaped bool, r *ht
 
 // CreatePublicShareUploadParams is parameters of createPublicShareUpload operation.
 type CreatePublicShareUploadParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 }
@@ -1356,8 +1360,12 @@ func decodeDeletePeriodicJobParams(args [1]string, argsEscaped bool, r *http.Req
 
 // DownloadFileParams is parameters of downloadFile operation.
 type DownloadFileParams struct {
-	Range       OptString `json:",omitempty,omitzero"`
-	IfNoneMatch OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	FileId   UUID
@@ -1655,8 +1663,12 @@ func decodeDownloadFileParams(args [2]string, argsEscaped bool, r *http.Request)
 
 // DownloadFileLegacyParams is parameters of downloadFileLegacy operation.
 type DownloadFileLegacyParams struct {
-	Range       OptString `json:",omitempty,omitzero"`
-	IfNoneMatch OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	FileId   UUID
@@ -1901,9 +1913,14 @@ func decodeDownloadFileLegacyParams(args [1]string, argsEscaped bool, r *http.Re
 
 // DownloadPublicShareParams is parameters of downloadPublicShare operation.
 type DownloadPublicShareParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	Range          OptString `json:",omitempty,omitzero"`
-	IfNoneMatch    OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	Token    string
@@ -2242,9 +2259,14 @@ func decodeDownloadPublicShareParams(args [2]string, argsEscaped bool, r *http.R
 
 // DownloadPublicShareFileParams is parameters of downloadPublicShareFile operation.
 type DownloadPublicShareFileParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	Range          OptString `json:",omitempty,omitzero"`
-	IfNoneMatch    OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	Token    string
@@ -2643,9 +2665,14 @@ func decodeDownloadPublicShareFileParams(args [3]string, argsEscaped bool, r *ht
 
 // DownloadPublicShareFileLegacyParams is parameters of downloadPublicShareFileLegacy operation.
 type DownloadPublicShareFileLegacyParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	Range          OptString `json:",omitempty,omitzero"`
-	IfNoneMatch    OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	Token    string
@@ -2991,9 +3018,14 @@ func decodeDownloadPublicShareFileLegacyParams(args [2]string, argsEscaped bool,
 
 // DownloadPublicShareLegacyParams is parameters of downloadPublicShareLegacy operation.
 type DownloadPublicShareLegacyParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	Range          OptString `json:",omitempty,omitzero"`
-	IfNoneMatch    OptETag   `json:",omitempty,omitzero"`
+	// Byte range to stream in the single "bytes=start-end", "bytes=start-" or "bytes=-suffix" form; absent
+	// streams the whole file and a range that cannot be served is rejected with 416.
+	Range OptString `json:",omitempty,omitzero"`
+	// Content ETag of an earlier response; a full-file request that still matches is answered with 304 and
+	// no body, while a ranged request ignores it.
+	IfNoneMatch OptETag `json:",omitempty,omitzero"`
 	// Force a browser download instead of inline display.
 	Download OptFileContentRequestOptionsDownload `json:",omitempty,omitzero"`
 	Token    string
@@ -3488,6 +3520,7 @@ func decodeGetJobParams(args [1]string, argsEscaped bool, r *http.Request) (para
 
 // GetPublicShareParams is parameters of getPublicShare operation.
 type GetPublicShareParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 }
@@ -3675,6 +3708,7 @@ func decodeGetUploadParams(args [1]string, argsEscaped bool, r *http.Request) (p
 
 // GetUploadStatisticsParams is parameters of getUploadStatistics operation.
 type GetUploadStatisticsParams struct {
+	// Number of days to report, 1 to 366, ending with today in UTC; omitted means 30.
 	Days OptInt32 `json:",omitempty,omitzero"`
 }
 
@@ -3966,6 +4000,7 @@ func decodeHeadFileLegacyParams(args [1]string, argsEscaped bool, r *http.Reques
 
 // HeadPublicShareParams is parameters of headPublicShare operation.
 type HeadPublicShareParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	FileName       string
@@ -4134,6 +4169,7 @@ func decodeHeadPublicShareParams(args [2]string, argsEscaped bool, r *http.Reque
 
 // HeadPublicShareFileParams is parameters of headPublicShareFile operation.
 type HeadPublicShareFileParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	FileId         UUID
@@ -4362,6 +4398,7 @@ func decodeHeadPublicShareFileParams(args [3]string, argsEscaped bool, r *http.R
 
 // HeadPublicShareFileLegacyParams is parameters of headPublicShareFileLegacy operation.
 type HeadPublicShareFileLegacyParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	FileId         UUID
@@ -4537,6 +4574,7 @@ func decodeHeadPublicShareFileLegacyParams(args [2]string, argsEscaped bool, r *
 
 // HeadPublicShareLegacyParams is parameters of headPublicShareLegacy operation.
 type HeadPublicShareLegacyParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 }
@@ -4743,8 +4781,11 @@ func decodeListAdminUsersParams(args [0]string, argsEscaped bool, r *http.Reques
 
 // ListApiKeysParams is parameters of listApiKeys operation.
 type ListApiKeysParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListApiKeysParams(packed middleware.Parameters) (params ListApiKeysParams) {
@@ -4895,8 +4936,11 @@ func decodeListApiKeysParams(args [0]string, argsEscaped bool, r *http.Request) 
 
 // ListBotsParams is parameters of listBots operation.
 type ListBotsParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListBotsParams(packed middleware.Parameters) (params ListBotsParams) {
@@ -5047,8 +5091,11 @@ func decodeListBotsParams(args [0]string, argsEscaped bool, r *http.Request) (pa
 
 // ListChannelsParams is parameters of listChannels operation.
 type ListChannelsParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListChannelsParams(packed middleware.Parameters) (params ListChannelsParams) {
@@ -5271,8 +5318,11 @@ func decodeListFileAccessGrantsParams(args [1]string, argsEscaped bool, r *http.
 
 // ListFileSharesParams is parameters of listFileShares operation.
 type ListFileSharesParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit  OptInt32 `json:",omitempty,omitzero"`
 	FileId UUID
 }
 
@@ -5483,23 +5533,36 @@ func decodeListFileSharesParams(args [1]string, argsEscaped bool, r *http.Reques
 
 // ListFilesParams is parameters of listFiles operation.
 type ListFilesParams struct {
-	Cursor   OptCursor             `json:",omitempty,omitzero"`
-	Limit    OptInt32              `json:",omitempty,omitzero"`
-	Scope    OptFileListQueryScope `json:",omitempty,omitzero"`
-	ParentId OptUUID               `json:",omitempty,omitzero"`
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
+	Cursor OptCursor `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
+	// Region of the drive to list; the wider scopes list active entries only.
+	Scope OptFileListQueryScope `json:",omitempty,omitzero"`
+	// Folder to list, or the root of a recursive listing; absent means the drive root.
+	ParentId OptUUID `json:",omitempty,omitzero"`
 	// Resolve the listing root relative to the user's drive root.
-	Path   OptString              `json:",omitempty,omitzero"`
-	Kind   OptFileKind            `json:",omitempty,omitzero"`
+	Path OptString `json:",omitempty,omitzero"`
+	// Keep only files or only folders; absent lists both.
+	Kind OptFileKind `json:",omitempty,omitzero"`
+	// Lifecycle state to list; the drive and recursive scopes accept only active.
 	Status OptFileListQueryStatus `json:",omitempty,omitzero"`
 	// File-name search. Text search is case-insensitive; regex uses PostgreSQL-compatible regular
 	// expressions.
-	Search        OptString                  `json:",omitempty,omitzero"`
-	SearchType    OptFileListQuerySearchType `json:",omitempty,omitzero"`
-	Category      []FileCategory             `json:",omitempty"`
-	UpdatedAfter  OptDateTime                `json:",omitempty,omitzero"`
-	UpdatedBefore OptDateTime                `json:",omitempty,omitzero"`
-	Sort          OptFileListQuerySort       `json:",omitempty,omitzero"`
-	Order         OptFileListQueryOrder      `json:",omitempty,omitzero"`
+	Search OptString `json:",omitempty,omitzero"`
+	// Match mode of search; it has no effect on a listing without a search term.
+	SearchType OptFileListQuerySearchType `json:",omitempty,omitzero"`
+	// Keep only entries of these derived categories; absent disables the filter.
+	Category []FileCategory `json:",omitempty"`
+	// Keep entries whose metadata was updated at or after this instant.
+	UpdatedAfter OptDateTime `json:",omitempty,omitzero"`
+	// Keep entries whose metadata was updated strictly before this instant.
+	UpdatedBefore OptDateTime `json:",omitempty,omitzero"`
+	// Sort key of the listing; a value that is not one of the enum members is rejected.
+	Sort OptFileListQuerySort `json:",omitempty,omitzero"`
+	// Sort direction; a value that is not one of the enum members is rejected.
+	Order OptFileListQueryOrder `json:",omitempty,omitzero"`
 }
 
 func unpackListFilesParams(packed middleware.Parameters) (params ListFilesParams) {
@@ -6451,11 +6514,17 @@ func decodeListFilesParams(args [0]string, argsEscaped bool, r *http.Request) (p
 
 // ListJobsParams is parameters of listJobs operation.
 type ListJobsParams struct {
-	Cursor OptCursor   `json:",omitempty,omitzero"`
-	Limit  OptInt32    `json:",omitempty,omitzero"`
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
+	Cursor OptCursor `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
+	// Keep only jobs in this state; absent lists every state.
 	Status OptJobState `json:",omitempty,omitzero"`
-	Type   OptString   `json:",omitempty,omitzero"`
-	Queue  OptString   `json:",omitempty,omitzero"`
+	// Keep only jobs of this worker kind; absent lists every kind.
+	Type OptString `json:",omitempty,omitzero"`
+	// Keep only jobs of this queue; absent lists every queue.
+	Queue OptString `json:",omitempty,omitzero"`
 }
 
 func unpackListJobsParams(packed middleware.Parameters) (params ListJobsParams) {
@@ -6771,11 +6840,16 @@ func decodeListJobsParams(args [0]string, argsEscaped bool, r *http.Request) (pa
 
 // ListPublicShareFilesParams is parameters of listPublicShareFiles operation.
 type ListPublicShareFilesParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	Cursor         OptCursor `json:",omitempty,omitzero"`
-	Limit          OptInt32  `json:",omitempty,omitzero"`
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
+	Cursor OptCursor `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 	// Folder path relative to the shared folder root.
-	Path   OptString `json:",omitempty,omitzero"`
+	Path OptString `json:",omitempty,omitzero"`
+	// Text matched as a substring or similarity against entry names; omitted lists the whole folder.
 	Search OptString `json:",omitempty,omitzero"`
 	Token  string
 }
@@ -7183,8 +7257,11 @@ func decodeListPublicShareFilesParams(args [1]string, argsEscaped bool, r *http.
 
 // ListSessionsParams is parameters of listSessions operation.
 type ListSessionsParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListSessionsParams(packed middleware.Parameters) (params ListSessionsParams) {
@@ -7335,8 +7412,11 @@ func decodeListSessionsParams(args [0]string, argsEscaped bool, r *http.Request)
 
 // ListSharedParams is parameters of listShared operation.
 type ListSharedParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListSharedParams(packed middleware.Parameters) (params ListSharedParams) {
@@ -7487,8 +7567,11 @@ func decodeListSharedParams(args [0]string, argsEscaped bool, r *http.Request) (
 
 // ListSharedWithMeParams is parameters of listSharedWithMe operation.
 type ListSharedWithMeParams struct {
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
 	Cursor OptCursor `json:",omitempty,omitzero"`
-	Limit  OptInt32  `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32 `json:",omitempty,omitzero"`
 }
 
 func unpackListSharedWithMeParams(packed middleware.Parameters) (params ListSharedWithMeParams) {
@@ -7639,8 +7722,11 @@ func decodeListSharedWithMeParams(args [0]string, argsEscaped bool, r *http.Requ
 
 // ListUploadPartsParams is parameters of listUploadParts operation.
 type ListUploadPartsParams struct {
-	Cursor   OptCursor `json:",omitempty,omitzero"`
-	Limit    OptInt32  `json:",omitempty,omitzero"`
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
+	Cursor OptCursor `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit    OptInt32 `json:",omitempty,omitzero"`
 	UploadId UUID
 }
 
@@ -7851,9 +7937,12 @@ func decodeListUploadPartsParams(args [1]string, argsEscaped bool, r *http.Reque
 
 // ListUploadsParams is parameters of listUploads operation.
 type ListUploadsParams struct {
-	Cursor OptCursor      `json:",omitempty,omitzero"`
-	Limit  OptInt32       `json:",omitempty,omitzero"`
-	State  OptUploadState `json:",omitempty,omitzero"`
+	// Cursor from the previous page's `nextCursor`; a malformed value is rejected with 422.
+	Cursor OptCursor `json:",omitempty,omitzero"`
+	// Requested page size, 1-500; omitted means 100 and the server caps the effective size, so a full page
+	// can be shorter.
+	Limit OptInt32       `json:",omitempty,omitzero"`
+	State OptUploadState `json:",omitempty,omitzero"`
 }
 
 func unpackListUploadsParams(packed middleware.Parameters) (params ListUploadsParams) {
@@ -8069,6 +8158,9 @@ func decodeListUploadsParams(args [0]string, argsEscaped bool, r *http.Request) 
 
 // MoveFileParams is parameters of moveFile operation.
 type MoveFileParams struct {
+	// Generation ETag the change is conditional on, for example "7"; a value that no longer matches the
+	// stored generation fails the request with 412, and an absent header applies the change
+	// unconditionally.
 	IfMatch OptETag `json:",omitempty,omitzero"`
 	FileId  UUID
 }
@@ -8400,6 +8492,7 @@ func decodePurgeFileParams(args [1]string, argsEscaped bool, r *http.Request) (p
 
 // PurgeJobsParams is parameters of purgeJobs operation.
 type PurgeJobsParams struct {
+	// Only cancelled, completed and discarded are accepted; any other state is rejected with 409.
 	Status JobState
 }
 
@@ -8537,8 +8630,11 @@ func decodePutFileViewStateParams(args [1]string, argsEscaped bool, r *http.Requ
 
 // PutPublicShareUploadPartParams is parameters of putPublicShareUploadPart operation.
 type PutPublicShareUploadPartParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
-	ContentLength  int64
+	// Byte length of the plaintext part. It must equal the session's partSize except for the final part,
+	// the body must yield exactly this many bytes, and a zero length is rejected as invalid.
+	ContentLength int64
 	// BLAKE3 checksum of the plaintext part.
 	XPartChecksum OptChecksum `json:",omitempty,omitzero"`
 	Token         string
@@ -8900,6 +8996,8 @@ func decodePutPublicShareUploadPartParams(args [3]string, argsEscaped bool, r *h
 
 // PutUploadPartParams is parameters of putUploadPart operation.
 type PutUploadPartParams struct {
+	// Byte length of the plaintext part. It must equal the session's partSize except for the final part,
+	// the body must yield exactly this many bytes, and a zero length is rejected as invalid.
 	ContentLength int64
 	// BLAKE3 checksum of the plaintext part.
 	XPartChecksum OptChecksum `json:",omitempty,omitzero"`
@@ -9161,6 +9259,7 @@ func decodePutUploadPartParams(args [2]string, argsEscaped bool, r *http.Request
 
 // RefreshCookieSessionParams is parameters of refreshCookieSession operation.
 type RefreshCookieSessionParams struct {
+	// Cookie value set by a cookie login or a cookie refresh.
 	TeldriveRefresh string
 }
 
@@ -9836,6 +9935,7 @@ func decodeRevokeShareParams(args [1]string, argsEscaped bool, r *http.Request) 
 
 // SearchUsersParams is parameters of searchUsers operation.
 type SearchUsersParams struct {
+	// Text matched against display name and username, or an exact user ID.
 	Search string
 }
 
@@ -10221,6 +10321,7 @@ func decodeTrashFileParams(args [1]string, argsEscaped bool, r *http.Request) (p
 
 // TrashPublicShareFileParams is parameters of trashPublicShareFile operation.
 type TrashPublicShareFileParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	FileId         UUID
@@ -10461,6 +10562,9 @@ func decodeUpdateAdminUserParams(args [1]string, argsEscaped bool, r *http.Reque
 
 // UpdateFileParams is parameters of updateFile operation.
 type UpdateFileParams struct {
+	// Generation ETag the change is conditional on, for example "7"; a value that no longer matches the
+	// stored generation fails the request with 412, and an absent header applies the change
+	// unconditionally.
 	IfMatch OptETag `json:",omitempty,omitzero"`
 	FileId  UUID
 }
@@ -10727,6 +10831,7 @@ func decodeUpdatePeriodicJobParams(args [1]string, argsEscaped bool, r *http.Req
 
 // UpdatePublicShareFileParams is parameters of updatePublicShareFile operation.
 type UpdatePublicShareFileParams struct {
+	// Password of the link; omit it for a share that is not password protected.
 	XSharePassword OptString `json:",omitempty,omitzero"`
 	Token          string
 	FileId         UUID

@@ -32,6 +32,8 @@ func trimTrailingSlashes(u *url.URL) {
 type Invoker interface {
 	// AbortPublicShareUpload invokes abortPublicShareUpload operation.
 	//
+	// Discard a public-share upload session and its stored parts.
+	//
 	// DELETE /v1/public/shares/{token}/uploads/{uploadId}
 	AbortPublicShareUpload(ctx context.Context, params AbortPublicShareUploadParams) (AbortPublicShareUploadRes, error)
 	// AbortUpload invokes abortUpload operation.
@@ -54,6 +56,10 @@ type Invoker interface {
 	BulkTrashFiles(ctx context.Context, request *FileBulkTrashRequest) (BulkTrashFilesRes, error)
 	// CancelJob invokes cancelJob operation.
 	//
+	// Request cancellation of a job and return its record. A running job is only flagged for the job
+	// rescuer rather than interrupted, so the returned state can still be running; the same visibility
+	// rule as get applies.
+	//
 	// POST /v1/jobs/{jobId}/cancel
 	CancelJob(ctx context.Context, params CancelJobParams) (CancelJobRes, error)
 	// CleanTrash invokes cleanTrash operation.
@@ -63,6 +69,9 @@ type Invoker interface {
 	// DELETE /v1/files/trash
 	CleanTrash(ctx context.Context) (CleanTrashRes, error)
 	// CompletePublicShareUpload invokes completePublicShareUpload operation.
+	//
+	// Finalize a public-share upload into a file owned by the share owner and return the entry with its
+	// ETag; missing parts answer 409.
 	//
 	// POST /v1/public/shares/{token}/uploads/{uploadId}/complete
 	CompletePublicShareUpload(ctx context.Context, params CompletePublicShareUploadParams) (CompletePublicShareUploadRes, error)
@@ -99,13 +108,21 @@ type Invoker interface {
 	CopyFile(ctx context.Context, request *FileCopyRequest, params CopyFileParams) (CopyFileRes, error)
 	// CreateApiKey invokes createApiKey operation.
 	//
+	// Mint an API key and return its plaintext secret once, because only a hash is stored.
+	//
 	// POST /v1/api-keys
 	CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest) (CreateApiKeyRes, error)
 	// CreateBots invokes createBots operation.
 	//
+	// Register bot tokens: valid ones are stored disabled and queued for provisioning, malformed or
+	// duplicate ones come back in `failedIndexes`.
+	//
 	// POST /v1/bots
 	CreateBots(ctx context.Context, request *BotCreateRequest) (CreateBotsRes, error)
 	// CreateChannel invokes createChannel operation.
+	//
+	// Create a Telegram channel named by the request, register it and optionally select it; a blank name
+	// gets a generated one.
 	//
 	// POST /v1/channels
 	CreateChannel(ctx context.Context, request *ChannelCreateRequest) (CreateChannelRes, error)
@@ -117,29 +134,50 @@ type Invoker interface {
 	CreateEventStreamTicket(ctx context.Context) (CreateEventStreamTicketRes, error)
 	// CreateFileAccessGrant invokes createFileAccessGrant operation.
 	//
+	// Grant another account access to one of the caller's files, replacing any live grant for the same
+	// file and grantee.
+	//
 	// POST /v1/files/{fileId}/grants
 	CreateFileAccessGrant(ctx context.Context, request *FileAccessGrantCreateRequest, params CreateFileAccessGrantParams) (CreateFileAccessGrantRes, error)
 	// CreateFolder invokes createFolder operation.
+	//
+	// Create a folder in an editable parent folder and return it with its generation ETag and location.
 	//
 	// POST /v1/folders
 	CreateFolder(ctx context.Context, request *FolderCreateRequest) (CreateFolderRes, error)
 	// CreateJob invokes createJob operation.
 	//
+	// Enqueue a one-off maintenance job and return it. The admin or owner role is required, and a job kind
+	// this deployment has no worker for is rejected with 422 before anything is written.
+	//
 	// POST /v1/jobs
 	CreateJob(ctx context.Context, request *JobCreate) (CreateJobRes, error)
 	// CreatePeriodicJob invokes createPeriodicJob operation.
+	//
+	// Store a new periodic job definition and return it. The admin or owner role is required, an
+	// identifier already in use is reported as 409, and a kind this deployment has no worker for as 422
+	// before anything is written.
 	//
 	// POST /v1/periodic-jobs
 	CreatePeriodicJob(ctx context.Context, request *PeriodicJobCreate) (CreatePeriodicJobRes, error)
 	// CreatePublicShareFolder invokes createPublicShareFolder operation.
 	//
+	// Create a folder inside an edit-enabled share, attributed to the share owner; a read-only share
+	// answers 403 and a duplicate name is a conflict.
+	//
 	// POST /v1/public/shares/{token}/folders
 	CreatePublicShareFolder(ctx context.Context, request *FolderCreateRequest, params CreatePublicShareFolderParams) (CreatePublicShareFolderRes, error)
 	// CreatePublicShareUpload invokes createPublicShareUpload operation.
 	//
+	// Open an upload session inside an edit-enabled share; the finished file belongs to the share owner
+	// and a name conflict answers 409.
+	//
 	// POST /v1/public/shares/{token}/uploads
 	CreatePublicShareUpload(ctx context.Context, request *UploadCreateRequest, params CreatePublicShareUploadParams) (CreatePublicShareUploadRes, error)
 	// CreateShare invokes createShare operation.
+	//
+	// Create a public share link for one of the caller's active files; the plaintext token is returned
+	// only here.
 	//
 	// POST /v1/files/{fileId}/shares
 	CreateShare(ctx context.Context, request *ShareCreateRequest, params CreateShareParams) (CreateShareRes, error)
@@ -157,9 +195,14 @@ type Invoker interface {
 	CreateUploadImport(ctx context.Context, request *UploadImportRequest) (CreateUploadImportRes, error)
 	// DeleteBot invokes deleteBot operation.
 	//
+	// Remove one registered bot by its Telegram bot ID; an unknown or foreign ID answers 404.
+	//
 	// DELETE /v1/bots/{botId}
 	DeleteBot(ctx context.Context, params DeleteBotParams) (DeleteBotRes, error)
 	// DeleteChannel invokes deleteChannel operation.
+	//
+	// Delete a registered channel and its Telegram channel; the selected channel and one still holding
+	// stored parts are refused with 409.
 	//
 	// DELETE /v1/channels/{channelId}
 	DeleteChannel(ctx context.Context, params DeleteChannelParams) (DeleteChannelRes, error)
@@ -171,9 +214,16 @@ type Invoker interface {
 	DeleteFileViewState(ctx context.Context, params DeleteFileViewStateParams) (DeleteFileViewStateRes, error)
 	// DeleteJob invokes deleteJob operation.
 	//
+	// Remove a job permanently; an active job is cancelled instead, because River refuses to delete a job
+	// a worker may still hold. Non-administrators can only delete their own jobs, and an unknown ID is
+	// reported as 404.
+	//
 	// DELETE /v1/jobs/{jobId}
 	DeleteJob(ctx context.Context, params DeleteJobParams) (DeleteJobRes, error)
 	// DeletePeriodicJob invokes deletePeriodicJob operation.
+	//
+	// Remove a schedule permanently; the runs it already inserted stay in the job table and keep their
+	// history. The admin or owner role is required, and an unknown ID is reported as 404.
 	//
 	// DELETE /v1/periodic-jobs/{periodicJobId}
 	DeletePeriodicJob(ctx context.Context, params DeletePeriodicJobParams) (DeletePeriodicJobRes, error)
@@ -198,17 +248,29 @@ type Invoker interface {
 	DownloadFileLegacy(ctx context.Context, params DownloadFileLegacyParams) (DownloadFileLegacyRes, error)
 	// DownloadPublicShare invokes downloadPublicShare operation.
 	//
+	// Download the file a share token points at; a successful call consumes one download of the link's
+	// quota.
+	//
 	// GET /v1/public/shares/{token}/content/{fileName}
 	DownloadPublicShare(ctx context.Context, params DownloadPublicShareParams) (DownloadPublicShareRes, error)
 	// DownloadPublicShareFile invokes downloadPublicShareFile operation.
+	//
+	// Download one file inside a shared folder; a successful call consumes one download of the link's
+	// quota.
 	//
 	// GET /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 	DownloadPublicShareFile(ctx context.Context, params DownloadPublicShareFileParams) (DownloadPublicShareFileRes, error)
 	// DownloadPublicShareFileLegacy invokes downloadPublicShareFileLegacy operation.
 	//
+	// Download one file inside a shared folder through the pre-v1 URL form that omits the filename;
+	// otherwise identical to the current download.
+	//
 	// GET /v1/public/shares/{token}/files/{fileId}/content
 	DownloadPublicShareFileLegacy(ctx context.Context, params DownloadPublicShareFileLegacyParams) (DownloadPublicShareFileLegacyRes, error)
 	// DownloadPublicShareLegacy invokes downloadPublicShareLegacy operation.
+	//
+	// Download the share root through the pre-v1 URL form that omits the filename; otherwise identical to
+	// the current download.
 	//
 	// GET /v1/public/shares/{token}/content
 	DownloadPublicShareLegacy(ctx context.Context, params DownloadPublicShareLegacyParams) (DownloadPublicShareLegacyRes, error)
@@ -244,13 +306,23 @@ type Invoker interface {
 	GetFileViewState(ctx context.Context, params GetFileViewStateParams) (GetFileViewStateRes, error)
 	// GetJob invokes getJob operation.
 	//
+	// Return one job by its decimal ID. Non-administrators only reach their own jobs, so an unknown or
+	// foreign ID is reported as 404 without disclosing which IDs exist.
+	//
 	// GET /v1/jobs/{jobId}
 	GetJob(ctx context.Context, params GetJobParams) (GetJobRes, error)
 	// GetJobStatistics invokes getJobStatistics operation.
 	//
+	// Count jobs per state: cluster-wide for administrators, and restricted to the caller's own jobs for
+	// everyone else, which hides maintenance jobs that carry no user ID.
+	//
 	// GET /v1/jobs/statistics
 	GetJobStatistics(ctx context.Context) (GetJobStatisticsRes, error)
 	// GetPeriodicJobCatalog invokes getPeriodicJobCatalog operation.
+	//
+	// List the built-in schedule templates with their kind, label, default arguments, queue and
+	// recommended cron expression, which clients use to create periodic jobs. The admin or owner role is
+	// required, and templates of features this deployment cannot run are absent.
 	//
 	// GET /v1/periodic-jobs/catalog
 	GetPeriodicJobCatalog(ctx context.Context) (GetPeriodicJobCatalogRes, error)
@@ -261,6 +333,9 @@ type Invoker interface {
 	// GET /v1/me/photo
 	GetProfilePhoto(ctx context.Context) (GetProfilePhotoRes, error)
 	// GetPublicShare invokes getPublicShare operation.
+	//
+	// Resolve a share token and return the shared entry; a missing or wrong password answers 401 and a
+	// revoked, expired or exhausted link 410.
 	//
 	// GET /v1/public/shares/{token}
 	GetPublicShare(ctx context.Context, params GetPublicShareParams) (GetPublicShareRes, error)
@@ -296,17 +371,27 @@ type Invoker interface {
 	HeadFileLegacy(ctx context.Context, params HeadFileLegacyParams) (HeadFileLegacyRes, error)
 	// HeadPublicShare invokes headPublicShare operation.
 	//
+	// Return download metadata for the share root without a body, under the same token and password rules
+	// as the download.
+	//
 	// HEAD /v1/public/shares/{token}/content/{fileName}
 	HeadPublicShare(ctx context.Context, params HeadPublicShareParams) (HeadPublicShareRes, error)
 	// HeadPublicShareFile invokes headPublicShareFile operation.
+	//
+	// Return download metadata for one file inside a shared folder without a body, under the same token
+	// and password rules as the download.
 	//
 	// HEAD /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 	HeadPublicShareFile(ctx context.Context, params HeadPublicShareFileParams) (HeadPublicShareFileRes, error)
 	// HeadPublicShareFileLegacy invokes headPublicShareFileLegacy operation.
 	//
+	// HEAD form of the legacy single-file download path, kept for older clients.
+	//
 	// HEAD /v1/public/shares/{token}/files/{fileId}/content
 	HeadPublicShareFileLegacy(ctx context.Context, params HeadPublicShareFileLegacyParams) (HeadPublicShareFileLegacyRes, error)
 	// HeadPublicShareLegacy invokes headPublicShareLegacy operation.
+	//
+	// HEAD form of the legacy share-root download path, kept for older clients.
 	//
 	// HEAD /v1/public/shares/{token}/content
 	HeadPublicShareLegacy(ctx context.Context, params HeadPublicShareLegacyParams) (HeadPublicShareLegacyRes, error)
@@ -332,21 +417,34 @@ type Invoker interface {
 	ListAdminUsers(ctx context.Context, params ListAdminUsersParams) (ListAdminUsersRes, error)
 	// ListApiKeys invokes listApiKeys operation.
 	//
+	// List the account's usable API keys, newest first, as a cursor page; revoked and expired keys are
+	// omitted.
+	//
 	// GET /v1/api-keys
 	ListApiKeys(ctx context.Context, params ListApiKeysParams) (ListApiKeysRes, error)
 	// ListBots invokes listBots operation.
+	//
+	// List the account's registered bots, newest first, as a cursor page.
 	//
 	// GET /v1/bots
 	ListBots(ctx context.Context, params ListBotsParams) (ListBotsRes, error)
 	// ListChannels invokes listChannels operation.
 	//
+	// List the account's registered channels, newest first, as a cursor page.
+	//
 	// GET /v1/channels
 	ListChannels(ctx context.Context, params ListChannelsParams) (ListChannelsRes, error)
 	// ListFileAccessGrants invokes listFileAccessGrants operation.
 	//
+	// List the grants on one of the caller's files, newest first; expired grants stay listed and revoked
+	// ones are omitted.
+	//
 	// GET /v1/files/{fileId}/grants
 	ListFileAccessGrants(ctx context.Context, params ListFileAccessGrantsParams) (ListFileAccessGrantsRes, error)
 	// ListFileShares invokes listFileShares operation.
+	//
+	// List every share created for one file, newest first, including revoked and expired ones so the owner
+	// sees their state.
 	//
 	// GET /v1/files/{fileId}/shares
 	ListFileShares(ctx context.Context, params ListFileSharesParams) (ListFileSharesRes, error)
@@ -358,13 +456,22 @@ type Invoker interface {
 	ListFiles(ctx context.Context, params ListFilesParams) (ListFilesRes, error)
 	// ListJobQueues invokes listJobQueues operation.
 	//
+	// List the River queues with their paused flag and counters: every queue known to the instance for
+	// administrators, otherwise only the queues holding the caller's jobs.
+	//
 	// GET /v1/jobs/queues
 	ListJobQueues(ctx context.Context) (ListJobQueuesRes, error)
 	// ListJobs invokes listJobs operation.
 	//
+	// List jobs newest first. Administrators see every job; other callers only see the jobs that carry
+	// their own user ID. A cursor that is not the opaque token of an earlier page is rejected with 422.
+	//
 	// GET /v1/jobs
 	ListJobs(ctx context.Context, params ListJobsParams) (ListJobsRes, error)
 	// ListPeriodicJobs invokes listPeriodicJobs operation.
+	//
+	// List every stored periodic job with its schedule, queue and pause state. The admin or owner role is
+	// required: a schedule drives maintenance for every account on the instance.
 	//
 	// GET /v1/periodic-jobs
 	ListPeriodicJobs(ctx context.Context) (ListPeriodicJobsRes, error)
@@ -424,9 +531,15 @@ type Invoker interface {
 	MoveFile(ctx context.Context, request *FileMoveRequest, params MoveFileParams) (MoveFileRes, error)
 	// PauseJobQueue invokes pauseJobQueue operation.
 	//
+	// Pause a queue so it hands out no new jobs; jobs already running finish. Requires the admin or owner
+	// role, and a queue that has never held a job is reported as 404.
+	//
 	// POST /v1/jobs/queues/{queue}/pause
 	PauseJobQueue(ctx context.Context, params PauseJobQueueParams) (PauseJobQueueRes, error)
 	// PausePeriodicJob invokes pausePeriodicJob operation.
+	//
+	// Suspend a schedule so it inserts no further runs while keeping its configuration, and return the
+	// updated definition. The admin or owner role is required, and an unknown ID is reported as 404.
 	//
 	// POST /v1/periodic-jobs/{periodicJobId}/pause
 	PausePeriodicJob(ctx context.Context, params PausePeriodicJobParams) (PausePeriodicJobRes, error)
@@ -438,6 +551,10 @@ type Invoker interface {
 	PurgeFile(ctx context.Context, params PurgeFileParams) (PurgeFileRes, error)
 	// PurgeJobs invokes purgeJobs operation.
 	//
+	// Permanently delete the caller's jobs in one finalized state and report how many rows were removed;
+	// administrators purge across all users. Only cancelled, completed and discarded are accepted, and any
+	// other state is rejected with 409, so a job that may still run cannot be deleted here.
+	//
 	// DELETE /v1/jobs/purge
 	PurgeJobs(ctx context.Context, params PurgeJobsParams) (PurgeJobsRes, error)
 	// PutFileViewState invokes putFileViewState operation.
@@ -447,6 +564,9 @@ type Invoker interface {
 	// PUT /v1/files/{fileId}/view-state
 	PutFileViewState(ctx context.Context, request *FileViewStateUpdate, params PutFileViewStateParams) (PutFileViewStateRes, error)
 	// PutPublicShareUploadPart invokes putPublicShareUploadPart operation.
+	//
+	// Store one part of a public-share upload; a repeated part with the same size and checksum returns 200
+	// instead of 201.
 	//
 	// PUT /v1/public/shares/{token}/uploads/{uploadId}/parts/{partNo}
 	PutPublicShareUploadPart(ctx context.Context, request PutPublicShareUploadPartReq, params PutPublicShareUploadPartParams) (PutPublicShareUploadPartRes, error)
@@ -471,6 +591,10 @@ type Invoker interface {
 	RefreshSession(ctx context.Context, request *RefreshTokenRequest) (RefreshSessionRes, error)
 	// ResetPeriodicJobs invokes resetPeriodicJobs operation.
 	//
+	// Restore the built-in schedules to their catalog defaults and return them: every stored definition is
+	// deleted and recreated active, so operator edits are lost while the runs the old definitions already
+	// inserted stay in the job table. The admin or owner role is required.
+	//
 	// POST /v1/periodic-jobs/reset
 	ResetPeriodicJobs(ctx context.Context) (ResetPeriodicJobsRes, error)
 	// RestoreFile invokes restoreFile operation.
@@ -481,25 +605,44 @@ type Invoker interface {
 	RestoreFile(ctx context.Context, params RestoreFileParams) (RestoreFileRes, error)
 	// ResumeJobQueue invokes resumeJobQueue operation.
 	//
+	// Let a paused queue hand out jobs again. Requires the admin or owner role, and a queue that River has
+	// never seen is reported as 404.
+	//
 	// POST /v1/jobs/queues/{queue}/resume
 	ResumeJobQueue(ctx context.Context, params ResumeJobQueueParams) (ResumeJobQueueRes, error)
 	// ResumePeriodicJob invokes resumePeriodicJob operation.
+	//
+	// Reactivate a paused schedule and return the updated definition. Occurrences skipped while it was
+	// paused are not replayed one by one, but a schedule whose stored next run has already passed fires
+	// one catch-up run. The admin or owner role is required, and an unknown ID is reported as 404.
 	//
 	// POST /v1/periodic-jobs/{periodicJobId}/resume
 	ResumePeriodicJob(ctx context.Context, params ResumePeriodicJobParams) (ResumePeriodicJobRes, error)
 	// RetryJob invokes retryJob operation.
 	//
+	// Put a job back on its queue and return the updated record, granting one extra attempt when the
+	// budget was already exhausted. A job River would leave untouched, because it is running or already
+	// queued, is rejected with 409.
+	//
 	// POST /v1/jobs/{jobId}/retry
 	RetryJob(ctx context.Context, params RetryJobParams) (RetryJobRes, error)
 	// RevokeAdminUserAccess invokes revokeAdminUserAccess operation.
+	//
+	// Revoke every session and API key of one account so its credentials stop working immediately. Owner
+	// accounts are refused with 403.
 	//
 	// POST /v1/admin/users/{userId}/revoke-access
 	RevokeAdminUserAccess(ctx context.Context, params RevokeAdminUserAccessParams) (RevokeAdminUserAccessRes, error)
 	// RevokeApiKey invokes revokeApiKey operation.
 	//
+	// Revoke one API key; an unknown, foreign or already revoked key answers 404.
+	//
 	// DELETE /v1/api-keys/{apiKeyId}
 	RevokeApiKey(ctx context.Context, params RevokeApiKeyParams) (RevokeApiKeyRes, error)
 	// RevokeFileAccessGrant invokes revokeFileAccessGrant operation.
+	//
+	// Revoke a grant, removing the grantee's access immediately; unknown, foreign or already revoked
+	// grants answer 404.
 	//
 	// DELETE /v1/grants/{grantId}
 	RevokeFileAccessGrant(ctx context.Context, params RevokeFileAccessGrantParams) (RevokeFileAccessGrantRes, error)
@@ -511,13 +654,22 @@ type Invoker interface {
 	RevokeSession(ctx context.Context, params RevokeSessionParams) (RevokeSessionRes, error)
 	// RevokeShare invokes revokeShare operation.
 	//
+	// Revoke a share so every later use of its token fails with 410; unknown, foreign or already revoked
+	// shares answer 404.
+	//
 	// DELETE /v1/shares/{shareId}
 	RevokeShare(ctx context.Context, params RevokeShareParams) (RevokeShareRes, error)
 	// SearchUsers invokes searchUsers operation.
 	//
+	// Find other accounts by display name, username or exact user ID so a share owner can pick a grantee;
+	// at most twenty matches are returned.
+	//
 	// GET /v1/users/search
 	SearchUsers(ctx context.Context, params SearchUsersParams) (SearchUsersRes, error)
 	// SelectChannel invokes selectChannel operation.
+	//
+	// Make one registered channel the upload target, clearing the previous selection; an `unavailable`
+	// channel is refused with 409.
 	//
 	// POST /v1/channels/{channelId}/select
 	SelectChannel(ctx context.Context, params SelectChannelParams) (SelectChannelRes, error)
@@ -571,9 +723,15 @@ type Invoker interface {
 	TrashFile(ctx context.Context, params TrashFileParams) (TrashFileRes, error)
 	// TrashPublicShareFile invokes trashPublicShareFile operation.
 	//
+	// Move one entry inside an edit-enabled share to the owner's trash; the share root itself is refused
+	// with 403.
+	//
 	// DELETE /v1/public/shares/{token}/files/{fileId}
 	TrashPublicShareFile(ctx context.Context, params TrashPublicShareFileParams) (TrashPublicShareFileRes, error)
 	// UpdateAdminUser invokes updateAdminUser operation.
+	//
+	// Apply a role and/or disabled flag to one account; disabling also revokes its sessions and API keys.
+	// Owner accounts answer 403 and an empty body 422.
 	//
 	// PATCH /v1/admin/users/{userId}
 	UpdateAdminUser(ctx context.Context, request *UserAdminUpdateRequest, params UpdateAdminUserParams) (UpdateAdminUserRes, error)
@@ -585,17 +743,29 @@ type Invoker interface {
 	UpdateFile(ctx context.Context, request *FileUpdateRequest, params UpdateFileParams) (UpdateFileRes, error)
 	// UpdateFileAccessGrant invokes updateFileAccessGrant operation.
 	//
+	// Patch a live grant with a new permission, a new expiry, or `clearExpiresAt` to drop the expiry; an
+	// empty patch is rejected with 422.
+	//
 	// PATCH /v1/grants/{grantId}
 	UpdateFileAccessGrant(ctx context.Context, request *FileAccessGrantUpdateRequest, params UpdateFileAccessGrantParams) (UpdateFileAccessGrantRes, error)
 	// UpdatePeriodicJob invokes updatePeriodicJob operation.
+	//
+	// Replace the definition identified by the path ID and return the stored job. The admin or owner role
+	// is required, an unknown ID is reported as 404, and a kind this deployment has no worker for as 422.
 	//
 	// PUT /v1/periodic-jobs/{periodicJobId}
 	UpdatePeriodicJob(ctx context.Context, request *PeriodicJobUpdate, params UpdatePeriodicJobParams) (UpdatePeriodicJobRes, error)
 	// UpdatePublicShareFile invokes updatePublicShareFile operation.
 	//
+	// Rename one entry inside an edit-enabled share; `If-Match` must carry the entry's current generation
+	// or the call answers 412.
+	//
 	// PATCH /v1/public/shares/{token}/files/{fileId}
 	UpdatePublicShareFile(ctx context.Context, request *FileUpdateRequest, params UpdatePublicShareFileParams) (UpdatePublicShareFileRes, error)
 	// UpdateShare invokes updateShare operation.
+	//
+	// Apply a partial update to a share; omitted fields keep their value and the `clear*` flags remove
+	// one.
 	//
 	// PATCH /v1/shares/{shareId}
 	UpdateShare(ctx context.Context, request *ShareUpdateRequest, params UpdateShareParams) (UpdateShareRes, error)
@@ -643,6 +813,8 @@ func (c *Client) requestURL(ctx context.Context) *url.URL {
 }
 
 // AbortPublicShareUpload invokes abortPublicShareUpload operation.
+//
+// Discard a public-share upload session and its stored parts.
 //
 // DELETE /v1/public/shares/{token}/uploads/{uploadId}
 func (c *Client) AbortPublicShareUpload(ctx context.Context, params AbortPublicShareUploadParams) (AbortPublicShareUploadRes, error) {
@@ -1217,6 +1389,10 @@ func (c *Client) sendBulkTrashFiles(ctx context.Context, request *FileBulkTrashR
 
 // CancelJob invokes cancelJob operation.
 //
+// Request cancellation of a job and return its record. A running job is only flagged for the job
+// rescuer rather than interrupted, so the returned state can still be running; the same visibility
+// rule as get applies.
+//
 // POST /v1/jobs/{jobId}/cancel
 func (c *Client) CancelJob(ctx context.Context, params CancelJobParams) (CancelJobRes, error) {
 	res, err := c.sendCancelJob(ctx, params)
@@ -1507,6 +1683,9 @@ func (c *Client) sendCleanTrash(ctx context.Context) (res CleanTrashRes, err err
 }
 
 // CompletePublicShareUpload invokes completePublicShareUpload operation.
+//
+// Finalize a public-share upload into a file owned by the share owner and return the entry with its
+// ETag; missing parts answer 409.
 //
 // POST /v1/public/shares/{token}/uploads/{uploadId}/complete
 func (c *Client) CompletePublicShareUpload(ctx context.Context, params CompletePublicShareUploadParams) (CompletePublicShareUploadRes, error) {
@@ -2215,6 +2394,8 @@ func (c *Client) sendCopyFile(ctx context.Context, request *FileCopyRequest, par
 
 // CreateApiKey invokes createApiKey operation.
 //
+// Mint an API key and return its plaintext secret once, because only a hash is stored.
+//
 // POST /v1/api-keys
 func (c *Client) CreateApiKey(ctx context.Context, request *ApiKeyCreateRequest) (CreateApiKeyRes, error) {
 	res, err := c.sendCreateApiKey(ctx, request)
@@ -2341,6 +2522,9 @@ func (c *Client) sendCreateApiKey(ctx context.Context, request *ApiKeyCreateRequ
 
 // CreateBots invokes createBots operation.
 //
+// Register bot tokens: valid ones are stored disabled and queued for provisioning, malformed or
+// duplicate ones come back in `failedIndexes`.
+//
 // POST /v1/bots
 func (c *Client) CreateBots(ctx context.Context, request *BotCreateRequest) (CreateBotsRes, error) {
 	res, err := c.sendCreateBots(ctx, request)
@@ -2466,6 +2650,9 @@ func (c *Client) sendCreateBots(ctx context.Context, request *BotCreateRequest) 
 }
 
 // CreateChannel invokes createChannel operation.
+//
+// Create a Telegram channel named by the request, register it and optionally select it; a blank name
+// gets a generated one.
 //
 // POST /v1/channels
 func (c *Client) CreateChannel(ctx context.Context, request *ChannelCreateRequest) (CreateChannelRes, error) {
@@ -2742,6 +2929,9 @@ func (c *Client) sendCreateEventStreamTicket(ctx context.Context) (res CreateEve
 
 // CreateFileAccessGrant invokes createFileAccessGrant operation.
 //
+// Grant another account access to one of the caller's files, replacing any live grant for the same
+// file and grantee.
+//
 // POST /v1/files/{fileId}/grants
 func (c *Client) CreateFileAccessGrant(ctx context.Context, request *FileAccessGrantCreateRequest, params CreateFileAccessGrantParams) (CreateFileAccessGrantRes, error) {
 	res, err := c.sendCreateFileAccessGrant(ctx, request, params)
@@ -2902,6 +3092,8 @@ func (c *Client) sendCreateFileAccessGrant(ctx context.Context, request *FileAcc
 
 // CreateFolder invokes createFolder operation.
 //
+// Create a folder in an editable parent folder and return it with its generation ETag and location.
+//
 // POST /v1/folders
 func (c *Client) CreateFolder(ctx context.Context, request *FolderCreateRequest) (CreateFolderRes, error) {
 	res, err := c.sendCreateFolder(ctx, request)
@@ -3039,6 +3231,9 @@ func (c *Client) sendCreateFolder(ctx context.Context, request *FolderCreateRequ
 }
 
 // CreateJob invokes createJob operation.
+//
+// Enqueue a one-off maintenance job and return it. The admin or owner role is required, and a job kind
+// this deployment has no worker for is rejected with 422 before anything is written.
 //
 // POST /v1/jobs
 func (c *Client) CreateJob(ctx context.Context, request *JobCreate) (CreateJobRes, error) {
@@ -3178,6 +3373,10 @@ func (c *Client) sendCreateJob(ctx context.Context, request *JobCreate) (res Cre
 
 // CreatePeriodicJob invokes createPeriodicJob operation.
 //
+// Store a new periodic job definition and return it. The admin or owner role is required, an
+// identifier already in use is reported as 409, and a kind this deployment has no worker for as 422
+// before anything is written.
+//
 // POST /v1/periodic-jobs
 func (c *Client) CreatePeriodicJob(ctx context.Context, request *PeriodicJobCreate) (CreatePeriodicJobRes, error) {
 	res, err := c.sendCreatePeriodicJob(ctx, request)
@@ -3316,6 +3515,9 @@ func (c *Client) sendCreatePeriodicJob(ctx context.Context, request *PeriodicJob
 
 // CreatePublicShareFolder invokes createPublicShareFolder operation.
 //
+// Create a folder inside an edit-enabled share, attributed to the share owner; a read-only share
+// answers 403 and a duplicate name is a conflict.
+//
 // POST /v1/public/shares/{token}/folders
 func (c *Client) CreatePublicShareFolder(ctx context.Context, request *FolderCreateRequest, params CreatePublicShareFolderParams) (CreatePublicShareFolderRes, error) {
 	res, err := c.sendCreatePublicShareFolder(ctx, request, params)
@@ -3433,6 +3635,9 @@ func (c *Client) sendCreatePublicShareFolder(ctx context.Context, request *Folde
 
 // CreatePublicShareUpload invokes createPublicShareUpload operation.
 //
+// Open an upload session inside an edit-enabled share; the finished file belongs to the share owner
+// and a name conflict answers 409.
+//
 // POST /v1/public/shares/{token}/uploads
 func (c *Client) CreatePublicShareUpload(ctx context.Context, request *UploadCreateRequest, params CreatePublicShareUploadParams) (CreatePublicShareUploadRes, error) {
 	res, err := c.sendCreatePublicShareUpload(ctx, request, params)
@@ -3549,6 +3754,9 @@ func (c *Client) sendCreatePublicShareUpload(ctx context.Context, request *Uploa
 }
 
 // CreateShare invokes createShare operation.
+//
+// Create a public share link for one of the caller's active files; the plaintext token is returned
+// only here.
 //
 // POST /v1/files/{fileId}/shares
 func (c *Client) CreateShare(ctx context.Context, request *ShareCreateRequest, params CreateShareParams) (CreateShareRes, error) {
@@ -3990,6 +4198,8 @@ func (c *Client) sendCreateUploadImport(ctx context.Context, request *UploadImpo
 
 // DeleteBot invokes deleteBot operation.
 //
+// Remove one registered bot by its Telegram bot ID; an unknown or foreign ID answers 404.
+//
 // DELETE /v1/bots/{botId}
 func (c *Client) DeleteBot(ctx context.Context, params DeleteBotParams) (DeleteBotRes, error) {
 	res, err := c.sendDeleteBot(ctx, params)
@@ -4130,6 +4340,9 @@ func (c *Client) sendDeleteBot(ctx context.Context, params DeleteBotParams) (res
 }
 
 // DeleteChannel invokes deleteChannel operation.
+//
+// Delete a registered channel and its Telegram channel; the selected channel and one still holding
+// stored parts are refused with 409.
 //
 // DELETE /v1/channels/{channelId}
 func (c *Client) DeleteChannel(ctx context.Context, params DeleteChannelParams) (DeleteChannelRes, error) {
@@ -4443,6 +4656,10 @@ func (c *Client) sendDeleteFileViewState(ctx context.Context, params DeleteFileV
 
 // DeleteJob invokes deleteJob operation.
 //
+// Remove a job permanently; an active job is cancelled instead, because River refuses to delete a job
+// a worker may still hold. Non-administrators can only delete their own jobs, and an unknown ID is
+// reported as 404.
+//
 // DELETE /v1/jobs/{jobId}
 func (c *Client) DeleteJob(ctx context.Context, params DeleteJobParams) (DeleteJobRes, error) {
 	res, err := c.sendDeleteJob(ctx, params)
@@ -4595,6 +4812,9 @@ func (c *Client) sendDeleteJob(ctx context.Context, params DeleteJobParams) (res
 }
 
 // DeletePeriodicJob invokes deletePeriodicJob operation.
+//
+// Remove a schedule permanently; the runs it already inserted stay in the job table and keep their
+// history. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // DELETE /v1/periodic-jobs/{periodicJobId}
 func (c *Client) DeletePeriodicJob(ctx context.Context, params DeletePeriodicJobParams) (DeletePeriodicJobRes, error) {
@@ -5317,6 +5537,9 @@ func (c *Client) sendDownloadFileLegacy(ctx context.Context, params DownloadFile
 
 // DownloadPublicShare invokes downloadPublicShare operation.
 //
+// Download the file a share token points at; a successful call consumes one download of the link's
+// quota.
+//
 // GET /v1/public/shares/{token}/content/{fileName}
 func (c *Client) DownloadPublicShare(ctx context.Context, params DownloadPublicShareParams) (DownloadPublicShareRes, error) {
 	res, err := c.sendDownloadPublicShare(ctx, params)
@@ -5492,6 +5715,9 @@ func (c *Client) sendDownloadPublicShare(ctx context.Context, params DownloadPub
 }
 
 // DownloadPublicShareFile invokes downloadPublicShareFile operation.
+//
+// Download one file inside a shared folder; a successful call consumes one download of the link's
+// quota.
 //
 // GET /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 func (c *Client) DownloadPublicShareFile(ctx context.Context, params DownloadPublicShareFileParams) (DownloadPublicShareFileRes, error) {
@@ -5691,6 +5917,9 @@ func (c *Client) sendDownloadPublicShareFile(ctx context.Context, params Downloa
 
 // DownloadPublicShareFileLegacy invokes downloadPublicShareFileLegacy operation.
 //
+// Download one file inside a shared folder through the pre-v1 URL form that omits the filename;
+// otherwise identical to the current download.
+//
 // GET /v1/public/shares/{token}/files/{fileId}/content
 func (c *Client) DownloadPublicShareFileLegacy(ctx context.Context, params DownloadPublicShareFileLegacyParams) (DownloadPublicShareFileLegacyRes, error) {
 	res, err := c.sendDownloadPublicShareFileLegacy(ctx, params)
@@ -5870,6 +6099,9 @@ func (c *Client) sendDownloadPublicShareFileLegacy(ctx context.Context, params D
 }
 
 // DownloadPublicShareLegacy invokes downloadPublicShareLegacy operation.
+//
+// Download the share root through the pre-v1 URL form that omits the filename; otherwise identical to
+// the current download.
 //
 // GET /v1/public/shares/{token}/content
 func (c *Client) DownloadPublicShareLegacy(ctx context.Context, params DownloadPublicShareLegacyParams) (DownloadPublicShareLegacyRes, error) {
@@ -6757,6 +6989,9 @@ func (c *Client) sendGetFileViewState(ctx context.Context, params GetFileViewSta
 
 // GetJob invokes getJob operation.
 //
+// Return one job by its decimal ID. Non-administrators only reach their own jobs, so an unknown or
+// foreign ID is reported as 404 without disclosing which IDs exist.
+//
 // GET /v1/jobs/{jobId}
 func (c *Client) GetJob(ctx context.Context, params GetJobParams) (GetJobRes, error) {
 	res, err := c.sendGetJob(ctx, params)
@@ -6910,6 +7145,9 @@ func (c *Client) sendGetJob(ctx context.Context, params GetJobParams) (res GetJo
 
 // GetJobStatistics invokes getJobStatistics operation.
 //
+// Count jobs per state: cluster-wide for administrators, and restricted to the caller's own jobs for
+// everyone else, which hides maintenance jobs that carry no user ID.
+//
 // GET /v1/jobs/statistics
 func (c *Client) GetJobStatistics(ctx context.Context) (GetJobStatisticsRes, error) {
 	res, err := c.sendGetJobStatistics(ctx)
@@ -7044,6 +7282,10 @@ func (c *Client) sendGetJobStatistics(ctx context.Context) (res GetJobStatistics
 }
 
 // GetPeriodicJobCatalog invokes getPeriodicJobCatalog operation.
+//
+// List the built-in schedule templates with their kind, label, default arguments, queue and
+// recommended cron expression, which clients use to create periodic jobs. The admin or owner role is
+// required, and templates of features this deployment cannot run are absent.
 //
 // GET /v1/periodic-jobs/catalog
 func (c *Client) GetPeriodicJobCatalog(ctx context.Context) (GetPeriodicJobCatalogRes, error) {
@@ -7316,6 +7558,9 @@ func (c *Client) sendGetProfilePhoto(ctx context.Context) (res GetProfilePhotoRe
 }
 
 // GetPublicShare invokes getPublicShare operation.
+//
+// Resolve a share token and return the shared entry; a missing or wrong password answers 401 and a
+// revoked, expired or exhausted link 410.
 //
 // GET /v1/public/shares/{token}
 func (c *Client) GetPublicShare(ctx context.Context, params GetPublicShareParams) (GetPublicShareRes, error) {
@@ -8219,6 +8464,9 @@ func (c *Client) sendHeadFileLegacy(ctx context.Context, params HeadFileLegacyPa
 
 // HeadPublicShare invokes headPublicShare operation.
 //
+// Return download metadata for the share root without a body, under the same token and password rules
+// as the download.
+//
 // HEAD /v1/public/shares/{token}/content/{fileName}
 func (c *Client) HeadPublicShare(ctx context.Context, params HeadPublicShareParams) (HeadPublicShareRes, error) {
 	res, err := c.sendHeadPublicShare(ctx, params)
@@ -8350,6 +8598,9 @@ func (c *Client) sendHeadPublicShare(ctx context.Context, params HeadPublicShare
 }
 
 // HeadPublicShareFile invokes headPublicShareFile operation.
+//
+// Return download metadata for one file inside a shared folder without a body, under the same token
+// and password rules as the download.
 //
 // HEAD /v1/public/shares/{token}/files/{fileId}/content/{fileName}
 func (c *Client) HeadPublicShareFile(ctx context.Context, params HeadPublicShareFileParams) (HeadPublicShareFileRes, error) {
@@ -8505,6 +8756,8 @@ func (c *Client) sendHeadPublicShareFile(ctx context.Context, params HeadPublicS
 
 // HeadPublicShareFileLegacy invokes headPublicShareFileLegacy operation.
 //
+// HEAD form of the legacy single-file download path, kept for older clients.
+//
 // HEAD /v1/public/shares/{token}/files/{fileId}/content
 func (c *Client) HeadPublicShareFileLegacy(ctx context.Context, params HeadPublicShareFileLegacyParams) (HeadPublicShareFileLegacyRes, error) {
 	res, err := c.sendHeadPublicShareFileLegacy(ctx, params)
@@ -8640,6 +8893,8 @@ func (c *Client) sendHeadPublicShareFileLegacy(ctx context.Context, params HeadP
 }
 
 // HeadPublicShareLegacy invokes headPublicShareLegacy operation.
+//
+// HEAD form of the legacy share-root download path, kept for older clients.
 //
 // HEAD /v1/public/shares/{token}/content
 func (c *Client) HeadPublicShareLegacy(ctx context.Context, params HeadPublicShareLegacyParams) (HeadPublicShareLegacyRes, error) {
@@ -9075,6 +9330,9 @@ func (c *Client) sendListAdminUsers(ctx context.Context, params ListAdminUsersPa
 
 // ListApiKeys invokes listApiKeys operation.
 //
+// List the account's usable API keys, newest first, as a cursor page; revoked and expired keys are
+// omitted.
+//
 // GET /v1/api-keys
 func (c *Client) ListApiKeys(ctx context.Context, params ListApiKeysParams) (ListApiKeysRes, error) {
 	res, err := c.sendListApiKeys(ctx, params)
@@ -9239,6 +9497,8 @@ func (c *Client) sendListApiKeys(ctx context.Context, params ListApiKeysParams) 
 
 // ListBots invokes listBots operation.
 //
+// List the account's registered bots, newest first, as a cursor page.
+//
 // GET /v1/bots
 func (c *Client) ListBots(ctx context.Context, params ListBotsParams) (ListBotsRes, error) {
 	res, err := c.sendListBots(ctx, params)
@@ -9402,6 +9662,8 @@ func (c *Client) sendListBots(ctx context.Context, params ListBotsParams) (res L
 }
 
 // ListChannels invokes listChannels operation.
+//
+// List the account's registered channels, newest first, as a cursor page.
 //
 // GET /v1/channels
 func (c *Client) ListChannels(ctx context.Context, params ListChannelsParams) (ListChannelsRes, error) {
@@ -9579,6 +9841,9 @@ func (c *Client) sendListChannels(ctx context.Context, params ListChannelsParams
 
 // ListFileAccessGrants invokes listFileAccessGrants operation.
 //
+// List the grants on one of the caller's files, newest first; expired grants stay listed and revoked
+// ones are omitted.
+//
 // GET /v1/files/{fileId}/grants
 func (c *Client) ListFileAccessGrants(ctx context.Context, params ListFileAccessGrantsParams) (ListFileAccessGrantsRes, error) {
 	res, err := c.sendListFileAccessGrants(ctx, params)
@@ -9735,6 +10000,9 @@ func (c *Client) sendListFileAccessGrants(ctx context.Context, params ListFileAc
 }
 
 // ListFileShares invokes listFileShares operation.
+//
+// List every share created for one file, newest first, including revoked and expired ones so the owner
+// sees their state.
 //
 // GET /v1/files/{fileId}/shares
 func (c *Client) ListFileShares(ctx context.Context, params ListFileSharesParams) (ListFileSharesRes, error) {
@@ -10328,6 +10596,9 @@ func (c *Client) sendListFiles(ctx context.Context, params ListFilesParams) (res
 
 // ListJobQueues invokes listJobQueues operation.
 //
+// List the River queues with their paused flag and counters: every queue known to the instance for
+// administrators, otherwise only the queues holding the caller's jobs.
+//
 // GET /v1/jobs/queues
 func (c *Client) ListJobQueues(ctx context.Context) (ListJobQueuesRes, error) {
 	res, err := c.sendListJobQueues(ctx)
@@ -10462,6 +10733,9 @@ func (c *Client) sendListJobQueues(ctx context.Context) (res ListJobQueuesRes, e
 }
 
 // ListJobs invokes listJobs operation.
+//
+// List jobs newest first. Administrators see every job; other callers only see the jobs that carry
+// their own user ID. A cursor that is not the opaque token of an earlier page is rejected with 422.
 //
 // GET /v1/jobs
 func (c *Client) ListJobs(ctx context.Context, params ListJobsParams) (ListJobsRes, error) {
@@ -10689,6 +10963,9 @@ func (c *Client) sendListJobs(ctx context.Context, params ListJobsParams) (res L
 }
 
 // ListPeriodicJobs invokes listPeriodicJobs operation.
+//
+// List every stored periodic job with its schedule, queue and pause state. The admin or owner role is
+// required: a schedule drives maintenance for every account on the instance.
 //
 // GET /v1/periodic-jobs
 func (c *Client) ListPeriodicJobs(ctx context.Context) (ListPeriodicJobsRes, error) {
@@ -12365,6 +12642,9 @@ func (c *Client) sendMoveFile(ctx context.Context, request *FileMoveRequest, par
 
 // PauseJobQueue invokes pauseJobQueue operation.
 //
+// Pause a queue so it hands out no new jobs; jobs already running finish. Requires the admin or owner
+// role, and a queue that has never held a job is reported as 404.
+//
 // POST /v1/jobs/queues/{queue}/pause
 func (c *Client) PauseJobQueue(ctx context.Context, params PauseJobQueueParams) (PauseJobQueueRes, error) {
 	res, err := c.sendPauseJobQueue(ctx, params)
@@ -12518,6 +12798,9 @@ func (c *Client) sendPauseJobQueue(ctx context.Context, params PauseJobQueuePara
 }
 
 // PausePeriodicJob invokes pausePeriodicJob operation.
+//
+// Suspend a schedule so it inserts no further runs while keeping its configuration, and return the
+// updated definition. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // POST /v1/periodic-jobs/{periodicJobId}/pause
 func (c *Client) PausePeriodicJob(ctx context.Context, params PausePeriodicJobParams) (PausePeriodicJobRes, error) {
@@ -12831,6 +13114,10 @@ func (c *Client) sendPurgeFile(ctx context.Context, params PurgeFileParams) (res
 }
 
 // PurgeJobs invokes purgeJobs operation.
+//
+// Permanently delete the caller's jobs in one finalized state and report how many rows were removed;
+// administrators purge across all users. Only cancelled, completed and discarded are accepted, and any
+// other state is rejected with 409, so a job that may still run cannot be deleted here.
 //
 // DELETE /v1/jobs/purge
 func (c *Client) PurgeJobs(ctx context.Context, params PurgeJobsParams) (PurgeJobsRes, error) {
@@ -13146,6 +13433,9 @@ func (c *Client) sendPutFileViewState(ctx context.Context, request *FileViewStat
 }
 
 // PutPublicShareUploadPart invokes putPublicShareUploadPart operation.
+//
+// Store one part of a public-share upload; a repeated part with the same size and checksum returns 200
+// instead of 201.
 //
 // PUT /v1/public/shares/{token}/uploads/{uploadId}/parts/{partNo}
 func (c *Client) PutPublicShareUploadPart(ctx context.Context, request PutPublicShareUploadPartReq, params PutPublicShareUploadPartParams) (PutPublicShareUploadPartRes, error) {
@@ -13723,6 +14013,10 @@ func (c *Client) sendRefreshSession(ctx context.Context, request *RefreshTokenRe
 
 // ResetPeriodicJobs invokes resetPeriodicJobs operation.
 //
+// Restore the built-in schedules to their catalog defaults and return them: every stored definition is
+// deleted and recreated active, so operator edits are lost while the runs the old definitions already
+// inserted stay in the job table. The admin or owner role is required.
+//
 // POST /v1/periodic-jobs/reset
 func (c *Client) ResetPeriodicJobs(ctx context.Context) (ResetPeriodicJobsRes, error) {
 	res, err := c.sendResetPeriodicJobs(ctx)
@@ -14017,6 +14311,9 @@ func (c *Client) sendRestoreFile(ctx context.Context, params RestoreFileParams) 
 
 // ResumeJobQueue invokes resumeJobQueue operation.
 //
+// Let a paused queue hand out jobs again. Requires the admin or owner role, and a queue that River has
+// never seen is reported as 404.
+//
 // POST /v1/jobs/queues/{queue}/resume
 func (c *Client) ResumeJobQueue(ctx context.Context, params ResumeJobQueueParams) (ResumeJobQueueRes, error) {
 	res, err := c.sendResumeJobQueue(ctx, params)
@@ -14170,6 +14467,10 @@ func (c *Client) sendResumeJobQueue(ctx context.Context, params ResumeJobQueuePa
 }
 
 // ResumePeriodicJob invokes resumePeriodicJob operation.
+//
+// Reactivate a paused schedule and return the updated definition. Occurrences skipped while it was
+// paused are not replayed one by one, but a schedule whose stored next run has already passed fires
+// one catch-up run. The admin or owner role is required, and an unknown ID is reported as 404.
 //
 // POST /v1/periodic-jobs/{periodicJobId}/resume
 func (c *Client) ResumePeriodicJob(ctx context.Context, params ResumePeriodicJobParams) (ResumePeriodicJobRes, error) {
@@ -14325,6 +14626,10 @@ func (c *Client) sendResumePeriodicJob(ctx context.Context, params ResumePeriodi
 
 // RetryJob invokes retryJob operation.
 //
+// Put a job back on its queue and return the updated record, granting one extra attempt when the
+// budget was already exhausted. A job River would leave untouched, because it is running or already
+// queued, is rejected with 409.
+//
 // POST /v1/jobs/{jobId}/retry
 func (c *Client) RetryJob(ctx context.Context, params RetryJobParams) (RetryJobRes, error) {
 	res, err := c.sendRetryJob(ctx, params)
@@ -14478,6 +14783,9 @@ func (c *Client) sendRetryJob(ctx context.Context, params RetryJobParams) (res R
 }
 
 // RevokeAdminUserAccess invokes revokeAdminUserAccess operation.
+//
+// Revoke every session and API key of one account so its credentials stop working immediately. Owner
+// accounts are refused with 403.
 //
 // POST /v1/admin/users/{userId}/revoke-access
 func (c *Client) RevokeAdminUserAccess(ctx context.Context, params RevokeAdminUserAccessParams) (RevokeAdminUserAccessRes, error) {
@@ -14633,6 +14941,8 @@ func (c *Client) sendRevokeAdminUserAccess(ctx context.Context, params RevokeAdm
 
 // RevokeApiKey invokes revokeApiKey operation.
 //
+// Revoke one API key; an unknown, foreign or already revoked key answers 404.
+//
 // DELETE /v1/api-keys/{apiKeyId}
 func (c *Client) RevokeApiKey(ctx context.Context, params RevokeApiKeyParams) (RevokeApiKeyRes, error) {
 	res, err := c.sendRevokeApiKey(ctx, params)
@@ -14776,6 +15086,9 @@ func (c *Client) sendRevokeApiKey(ctx context.Context, params RevokeApiKeyParams
 }
 
 // RevokeFileAccessGrant invokes revokeFileAccessGrant operation.
+//
+// Revoke a grant, removing the grantee's access immediately; unknown, foreign or already revoked
+// grants answer 404.
 //
 // DELETE /v1/grants/{grantId}
 func (c *Client) RevokeFileAccessGrant(ctx context.Context, params RevokeFileAccessGrantParams) (RevokeFileAccessGrantRes, error) {
@@ -15079,6 +15392,9 @@ func (c *Client) sendRevokeSession(ctx context.Context, params RevokeSessionPara
 
 // RevokeShare invokes revokeShare operation.
 //
+// Revoke a share so every later use of its token fails with 410; unknown, foreign or already revoked
+// shares answer 404.
+//
 // DELETE /v1/shares/{shareId}
 func (c *Client) RevokeShare(ctx context.Context, params RevokeShareParams) (RevokeShareRes, error) {
 	res, err := c.sendRevokeShare(ctx, params)
@@ -15235,6 +15551,9 @@ func (c *Client) sendRevokeShare(ctx context.Context, params RevokeShareParams) 
 
 // SearchUsers invokes searchUsers operation.
 //
+// Find other accounts by display name, username or exact user ID so a share owner can pick a grantee;
+// at most twenty matches are returned.
+//
 // GET /v1/users/search
 func (c *Client) SearchUsers(ctx context.Context, params SearchUsersParams) (SearchUsersRes, error) {
 	res, err := c.sendSearchUsers(ctx, params)
@@ -15387,6 +15706,9 @@ func (c *Client) sendSearchUsers(ctx context.Context, params SearchUsersParams) 
 }
 
 // SelectChannel invokes selectChannel operation.
+//
+// Make one registered channel the upload target, clearing the previous selection; an `unavailable`
+// channel is refused with 409.
 //
 // POST /v1/channels/{channelId}/select
 func (c *Client) SelectChannel(ctx context.Context, params SelectChannelParams) (SelectChannelRes, error) {
@@ -16442,6 +16764,9 @@ func (c *Client) sendTrashFile(ctx context.Context, params TrashFileParams) (res
 
 // TrashPublicShareFile invokes trashPublicShareFile operation.
 //
+// Move one entry inside an edit-enabled share to the owner's trash; the share root itself is refused
+// with 403.
+//
 // DELETE /v1/public/shares/{token}/files/{fileId}
 func (c *Client) TrashPublicShareFile(ctx context.Context, params TrashPublicShareFileParams) (TrashPublicShareFileRes, error) {
 	res, err := c.sendTrashPublicShareFile(ctx, params)
@@ -16576,6 +16901,9 @@ func (c *Client) sendTrashPublicShareFile(ctx context.Context, params TrashPubli
 }
 
 // UpdateAdminUser invokes updateAdminUser operation.
+//
+// Apply a role and/or disabled flag to one account; disabling also revokes its sessions and API keys.
+// Owner accounts answer 403 and an empty body 422.
 //
 // PATCH /v1/admin/users/{userId}
 func (c *Client) UpdateAdminUser(ctx context.Context, request *UserAdminUpdateRequest, params UpdateAdminUserParams) (UpdateAdminUserRes, error) {
@@ -16914,6 +17242,9 @@ func (c *Client) sendUpdateFile(ctx context.Context, request *FileUpdateRequest,
 
 // UpdateFileAccessGrant invokes updateFileAccessGrant operation.
 //
+// Patch a live grant with a new permission, a new expiry, or `clearExpiresAt` to drop the expiry; an
+// empty patch is rejected with 422.
+//
 // PATCH /v1/grants/{grantId}
 func (c *Client) UpdateFileAccessGrant(ctx context.Context, request *FileAccessGrantUpdateRequest, params UpdateFileAccessGrantParams) (UpdateFileAccessGrantRes, error) {
 	res, err := c.sendUpdateFileAccessGrant(ctx, request, params)
@@ -17073,6 +17404,9 @@ func (c *Client) sendUpdateFileAccessGrant(ctx context.Context, request *FileAcc
 
 // UpdatePeriodicJob invokes updatePeriodicJob operation.
 //
+// Replace the definition identified by the path ID and return the stored job. The admin or owner role
+// is required, an unknown ID is reported as 404, and a kind this deployment has no worker for as 422.
+//
 // PUT /v1/periodic-jobs/{periodicJobId}
 func (c *Client) UpdatePeriodicJob(ctx context.Context, request *PeriodicJobUpdate, params UpdatePeriodicJobParams) (UpdatePeriodicJobRes, error) {
 	res, err := c.sendUpdatePeriodicJob(ctx, request, params)
@@ -17229,6 +17563,9 @@ func (c *Client) sendUpdatePeriodicJob(ctx context.Context, request *PeriodicJob
 
 // UpdatePublicShareFile invokes updatePublicShareFile operation.
 //
+// Rename one entry inside an edit-enabled share; `If-Match` must carry the entry's current generation
+// or the call answers 412.
+//
 // PATCH /v1/public/shares/{token}/files/{fileId}
 func (c *Client) UpdatePublicShareFile(ctx context.Context, request *FileUpdateRequest, params UpdatePublicShareFileParams) (UpdatePublicShareFileRes, error) {
 	res, err := c.sendUpdatePublicShareFile(ctx, request, params)
@@ -17380,6 +17717,9 @@ func (c *Client) sendUpdatePublicShareFile(ctx context.Context, request *FileUpd
 }
 
 // UpdateShare invokes updateShare operation.
+//
+// Apply a partial update to a share; omitted fields keep their value and the `clear*` flags remove
+// one.
 //
 // PATCH /v1/shares/{shareId}
 func (c *Client) UpdateShare(ctx context.Context, request *ShareUpdateRequest, params UpdateShareParams) (UpdateShareRes, error) {
