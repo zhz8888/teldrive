@@ -18,3 +18,7 @@ bin/
 coverage.out
 .slim/deepwork/
 ui/.tanstack/
+
+# Nix build output and per-user garbage collection roots.
+result
+result-*
