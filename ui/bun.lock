@@ -12,12 +12,13 @@
         "@tanstack/react-query": "^5.104.1",
         "@tanstack/react-router": "^1.170.41",
         "@vplayer/react": "^0.2.4",
-        "foliate-js": "github:johnfactotum/foliate-js#399248a67a8862ffb5e6463a33f9d52b317ca2eb",
+        "foliate-js": "https://github.com/johnfactotum/foliate-js/archive/399248a67a8862ffb5e6463a33f9d52b317ca2eb.tar.gz",
         "openapi-fetch": "^0.17.0",
         "openapi-react-query": "^0.5.4",
         "pdfjs-dist": "^6.4.299",
         "qrcode.react": "^4.2.0",
         "react": "^19.3.0",
+        "react-aria": "^3.53.0",
         "react-aria-components": "^1.22.0",
         "react-dom": "^19.3.0",
         "sonner": "^2.0.8",
@@ -662,7 +663,7 @@
 
     "fflate": ["fflate@0.8.3", "https://registry.npmmirror.com/fflate/-/fflate-0.8.3.tgz", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
-    "foliate-js": ["foliate-js@github:johnfactotum/foliate-js#399248a", {}, "johnfactotum-foliate-js-399248a", "sha512-6YW5IFcdGXzeVD2VnOlTcuR6KWBT8/JeXE/7dkTSVjpK3WY1T0LAipkNw01s1xAPucdC0ldAwTINR9VGTVXbOg=="],
+    "foliate-js": ["foliate-js@https://github.com/johnfactotum/foliate-js/archive/399248a67a8862ffb5e6463a33f9d52b317ca2eb.tar.gz", {}, "sha512-f81XJ9e4nR11i+sRVoUscNbI+Gc7VT4xiK4pQyneJZBOX5OdDhnksP+4nFEXxyQ9caykBiOb7TF8Qud/219iBw=="],
 
     "fsevents": ["fsevents@2.3.3", "https://registry.npmmirror.com/fsevents/-/fsevents-2.3.3.tgz", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
