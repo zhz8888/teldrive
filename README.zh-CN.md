@@ -62,14 +62,81 @@ docker run --rm \
 
 ### 发布二进制
 
-从本 fork 的 [GitHub Releases](https://github.com/zhz8888/teldrive/releases) 下载对应平台的
-压缩包并安装 `teldrive`，然后指向 PostgreSQL：
+发布版本是静态链接的独立二进制（`CGO_ENABLED=0`），覆盖 Linux、macOS 与 Windows（Windows 为
+`.zip`）。从本 fork 的 [GitHub Releases](https://github.com/zhz8888/teldrive/releases) 下载对应
+平台的压缩包并安装：
 
 ```bash
-teldrive check     # 校验配置、执行迁移、初始化依赖
-teldrive run       # 提供 API 与界面（别名：serve）
-teldrive version   # 打印构建信息
+tar -xzf teldrive-vX.Y.Z-linux-amd64.tar.gz
+sudo install -m 0755 teldrive /usr/local/bin/teldrive
+teldrive version
 ```
+
+目标平台为 Linux `amd64`/`arm`/`arm64`、macOS `amd64`/`arm64` 与 Windows `amd64`/`arm64`。发布包
+由推送 `v*` 标签触发构建；如果 Releases 列表还是空的，请改用上面的容器镜像，或从源码构建（见本节
+下方的「从源码构建」）。
+
+编写配置文件——数据库 URL 与两个 security 密钥是最小集合，其余设置都有默认值，全部可选项见
+`config.sample.yaml`：
+
+```bash
+sudo install -d -m 0750 /etc/teldrive
+sudo tee /etc/teldrive/config.yaml >/dev/null <<YAML
+http:
+  address: 127.0.0.1:8080
+
+database:
+  url: postgres://teldrive:password@127.0.0.1:5432/teldrive?sslmode=require
+
+security:
+  signing-key: "$(openssl rand -hex 32)"
+  data-key: "$(openssl rand -base64 32)"
+YAML
+```
+
+这两个密钥只在此生成一次：`signing-key` 至少需要 32 个字符，`data-key` 必须能解码出正好 32 字节。
+请把 `data-key` 与内容加密密钥一起备份——丢失它们可能导致受保护的数据无法恢复。`database.url`
+对应的角色还需要能在 `public` schema 中创建 `pgcrypto` 与 `pg_trgm` 扩展。
+
+先校验配置并让迁移执行完，再启动服务：
+
+```bash
+teldrive check --config /etc/teldrive/config.yaml   # 校验配置、执行迁移与依赖初始化后退出
+teldrive run   --config /etc/teldrive/config.yaml   # 提供 API 与界面（别名：serve）
+```
+
+打开 <http://127.0.0.1:8080>，用 Telegram 登录。若希望重启后自动运行，请为服务建立独立账号，把下面
+的 unit 写入 `/etc/systemd/system/teldrive.service`，然后启用：
+
+```ini
+[Unit]
+Description=Teldrive
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teldrive
+Group=teldrive
+ExecStart=/usr/local/bin/teldrive run --config /etc/teldrive/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin teldrive
+sudo chown root:teldrive /etc/teldrive/config.yaml
+sudo chmod 0640 /etc/teldrive/config.yaml
+sudo systemctl enable --now teldrive
+```
+
+全部发布目标、监听地址选择与反向代理建议见
+[发布二进制](https://zhz8888.github.io/teldrive/installation/binary) 页面。
 
 ### 从源码构建
 

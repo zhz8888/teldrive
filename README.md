@@ -67,15 +67,83 @@ release tag (`ghcr.io/zhz8888/teldrive:vX.Y.Z`) instead of `latest` for controll
 
 ### Release binary
 
-Download the archive for your platform from this fork's
-[GitHub Releases](https://github.com/zhz8888/teldrive/releases) and install `teldrive`, then
-point it at PostgreSQL:
+Release builds are standalone, statically linked binaries (`CGO_ENABLED=0`) for Linux, macOS and
+Windows; Windows archives are `.zip`. Download the archive for your platform from this fork's
+[GitHub Releases](https://github.com/zhz8888/teldrive/releases) and install the binary:
 
 ```bash
-teldrive check     # validate configuration, run migrations, initialize dependencies
-teldrive run       # serve the API and the UI (alias: serve)
-teldrive version   # print build metadata
+tar -xzf teldrive-vX.Y.Z-linux-amd64.tar.gz
+sudo install -m 0755 teldrive /usr/local/bin/teldrive
+teldrive version
 ```
+
+Targets are Linux `amd64`/`arm`/`arm64`, macOS `amd64`/`arm64` and Windows `amd64`/`arm64`.
+Archives are built when a `v*` tag is pushed, so if the Releases list is still empty, use the
+container image above or build [from source](#from-source).
+
+Write the configuration file — a database URL and both security keys are the minimum, every other
+setting has a default, and `config.sample.yaml` lists them all:
+
+```bash
+sudo install -d -m 0750 /etc/teldrive
+sudo tee /etc/teldrive/config.yaml >/dev/null <<YAML
+http:
+  address: 127.0.0.1:8080
+
+database:
+  url: postgres://teldrive:password@127.0.0.1:5432/teldrive?sslmode=require
+
+security:
+  signing-key: "$(openssl rand -hex 32)"
+  data-key: "$(openssl rand -base64 32)"
+YAML
+```
+
+The two keys are generated once, here: `signing-key` takes at least 32 characters and `data-key`
+must decode to exactly 32 bytes. Back `data-key` up together with the content-encryption keys,
+because losing them can make protected data unrecoverable. The role in `database.url` also has to
+be able to create the `pgcrypto` and `pg_trgm` extensions in the `public` schema.
+
+Validate the configuration and let the migrations run, then start the server:
+
+```bash
+teldrive check --config /etc/teldrive/config.yaml   # config, migrations, dependencies, then exit
+teldrive run   --config /etc/teldrive/config.yaml   # serve the API and the UI (alias: serve)
+```
+
+Open <http://127.0.0.1:8080> and sign in with Telegram. To keep it running across reboots, give
+the service an account of its own, write this unit to `/etc/systemd/system/teldrive.service`, and
+start it:
+
+```ini
+[Unit]
+Description=Teldrive
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teldrive
+Group=teldrive
+ExecStart=/usr/local/bin/teldrive run --config /etc/teldrive/config.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin teldrive
+sudo chown root:teldrive /etc/teldrive/config.yaml
+sudo chmod 0640 /etc/teldrive/config.yaml
+sudo systemctl enable --now teldrive
+```
+
+Every release target, the listener choice and the reverse-proxy advice are on the
+[Release binary](https://zhz8888.github.io/teldrive/installation/binary) page.
 
 ### From source
 
