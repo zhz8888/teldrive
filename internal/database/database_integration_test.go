@@ -4,9 +4,12 @@ package database_test
 
 import (
 	"context"
+	"io/fs"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/zhz8888/teldrive/v2/db/migrations"
 	"github.com/zhz8888/teldrive/v2/internal/database"
 	testpostgres "github.com/zhz8888/teldrive/v2/internal/testutil/postgres"
 )
@@ -61,8 +64,12 @@ WHERE table_schema = 'public'
 	if err := db.Pool.QueryRow(ctx, "SELECT max(version_id) FROM teldrive.migrations WHERE is_applied").Scan(&migrationVersion); err != nil {
 		t.Fatalf("read migration version: %v", err)
 	}
-	if migrationVersion != 12 {
-		t.Fatalf("migration version = %d, want 12", migrationVersion)
+	// The expectation is read from the embedded migration files instead of being
+	// written down here: the assertion then fails when a committed migration did
+	// not run, which is the defect worth catching, rather than on every migration
+	// that is added.
+	if want := latestMigrationVersion(t); migrationVersion != want {
+		t.Fatalf("migration version = %d, want %d", migrationVersion, want)
 	}
 
 	var normalizedNameColumns int
@@ -102,4 +109,32 @@ SELECT EXISTS (
 			t.Fatalf("expected table %s.%s", schema, table)
 		}
 	}
+}
+
+// latestMigrationVersion returns the highest version in the embedded migration set,
+// read from the file names the migrator derives its version ids from. Comparing the
+// applied version against it fails when a committed migration did not run, and it
+// keeps the assertion correct as migrations are added.
+func latestMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	names, err := fs.Glob(migrations.Files, "*.sql")
+	if err != nil {
+		t.Fatalf("list embedded migrations: %v", err)
+	}
+	var latest int64
+	for _, name := range names {
+		prefix, _, found := strings.Cut(name, "_")
+		if !found {
+			continue
+		}
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			continue
+		}
+		latest = max(latest, version)
+	}
+	if latest == 0 {
+		t.Fatal("no embedded migration carries a version prefix")
+	}
+	return latest
 }
