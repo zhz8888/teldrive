@@ -119,19 +119,54 @@ ui-build:
 nix-generate:
     go run ./internal/tools/nixconfig
 
-# Regenerate the bun2nix dependency expression after a ui/bun.lock change.
-# NOTE: foliate-js must stay an https tarball URL for the pinned commit —
-# bun2nix 2.x cannot parse bun 1.4's 4-tuple `github:` lock entries, and the
-# npm `foliate-js` tag is older than the pinned commit. Keep lockfileVersion 1.
-update-bun-nix:
-    nix run .#bun2nix -- -l {{ui_dir}}/bun.lock -o {{ui_dir}}/bun.nix
+# Re-pin the UI node_modules fixed-output hash after a package.json/bun.lock
+# change.
+#
+# ui/bun.lock pins per-OS and per-CPU binaries, so nix/ui.nix carries one hash
+# per system and this recipe rewrites the entry for the machine it runs on. The
+# dependency install stops with the hash it computed; that value is written back
+# here, so the next `nix build` verifies the pin instead of failing.
+update-ui-deps-hash:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+    echo "→ node_modules fixed-output hash for ${system}..."
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    nix build .#teldrive --no-link >"$log" 2>&1 || true
+    tail -n 15 "$log"
+    # Read the hash out of the mismatch report for the UI node_modules
+    # derivation only: a Go vendorHash mismatch prints a `got:` line as well,
+    # and the two are indistinguishable by position.
+    got=$(awk '
+      /hash mismatch in fixed-output derivation/ {
+        want = index($0, "teldrive-ui-node_modules") > 0
+        next
+      }
+      want && /got:/ {
+        sub(/.*got:[ \t]*/, "")
+        gsub(/[ \t\r]+$/, "")
+        print
+        exit
+      }
+    ' "$log")
+    if [ -z "$got" ]; then
+      echo "no node_modules mismatch reported — nothing to re-pin for ${system}" >&2
+      exit 0
+    fi
+    # Rewrite through a temp file so the recipe works with both GNU and BSD sed.
+    tmp=$(mktemp)
+    sed -E "s|\"${system}\" = [^;]*;|\"${system}\" = \"${got}\";|" nix/ui.nix > "$tmp"
+    mv "$tmp" nix/ui.nix
+    echo "  ${system} = ${got}"
+    echo "done — re-run nix build .#teldrive to verify"
 
 # Fast re-pin of the Go vendor hash without a full `nix build`.
 # Uses the nixpkgs-provided toolchain so the pinned hash always matches
 # what `nix build` will see — no host-toolchain drift, no content
 # mismatch. Still seconds, not minutes (only vendors). The hash lives in
-# nix/package.nix; the UI needs no hash at all since nix/ui.nix fetches its
-# dependencies through bun2nix.
+# nix/package.nix; the UI dependencies carry their own per-system hash in
+# nix/ui.nix, pinned by `just update-ui-deps-hash`.
 update-flake-hashes:
     #!/usr/bin/env bash
     set -euo pipefail
