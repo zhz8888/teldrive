@@ -12,6 +12,7 @@
         "astro": "^7.3.7",
         "fumadocs-core": "16.15.11",
         "fumadocs-ui": "npm:@fumadocs/base-ui@16.15.11",
+        "lucide-react": "^1.46.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "sharp": "^0.35.5",
