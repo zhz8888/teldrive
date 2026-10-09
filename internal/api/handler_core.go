@@ -617,7 +617,7 @@ func (h *Handler) HeadFile(ctx context.Context, params gen.HeadFileParams) (gen.
 		return nil, mapServiceError(catalog.ErrNotFound)
 	}
 	return &gen.HeadFileOK{
-		AcceptRanges: gen.HeadFileOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadFileOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }
@@ -641,7 +641,7 @@ func (h *Handler) HeadFileLegacy(ctx context.Context, params gen.HeadFileLegacyP
 		return nil, mapServiceError(catalog.ErrNotFound)
 	}
 	return &gen.HeadFileLegacyOK{
-		AcceptRanges: gen.HeadFileLegacyOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadFileLegacyOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }

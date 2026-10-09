@@ -74,6 +74,45 @@ func TestContentDisposition(t *testing.T) {
 	}
 }
 
+// TestIsActiveContentType pins the classifier that decides whether stored
+// content must be forced to download. It is deliberately conservative: an
+// attacker chooses the stored type, so anything that can carry script or markup
+// — HTML, SVG, XML and every "+xml" subtype — and anything that cannot be
+// classified at all counts as active.
+func TestIsActiveContentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		contentType string
+		want        bool
+	}{
+		{name: "html", contentType: "text/html", want: true},
+		{name: "html with parameters", contentType: "text/html; charset=utf-8", want: true},
+		{name: "uppercase html", contentType: "TEXT/HTML", want: true},
+		{name: "xhtml", contentType: "application/xhtml+xml", want: true},
+		{name: "svg", contentType: "image/svg+xml", want: true},
+		{name: "xml", contentType: "application/xml", want: true},
+		{name: "text xml", contentType: "text/xml", want: true},
+		{name: "other xml subtype", contentType: "application/atom+xml", want: true},
+		{name: "empty", contentType: "", want: true},
+		{name: "unparseable", contentType: "not a media type", want: true},
+		{name: "plain text", contentType: "text/plain", want: false},
+		{name: "pdf", contentType: "application/pdf", want: false},
+		{name: "png", contentType: "image/png", want: false},
+		{name: "octet stream", contentType: "application/octet-stream", want: false},
+		{name: "json", contentType: "application/json", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isActiveContentType(test.contentType); got != test.want {
+				t.Fatalf("isActiveContentType(%q) = %t, want %t", test.contentType, got, test.want)
+			}
+		})
+	}
+}
+
 func TestErrorHandlerIgnoresClientCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +152,7 @@ func TestMapServiceErrorStatuses(t *testing.T) {
 		{name: "no selected channel", err: channels.ErrNoSelected, wantStatus: http.StatusConflict, wantCode: "conflict"},
 		{name: "invalid job state", err: jobs.ErrInvalidJobState, wantStatus: http.StatusConflict, wantCode: "conflict"},
 		{name: "missing encryption key", err: transfer.ErrEncryptionKey, wantStatus: http.StatusServiceUnavailable, wantCode: "service_unavailable"},
+		{name: "job runtime without a client", err: jobs.ErrRuntimeNotConfigured, wantStatus: http.StatusServiceUnavailable, wantCode: "service_unavailable"},
 		{name: "invalid login state", err: authn.ErrLoginStateInvalid, wantStatus: http.StatusUnprocessableEntity, wantCode: "invalid_request"},
 		{name: "password required", err: authn.ErrPasswordRequired, wantStatus: http.StatusUnprocessableEntity, wantCode: "invalid_request"},
 		{name: "invalid list filter", err: catalog.ErrInvalidFilter, wantStatus: http.StatusUnprocessableEntity, wantCode: "invalid_request"},

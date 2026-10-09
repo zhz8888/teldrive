@@ -811,7 +811,7 @@ func (h *Handler) HeadPublicShare(ctx context.Context, params gen.HeadPublicShar
 		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareOK{
-		AcceptRanges: gen.HeadPublicShareOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadPublicShareOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }
@@ -831,7 +831,7 @@ func (h *Handler) HeadPublicShareLegacy(ctx context.Context, params gen.HeadPubl
 		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareLegacyOK{
-		AcceptRanges: gen.HeadPublicShareLegacyOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadPublicShareLegacyOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }
@@ -852,7 +852,7 @@ func (h *Handler) HeadPublicShareFile(ctx context.Context, params gen.HeadPublic
 		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareFileOK{
-		AcceptRanges: gen.HeadPublicShareFileOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadPublicShareFileOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }
@@ -872,7 +872,7 @@ func (h *Handler) HeadPublicShareFileLegacy(ctx context.Context, params gen.Head
 		return nil, rejectUndownloadable()
 	}
 	return &gen.HeadPublicShareFileLegacyOK{
-		AcceptRanges: gen.HeadPublicShareFileLegacyOKAcceptRanges("bytes"), ContentDisposition: contentDisposition(file.Name, false),
+		AcceptRanges: gen.HeadPublicShareFileLegacyOKAcceptRanges("bytes"), ContentDisposition: headContentDisposition(file.Name, file.MimeType),
 		ContentLength: file.Size.Int64, Etag: contentETag(file), LastModified: file.ModTime.Time,
 	}, nil
 }

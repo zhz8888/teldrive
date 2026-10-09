@@ -108,7 +108,9 @@ func (h *RawHandler) DownloadPublicShareLegacy(ctx context.Context, params gen.D
 
 // DownloadPublicShareFile streams a single file from inside a shared folder and
 // requires the file to live in the shared subtree. Like DownloadPublicShare it
-// reserves a download before streaming and honours Range and If-None-Match.
+// reserves a download before streaming and honours Range and If-None-Match, and
+// it charges the share it already resolved so a password-protected share costs
+// one bcrypt check per download instead of one per resolve call.
 func (h *RawHandler) DownloadPublicShareFile(ctx context.Context, params gen.DownloadPublicShareFileParams, w http.ResponseWriter) error {
 	if h.handler == nil || h.handler.Shares == nil || h.handler.Downloader == nil {
 		return mapServiceError(ErrOperationUnavailable)
@@ -126,7 +128,10 @@ func (h *RawHandler) DownloadPublicShareFile(ctx context.Context, params gen.Dow
 		w.WriteHeader(http.StatusNotModified)
 		return nil
 	}
-	resolved, err = h.handler.Shares.ReserveFileDownload(ctx, params.Token, password, fileID)
+	// ReserveFileDownload would resolve the same token a second time, and the
+	// second bcrypt derivation is what makes CPU exhaustion cheap for whoever
+	// holds the link, so the already-verified share is charged instead.
+	resolved, err = h.handler.Shares.ReserveResolvedDownload(ctx, resolved)
 	if err != nil {
 		return mapServiceError(err)
 	}
@@ -150,6 +155,12 @@ func (h *RawHandler) DownloadPublicShareFileLegacy(ctx context.Context, params g
 // announced in Content-Length. Once the status line is written the response
 // cannot be replaced, so a failed copy is only visible to the client as a short
 // body and is logged instead; the content reader is always closed.
+//
+// This is the single exit for stored content, so the response is hardened here:
+// every body carries nosniff and a sandbox CSP, and a content type a browser
+// could execute is sent as an attachment even when the client asked for inline
+// rendering. Together they keep an uploaded HTML or SVG file from running script
+// in this application's origin, where it would inherit the viewer's session.
 func (h *RawHandler) streamFile(ctx context.Context, w http.ResponseWriter, userID int64, fileID uuid.UUID, file *sqlcgen.File, rangeValue gen.OptString, noneMatch gen.OptETag, attachment bool) error {
 	if file.Kind != sqlcgen.FileKindFile || file.Status != sqlcgen.FileStatusActive || !file.Size.Valid || file.Size.Int64 < 0 {
 		return rejectUndownloadable()
@@ -179,8 +190,12 @@ func (h *RawHandler) streamFile(ctx context.Context, w http.ResponseWriter, user
 		status = http.StatusPartialContent
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeSpec.Offset, rangeSpec.Offset+rangeSpec.Length-1, download.TotalSize))
 	}
+	contentSecurityHeaders(w)
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Disposition", contentDisposition(file.Name, attachment))
+	// The stored content type is attacker-controlled — it is whatever the
+	// uploader declared — so an active type is forced to download whatever the
+	// client asked for, which keeps a browser from rendering it in this origin.
+	w.Header().Set("Content-Disposition", contentDisposition(file.Name, attachment || isActiveContentType(download.ContentType)))
 	w.Header().Set("Content-Length", strconv.FormatInt(rangeSpec.Length, 10))
 	w.Header().Set("Content-Type", download.ContentType)
 	w.Header().Set("ETag", string(etag))

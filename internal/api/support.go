@@ -103,10 +103,11 @@ func problem(status int, code, message string, cause error) error {
 // generations, 413 an oversized Telegram profile photo, 416 unsatisfiable ranges,
 // 422 for invalid input, an invalid event cursor, a requested file operation on a
 // non-file, an upload body that does not match its declared length, or a hash
-// mismatch, 429 too many event streams, 503 an unavailable service or a missing
-// encryption key, 504 for a deadline that expired, and 500 as the fallback with
-// the cause hidden from the client. Each expired resource keeps its own code, so
-// clients can tell an expired upload session from an expired login flow or share.
+// mismatch, 429 too many event streams, 503 an unavailable service, a missing
+// encryption key or a job runtime without a client, 504 for a deadline that
+// expired, and 500 as the fallback with the cause hidden from the client. Each
+// expired resource keeps its own code, so clients can tell an expired upload
+// session from an expired login flow or share.
 // Nil and context.Canceled pass through unchanged, because a cancelled request has
 // no client left to answer. The original error stays reachable as Cause.
 func mapServiceError(err error) error {
@@ -143,7 +144,7 @@ func mapServiceError(err error) error {
 		return problem(http.StatusTooManyRequests, "channel_allocation_busy", "another upload is already allocating channel capacity", err)
 	case errors.Is(err, shares.ErrTooManyAttempts):
 		return problem(http.StatusTooManyRequests, "share_password_throttled", "too many wrong share passwords, try again later", err)
-	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured), errors.Is(err, transfer.ErrEncryptionKey):
+	case errors.Is(err, events.ErrServiceClosed), errors.Is(err, ErrOperationUnavailable), errors.Is(err, transfer.ErrUploadNotConfigured), errors.Is(err, transfer.ErrDownloadNotConfigured), errors.Is(err, transfer.ErrEncryptionKey), errors.Is(err, jobs.ErrRuntimeNotConfigured):
 		return problem(http.StatusServiceUnavailable, "service_unavailable", "operation is not available", err)
 	case errors.Is(err, catalog.ErrNotFound), errors.Is(err, uploads.ErrNotFound), errors.Is(err, authn.ErrSessionNotFound), errors.Is(err, authn.ErrAPIKeyNotFound), errors.Is(err, authn.ErrUserNotFound), errors.Is(err, bots.ErrNotFound), errors.Is(err, channels.ErrInvalidChannel), errors.Is(err, channels.ErrInvalidOwner), errors.Is(err, shares.ErrNotFound), errors.Is(err, fileops.ErrNotFound):
 		return problem(http.StatusNotFound, "not_found", "resource was not found", err)
@@ -529,7 +530,8 @@ func parseRange(value gen.OptString, size int64) (byteRange, bool, error) {
 }
 
 // contentDisposition renders the Content-Disposition header for a file name,
-// choosing attachment when the client asked for a download and inline otherwise.
+// choosing attachment when the body must not be rendered inline — the client
+// asked for a download, or the content type is active — and inline otherwise.
 // mime.FormatMediaType percent-encodes any name as an RFC 2231 parameter and
 // returns an empty value only for a media type or parameter name that is not a
 // token, so the fallback to the bare disposition is unreachable for the
@@ -544,4 +546,61 @@ func contentDisposition(name string, attachment bool) string {
 		return disposition
 	}
 	return value
+}
+
+// headContentDisposition renders the Content-Disposition a HEAD response advertises
+// for a stored file, using the rule the streaming handler applies to the body: a
+// media type a browser would treat as active is advertised as an attachment. A HEAD
+// response carries no body, so it cannot execute anything itself, but it must not
+// advertise a disposition the GET of the same file would contradict. A blank or
+// invalid stored type falls back to application/octet-stream, which is exactly the
+// type the download path serves for such a row.
+func headContentDisposition(name string, mimeType pgtype.Text) string {
+	contentType := "application/octet-stream"
+	if mimeType.Valid && strings.TrimSpace(mimeType.String) != "" {
+		contentType = mimeType.String
+	}
+	return contentDisposition(name, isActiveContentType(contentType))
+}
+
+// activeContentTypes are the media types a browser treats as active content: it
+// executes their script or parses their markup as part of the document it
+// rendered them in. A stored file's type is whatever the uploader declared, so
+// serving one of these inline would let an upload run in the application's own
+// origin with the viewer's session. The "+xml" suffix rule is applied separately
+// in isActiveContentType.
+var activeContentTypes = map[string]struct{}{
+	"application/xhtml+xml": {},
+	"application/xml":       {},
+	"image/svg+xml":         {},
+	"text/html":             {},
+	"text/xml":              {},
+}
+
+// isActiveContentType reports whether a stored content type may execute script
+// or markup when a browser renders it inline, and therefore must be sent as an
+// attachment. The value comes from the upload and is attacker-controlled, so the
+// decision is conservative: parameters are ignored ("text/html; charset=utf-8"
+// is still HTML), any "+xml" subtype counts as XML because it carries the same
+// scripting risk (RFC 6839), and a value that does not parse as a media type is
+// treated as active because it cannot be classified as safe.
+func isActiveContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return true
+	}
+	if _, active := activeContentTypes[mediaType]; active {
+		return true
+	}
+	return strings.HasSuffix(mediaType, "+xml")
+}
+
+// contentSecurityHeaders hardens a response that carries stored file content:
+// nosniff stops a browser from reinterpreting the body as a type this handler did
+// not intend, and the sandbox policy denies the response every origin privilege —
+// scripts, forms and same-origin requests — so a body that a browser still
+// renders inline cannot act as the application.
+func contentSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
