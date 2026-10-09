@@ -103,6 +103,18 @@ build: generate-ui
     mkdir -p bin
     CGO_ENABLED=0 go build -trimpath -ldflags '{{ldflags}}' -o {{binary}} ./cmd/teldrive
 
+# Compile the UI bundle the server embeds.
+ui-build:
+    # ui/ui.go embeds ui/dist through //go:embed all:dist, and the repository
+    # tracks only ui/dist/.gitkeep so that a fresh checkout compiles before the
+    # interface has ever been built. Every recipe that runs the Go suite has to
+    # compile the bundle first: without it internal/app's embedded-UI guard fails
+    # with "inspect embedded UI index: open index.html: file does not exist",
+    # which is what a gate that ran its tests before its build hit on CI.
+    # Depending on this recipe instead of repeating the command also keeps `just`
+    # from building the bundle twice in one invocation.
+    bun run --cwd {{ui_dir}} build
+
 # Regenerate the Nix module options from the Go config structs.
 nix-generate:
     go run ./internal/tools/nixconfig
@@ -195,22 +207,26 @@ dev:
 image:
     "$(./scripts/container-runtime.sh)" build --build-arg VERSION={{version}} --build-arg COMMIT={{commit}} --build-arg BUILD_DATE={{build_date}} -t teldrive-backend:{{version}} .
 
-test-unit:
+# Run the Go unit suite; the embedded UI has to exist first, so build it.
+test-unit: ui-build
     go test ./...
 
-test-integration:
+test-integration: ui-build
     ./scripts/test-postgres.sh go test -tags=integration ./...
 
-test-race:
+test-race: ui-build
     ./scripts/test-postgres.sh go test -race -tags=integration ./...
 
-coverage:
+coverage: ui-build
     ./scripts/coverage.sh
 
+# Run the full gate a contributor and CI both use.
 check: generate lint test-unit coverage
+    # The UI build comes from test-unit's ui-build dependency, before the Go suite
+    # runs: it is what rewrites the tracked route tree the drift check compares, and
+    # the Go suite cannot pass without the bundle it embeds.
     bun run --cwd {{ui_dir}} typecheck
     bun run --cwd {{ui_dir}} test
-    bun run --cwd {{ui_dir}} build
     bun run --cwd {{docs_dir}} build
 
 clean-generated: clean-db
