@@ -3,7 +3,7 @@ import { render, type CollectionEntry } from 'astro:content';
 import { Docs } from './docs';
 import { getMdxComponents } from './mdx';
 import '../styles/global.css';
-import { getLocaleSource, localizedURL } from '../lib/source';
+import { getLocaleSource, localizedTree, localizedURL } from '../lib/source';
 import { getPageImageUrl } from '../lib/shared';
 import Layout from './layout.astro';
 import type { LocaleCode } from '../lib/i18n';
@@ -19,8 +19,11 @@ interface Props {
 
 const { page, locale } = Astro.props;
 
-// The locale's own page tree, so navigation stays inside one language.
+// The locale's own page tree, so navigation stays inside one language. The
+// sidebar needs the localized URLs: the bare tree keeps the English paths, and
+// its pages are what the neighbour lookup below matches against.
 const { source, tree } = await getLocaleSource(locale);
+const sidebarTree = localizedTree(locale);
 // The compiled MDX body and the headings that become the table of contents.
 const { Content, headings } = await render(page);
 const mdxComponents = getMdxComponents(locale);
@@ -60,7 +63,7 @@ const isChinese = locale === 'zh';
   <meta name="description" content={page.data.description} />
   <meta property="og:image" content={image} />
   <Docs
-    tree={tree}
+    tree={sidebarTree}
     pathname={Astro.url.pathname}
     params={Astro.params}
     locale={locale}

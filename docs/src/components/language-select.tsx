@@ -1,4 +1,4 @@
-import { localeCodes, locales, localizedPath, type LocaleCode } from '../lib/i18n';
+import { localeCodes, locales, localeFromPath, localizedPath } from '../lib/i18n';
 
 /**
  * Language switcher for the docs navbar. Every locale keeps the same slug, so
@@ -6,7 +6,7 @@ import { localeCodes, locales, localizedPath, type LocaleCode } from '../lib/i18
  * they were reading, in the other language.
  */
 export function LocaleSwitcher({ pathname }: { pathname: string }) {
-  const current = currentLocale(pathname);
+  const current = localeFromPath(pathname);
 
   return (
     <nav aria-label="Language" className="flex items-center gap-1 text-sm">
@@ -31,14 +31,4 @@ export function LocaleSwitcher({ pathname }: { pathname: string }) {
       })}
     </nav>
   );
-}
-
-/**
- * Reads the locale from the first segment of a site pathname; an unprefixed
- * path (every English page) falls back to English. Mirrors localeFromPath in
- * lib/i18n.ts.
- */
-function currentLocale(pathname: string): LocaleCode {
-  const [, first] = pathname.replace(/^\//, '').split('/');
-  return first in locales ? (first as LocaleCode) : 'en';
 }
