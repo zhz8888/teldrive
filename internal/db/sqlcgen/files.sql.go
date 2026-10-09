@@ -421,6 +421,7 @@ WITH RECURSIVE ancestors AS (
   FROM /* TEMPLATE: schema */files AS parent
   JOIN ancestors AS child ON parent.id = child.parent_id
   WHERE parent.user_id = $2
+    AND parent.status = 'active'
 )
 SELECT id FROM ancestors
 `
@@ -430,8 +431,11 @@ type ListFileAncestorIDsParams struct {
 	UserID int64       `json:"user_id"`
 }
 
-// ListFileAncestorIDs returns the file and every ancestor above it up to the root,
-// scoped to the user, as an unordered id list; an unknown file yields no rows.
+// ListFileAncestorIDs returns the file and every active ancestor above it up to the
+// root, scoped to the user, as an unordered id list; an unknown file yields no rows.
+// The walk stops at the first ancestor that is not active, so a file that hangs below
+// a trashed or deletion_pending folder never reports that folder's own ancestors and
+// its chain cannot reach a share root the caller is no longer entitled to.
 func (q *Queries) ListFileAncestorIDs(ctx context.Context, arg ListFileAncestorIDsParams) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, listFileAncestorIDs, arg.FileID, arg.UserID)
 	if err != nil {
@@ -1244,6 +1248,7 @@ FROM /* TEMPLATE: schema */files
 WHERE user_id = $1
   AND id = ANY($2::uuid[])
   AND status = 'active'
+ORDER BY id
 FOR UPDATE
 `
 
@@ -1253,7 +1258,11 @@ type LockActiveFilesParams struct {
 }
 
 // LockActiveFiles row-locks the user's active files with the given ids for the rest of
-// the transaction and returns them; ids that are not active are not locked.
+// the transaction and returns them; ids that are not active are not locked. The rows are
+// locked in id order because the lock is a mutex over the whole set of concurrently
+// moving entries: a statement without ORDER BY locks rows in whatever order its plan
+// produces them, so two moves that name the same two folders in opposite roles could
+// still take their row locks in opposite orders and deadlock.
 func (q *Queries) LockActiveFiles(ctx context.Context, arg LockActiveFilesParams) ([]*File, error) {
 	rows, err := q.db.Query(ctx, lockActiveFiles, arg.UserID, arg.FileIds)
 	if err != nil {

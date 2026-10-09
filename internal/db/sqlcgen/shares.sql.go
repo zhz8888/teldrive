@@ -573,6 +573,7 @@ WITH RECURSIVE params AS (
   FROM /* TEMPLATE: schema */files AS parent
   JOIN ancestors ON parent.id = ancestors.parent_id
   WHERE parent.user_id = ancestors.owner_id
+    AND parent.status = 'active'
 ), candidates AS (
   SELECT ancestors.target_file_id,
          ancestors.owner_id,
@@ -625,9 +626,11 @@ type ResolveFileAccessManyRow struct {
 }
 
 // ResolveFileAccessMany resolves the actor's access to each requested active file id:
-// ownership counts as edit, a live grant on the file or any ancestor contributes its
-// permission (edit only when require_edit is set), and one best row per file is
-// returned, preferring owned, then edit, then the most recent grant.
+// ownership counts as edit, a live grant on the file or any active ancestor contributes
+// its permission (edit only when require_edit is set), and one best row per file is
+// returned, preferring owned, then edit, then the most recent grant. The ancestor walk
+// stops at the first folder that is not active, so a grant higher up the tree cannot
+// authorize an entry that hangs below a trashed or deletion_pending folder.
 func (q *Queries) ResolveFileAccessMany(ctx context.Context, arg ResolveFileAccessManyParams) ([]*ResolveFileAccessManyRow, error) {
 	rows, err := q.db.Query(ctx, resolveFileAccessMany, arg.FileIds, arg.ActorID, arg.RequireEdit)
 	if err != nil {

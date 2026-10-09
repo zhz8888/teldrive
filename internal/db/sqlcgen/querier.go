@@ -255,8 +255,11 @@ type Querier interface {
 	// ListFileAccessGrantsForOwner lists the live grants on one of the owner's files with
 	// the grantee's display name and username, newest first.
 	ListFileAccessGrantsForOwner(ctx context.Context, arg ListFileAccessGrantsForOwnerParams) ([]*ListFileAccessGrantsForOwnerRow, error)
-	// ListFileAncestorIDs returns the file and every ancestor above it up to the root,
-	// scoped to the user, as an unordered id list; an unknown file yields no rows.
+	// ListFileAncestorIDs returns the file and every active ancestor above it up to the
+	// root, scoped to the user, as an unordered id list; an unknown file yields no rows.
+	// The walk stops at the first ancestor that is not active, so a file that hangs below
+	// a trashed or deletion_pending folder never reports that folder's own ancestors and
+	// its chain cannot reach a share root the caller is no longer entitled to.
 	ListFileAncestorIDs(ctx context.Context, arg ListFileAncestorIDsParams) ([]pgtype.UUID, error)
 	// ListFileCategoryStatistics counts and sums the user's active files per category
 	// (image, audio, video, document, archive, other), ordered by category name.
@@ -370,7 +373,11 @@ type Querier interface {
 	// index on active child names.
 	LockActiveDestinationEntries(ctx context.Context, arg LockActiveDestinationEntriesParams) ([]*LockActiveDestinationEntriesRow, error)
 	// LockActiveFiles row-locks the user's active files with the given ids for the rest of
-	// the transaction and returns them; ids that are not active are not locked.
+	// the transaction and returns them; ids that are not active are not locked. The rows are
+	// locked in id order because the lock is a mutex over the whole set of concurrently
+	// moving entries: a statement without ORDER BY locks rows in whatever order its plan
+	// produces them, so two moves that name the same two folders in opposite roles could
+	// still take their row locks in opposite orders and deadlock.
 	LockActiveFiles(ctx context.Context, arg LockActiveFilesParams) ([]*File, error)
 	// LockActiveFolder row-locks one active folder of the user for the rest of the
 	// transaction and returns it; a trashed or foreign folder returns no row.
@@ -450,9 +457,11 @@ type Querier interface {
 	// the given parent, NULL meaning the drive root, used to resolve one path component.
 	ResolveActiveChildFolder(ctx context.Context, arg ResolveActiveChildFolderParams) (pgtype.UUID, error)
 	// ResolveFileAccessMany resolves the actor's access to each requested active file id:
-	// ownership counts as edit, a live grant on the file or any ancestor contributes its
-	// permission (edit only when require_edit is set), and one best row per file is
-	// returned, preferring owned, then edit, then the most recent grant.
+	// ownership counts as edit, a live grant on the file or any active ancestor contributes
+	// its permission (edit only when require_edit is set), and one best row per file is
+	// returned, preferring owned, then edit, then the most recent grant. The ancestor walk
+	// stops at the first folder that is not active, so a grant higher up the tree cannot
+	// authorize an entry that hangs below a trashed or deletion_pending folder.
 	ResolveFileAccessMany(ctx context.Context, arg ResolveFileAccessManyParams) ([]*ResolveFileAccessManyRow, error)
 	// RestoreFileSubtree restores one trashed file and its trashed descendants to active
 	// and returns every row it changed; the root is accepted only when its parent is
