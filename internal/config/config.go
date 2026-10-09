@@ -78,9 +78,10 @@ type TelegramMTProxy struct {
 // the concurrency of upload and download workers. Backend selects between the
 // real Telegram API and a local filesystem emulator.
 type Telegram struct {
-	// Backend picks the storage implementation; the app trims and lowercases it,
-	// so "Remote" works, and the tag rejects anything but remote or filesystem.
-	Backend string `koanf:"backend" default:"remote" validate:"oneof=remote filesystem" description:"Telegram backend: remote or filesystem"`
+	// Backend picks the storage implementation; the loader trims and lowercases it
+	// before validation, so "Remote" works, and the tag rejects anything but remote
+	// or filesystem.
+	Backend string `koanf:"backend" default:"remote" validate:"oneofci=remote filesystem" description:"Telegram backend: remote or filesystem"`
 	// LocalRoot is the directory the filesystem emulator stores content under; a
 	// leading "~" is expanded by the app, and a blank value is only rejected
 	// while Backend is filesystem.
@@ -221,8 +222,10 @@ type Security struct {
 // application logger.
 type Logging struct {
 	// LogLevel is parsed by slog's level parser after trimming, so the four
-	// names are matched case-insensitively; an unknown value stops startup.
-	LogLevel string `koanf:"log-level" default:"info" validate:"oneof=debug info warn error" description:"Log level: debug, info, warn, or error"`
+	// names are matched case-insensitively; the loader lowercases the value before
+	// validation so the tag accepts the same spellings, and an unknown value stops
+	// startup.
+	LogLevel string `koanf:"log-level" default:"info" validate:"oneofci=debug info warn error" description:"Log level: debug, info, warn, or error"`
 	// LogFormat selects the handler: json (also the empty value) or text, which
 	// colors its output only when stdout is a terminal.
 	LogFormat string `koanf:"log-format" default:"text" validate:"oneof=json text" description:"Log format: json or text"`
@@ -358,6 +361,18 @@ func Default() Config {
 	return cfg
 }
 
+// normalizeAllowedUsername normalises one allow-list entry exactly the way the
+// login path does: surrounding whitespace is trimmed, one leading "@" is dropped,
+// the remainder is trimmed again, and the result is lowercased. Validation only
+// needs the emptiness decision, but the order matters: trimming before the leading
+// "@" is stripped, as an earlier version did, let an entry such as " @" pass here
+// while the login path dropped it as blank, and a list whose entries are all
+// dropped becomes empty, which the login path reads as "permit every account". The
+// login path cannot share this helper because its package imports this one.
+func normalizeAllowedUsername(value string) string {
+	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "@")))
+}
+
 // Validate checks the rules that the `validate` struct tags cannot express:
 // a non-empty data key, connection-pool ordering, trusted-proxy syntax, the
 // exclusivity of MTProxy and Proxy, encryption-key consistency, allowed
@@ -418,7 +433,12 @@ func (c Config) Validate() error {
 	}
 
 	for _, username := range c.Security.AllowedUsers {
-		if strings.TrimSpace(strings.TrimPrefix(username, "@")) == "" {
+		// The entry is normalised exactly the way the login path normalises it
+		// (trim, strip one leading "@", trim again), so an entry that trims down
+		// to nothing is refused here. Accepting it would let the login path drop
+		// it silently, and an allow-list that drops every entry becomes empty,
+		// which the login path reads as "permit every account".
+		if normalizeAllowedUsername(username) == "" {
 			problems = append(problems, "security allowed users cannot contain an empty username")
 			break
 		}

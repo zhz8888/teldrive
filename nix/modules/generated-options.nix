@@ -97,7 +97,7 @@
     "backend" = lib.mkOption {
       type = lib.types.nullOr (lib.types.str);
       default = null;
-      description = "Telegram backend: remote or filesystem (Default: remote) [validate: oneof=remote filesystem]";
+      description = "Telegram backend: remote or filesystem (Default: remote) [validate: oneofci=remote filesystem]";
     };
     "local-root" = lib.mkOption {
       type = lib.types.nullOr (lib.types.str);
@@ -300,7 +300,7 @@
     "log-level" = lib.mkOption {
       type = lib.types.nullOr (lib.types.str);
       default = null;
-      description = "Log level: debug, info, warn, or error (Default: info) [validate: oneof=debug info warn error]";
+      description = "Log level: debug, info, warn, or error (Default: info) [validate: oneofci=debug info warn error]";
     };
     "log-format" = lib.mkOption {
       type = lib.types.nullOr (lib.types.str);

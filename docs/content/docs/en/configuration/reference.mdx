@@ -69,7 +69,7 @@ The **Default** column is the runtime default, not a production recommendation.
 | Config key | CLI flag | Environment variable | Default | Validation | Description |
 | --- | --- | --- | --- | --- | --- |
 | `logging.log-format` | `--logging-log-format` | `TELDRIVE_LOGGING_LOG_FORMAT` | `text` | `oneof=json text` | Log format: json or text |
-| `logging.log-level` | `--logging-log-level` | `TELDRIVE_LOGGING_LOG_LEVEL` | `info` | `oneof=debug info warn error` | Log level: debug, info, warn, or error |
+| `logging.log-level` | `--logging-log-level` | `TELDRIVE_LOGGING_LOG_LEVEL` | `info` | `oneofci=debug info warn error` | Log level: debug, info, warn, or error |
 ## Security
 
 | Config key | CLI flag | Environment variable | Default | Validation | Description |
@@ -89,7 +89,7 @@ The **Default** column is the runtime default, not a production recommendation.
 | `telegram.app-id` | `--telegram-app-id` | `TELDRIVE_TELEGRAM_APP_ID` | `2496` | `required_if=Backend remote,omitempty,gt=0` | Telegram application ID |
 | `telegram.app-version` | `--telegram-app-version` | `TELDRIVE_TELEGRAM_APP_VERSION` | `6.1.4 K` | `required` | Telegram client application version |
 | `telegram.auto-channel-create` | `--telegram-auto-channel-create` | `TELDRIVE_TELEGRAM_AUTO_CHANNEL_CREATE` | `true` | — | Create storage channels automatically |
-| `telegram.backend` | `--telegram-backend` | `TELDRIVE_TELEGRAM_BACKEND` | `remote` | `oneof=remote filesystem` | Telegram backend: remote or filesystem |
+| `telegram.backend` | `--telegram-backend` | `TELDRIVE_TELEGRAM_BACKEND` | `remote` | `oneofci=remote filesystem` | Telegram backend: remote or filesystem |
 | `telegram.bot-rotation-backend` | `--telegram-bot-rotation-backend` | `TELDRIVE_TELEGRAM_BOT_ROTATION_BACKEND` | `memory` | `oneof=memory database` | Bot rotation backend: memory for single-instance speed or database for cluster-wide coordination |
 | `telegram.channel-name-prefix` | `--telegram-channel-name-prefix` | `TELDRIVE_TELEGRAM_CHANNEL_NAME_PREFIX` | `teldrive` | `required` | Prefix for automatically created channels |
 | `telegram.channel-part-limit` | `--telegram-channel-part-limit` | `TELDRIVE_TELEGRAM_CHANNEL_PART_LIMIT` | `500000` | `gt=0` | Maximum parts stored in one Telegram channel |

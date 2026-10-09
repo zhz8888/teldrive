@@ -63,6 +63,32 @@ func TestValidateRejectsInvalidTrustedProxy(t *testing.T) {
 	}
 }
 
+// TestValidateRejectsAllowedUsersEntryThatTheLoginPathWouldDrop guards the
+// normalization order: " @" keeps a non-blank trimmed form under the old check but
+// the login path drops it as blank, and a list that loses every entry becomes an
+// empty allow-list, which the login path reads as "permit every account".
+func TestValidateRejectsAllowedUsersEntryThatTheLoginPathWouldDrop(t *testing.T) {
+	t.Parallel()
+	for _, entry := range []string{" @", "  @  ", "   "} {
+		cfg := validTestConfig()
+		cfg.Security.AllowedUsers = []string{entry}
+		if err := cfg.Validate(); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "allowed users") {
+			t.Fatalf("Validate() with allow-list entry %q error = %v", entry, err)
+		}
+	}
+}
+
+// TestValidateAcceptsAllowedUsersThatSurviveNormalization keeps the guard from
+// rejecting entries the login path keeps, including a leading "@" and padding.
+func TestValidateAcceptsAllowedUsersThatSurviveNormalization(t *testing.T) {
+	t.Parallel()
+	cfg := validTestConfig()
+	cfg.Security.AllowedUsers = []string{" @Alice ", "bob"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestLoadFromAppliesEnvironment(t *testing.T) {
 	t.Parallel()
 	values := map[string]string{

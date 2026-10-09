@@ -165,6 +165,12 @@ func (l *Loader) Load(flags *pflag.FlagSet) (Config, error) {
 	if err := k.UnmarshalWithConf("", &cfg, unmarshal); err != nil {
 		return Config{}, fmt.Errorf("%w: decode configuration: %v", ErrInvalid, err)
 	}
+	// Backend and LogLevel are the two settings whose consumers accept any casing,
+	// so the loader canonicalises them before validation: the oneofci tags accept
+	// "Remote", and the required_if rules that compare Backend against "remote" and
+	// "filesystem" then see the same lowercased value the rest of the program uses.
+	cfg.Telegram.Backend = strings.ToLower(strings.TrimSpace(cfg.Telegram.Backend))
+	cfg.Logging.LogLevel = strings.ToLower(strings.TrimSpace(cfg.Logging.LogLevel))
 	if cfg.Encryption.Keys == nil {
 		cfg.Encryption.Keys = map[int32]string{}
 	}
