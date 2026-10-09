@@ -256,9 +256,56 @@ function AudioViewer({ file, url }: { file: FileEntry; url: string }) {
   );
 }
 
+/** Leading bytes of a text file the preview reads; the rest of it stays unread. */
+const TEXT_PREVIEW_BYTES = 1_048_576;
+
 /**
- * Fetches the file as text and shows it in a monospaced block, truncated to the
- * first million characters so a huge log cannot lock up the tab.
+ * Reads the leading bytes of `url` as UTF-8 text. The request asks for exactly
+ * that byte range, and a server that ignores the header and answers 200 with the
+ * whole body is cut off client-side once the same number of bytes has arrived,
+ * so a gigabyte log cannot fill the tab's memory before the preview truncates it.
+ */
+async function fetchTextPreview(url: string, signal: AbortSignal) {
+  const response = await fetch(url, {
+    signal,
+    headers: { Range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` },
+  });
+  // A range that starts at byte 0 is only unsatisfiable for a file that has no
+  // bytes at all, and an empty file previews as empty rather than as an error.
+  if (response.status === 416) return "";
+  // A failed request answers with an error envelope; showing it as the
+  // document body would make the reader look like the file's content.
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    throw normalizeApiError(body, response);
+  }
+  const decoder = new TextDecoder("utf-8");
+  if (!response.body) return decoder.decode(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  let remaining = TEXT_PREVIEW_BYTES;
+  let text = "";
+  while (remaining > 0) {
+    const { done, value } = await reader.read();
+    // The response ended on its own, so the decoder may flush: a trailing
+    // multi-byte character cannot have been cut in half by the preview limit.
+    if (done) {
+      text += decoder.decode();
+      break;
+    }
+    const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+    remaining -= chunk.byteLength;
+    // Decoding as a stream keeps a multi-byte character that a chunk boundary
+    // splits, or that the limit cuts short, out of the text instead of rendering
+    // it as U+FFFD: the bytes held back at the limit are simply dropped.
+    text += decoder.decode(chunk, { stream: true });
+    if (remaining === 0) await reader.cancel();
+  }
+  return text;
+}
+
+/**
+ * Shows the file's opening bytes in a monospaced block, so a huge log cannot
+ * lock up the tab.
  */
 function TextViewer({ url }: { url: string }) {
   const { t } = useI18n();
@@ -266,17 +313,8 @@ function TextViewer({ url }: { url: string }) {
   const [error, setError] = useState<string>();
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(url, { signal: controller.signal })
-      .then(async (response) => {
-        // A failed request answers with an error envelope; showing it as the
-        // document body would make the reader look like the file's content.
-        if (!response.ok) {
-          const body = await response.json().catch(() => undefined);
-          throw normalizeApiError(body, response);
-        }
-        return response.text();
-      })
-      .then((value) => setText(value.slice(0, 1_000_000)))
+    void fetchTextPreview(url, controller.signal)
+      .then(setText)
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) setError(userMessage(reason));
       });

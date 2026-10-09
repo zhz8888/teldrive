@@ -289,20 +289,29 @@ export function UploadShelf() {
   const tasks = useUploadStore((state) => state.tasks);
   const clearCompleted = useUploadStore((state) => state.clearCompleted);
   const [expanded, setExpanded] = useState(true);
+  // The tree's expansion is controlled, because react-aria reads a default only
+  // once, on mount: a batch queued after the shelf appeared would otherwise stay
+  // folded. Storing the user's two choices rather than the expansion itself keeps
+  // every key that starts open — a batch queued later included — expanded, and
+  // keeps a fold the user made by hand folded.
+  const [foldedKeys, setFoldedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [openedKeys, setOpenedKeys] = useState<ReadonlySet<string>>(() => new Set());
   if (tasks.length === 0) return null;
 
   const tree = buildTree(tasks);
   const summary = summarize(tasks);
   const active = tasks.filter((task) => !["completed", "cancelled"].includes(task.status)).length;
   const failed = tasks.filter((task) => task.status === "failed").length;
-  // The tree tracks expansion itself, so this is read on mount only: batches and
-  // their folders start open, files are leaves and stay that way.
-  const expandedKeys = new Set(
-    tree.flatMap((batch) => [
-      batch.id,
-      ...batch.children.filter((node) => node.kind === "folder").map((node) => node.id),
-    ]),
-  );
+  // A batch and the folders directly under it start open, and files are leaves
+  // with nothing to expand.
+  const defaultOpenKeys = tree.flatMap((batch) => [
+    batch.id,
+    ...batch.children.filter((node) => node.kind === "folder").map((node) => node.id),
+  ]);
+  // Every key that starts open stays open unless the user folded it; `openedKeys`
+  // carries the hand-made choices for keys that do not start open, such as a
+  // folder nested below the ones above.
+  const expandedKeys = [...defaultOpenKeys, ...openedKeys].filter((key) => !foldedKeys.has(key));
 
   return (
     <Card
@@ -357,7 +366,15 @@ export function UploadShelf() {
         <Card.Content className="max-h-[min(65vh,34rem)] overflow-y-auto px-2 pb-2">
           <Tree
             aria-label={t("components.uploadShelf.queue")}
-            defaultExpandedKeys={expandedKeys}
+            expandedKeys={expandedKeys}
+            onExpandedChange={(keys) => {
+              const open = new Set([...keys].map(String));
+              // A key that starts open is not a choice of the user's, so only the
+              // others are recorded as opened by hand; every key the user folded
+              // is recorded, which is what keeps that fold on the next render.
+              setOpenedKeys(new Set([...open].filter((key) => !defaultOpenKeys.includes(key))));
+              setFoldedKeys(new Set(defaultOpenKeys.filter((key) => !open.has(key))));
+            }}
             className="outline-none"
           >
             {tree.map((node) => (

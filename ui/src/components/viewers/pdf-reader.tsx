@@ -483,11 +483,12 @@ export function PdfReader({ file, url, onClose }: PdfReaderProps) {
     );
   };
 
-  // Commit the page box: a value that is not a number reverts to the page the
-  // viewer is actually on.
+  // Commit the page box: an empty box, a value that is not a number or one that
+  // falls outside the document reverts to the page the viewer is actually on.
   const commitPageDraft = () => {
+    const total = runtimeRef.current?.document.numPages ?? 0;
     const next = Number(pageDraft);
-    if (Number.isFinite(next)) goToPage(next);
+    if (pageDraft.trim() && Number.isInteger(next) && next >= 1 && next <= total) goToPage(next);
     else setPageDraft(String(pageNumber));
   };
 

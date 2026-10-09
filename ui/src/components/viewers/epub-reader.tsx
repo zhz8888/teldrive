@@ -91,7 +91,9 @@ type Location = { current?: number; total?: number };
  * when the reader is left by navigation rather than through the close button.
  * Everything the close path has to wait for (navigation, the in-flight open,
  * chapter fonts) is tracked in refs, because teardown must stay bounded: a
- * promise that never settles must not trap the reader open.
+ * promise that never settles must not trap the reader open. A close that
+ * outruns the open is handled by the loader itself, which releases the
+ * publication as soon as it exists.
  */
 export function EpubReader({ file, url, onClose }: EpubReaderProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -253,6 +255,22 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
       setLocation(event.detail.location || {});
     };
 
+    // Releases a publication that only came into existence after the reader had
+    // already closed: the close path and the unmount cleanup both ran while
+    // `element.book` was still absent, so neither of them had anything to
+    // destroy, and foliate keeps the book and its chapter blob URLs alive.
+    const releaseClosedPublication = (view: FoliateViewElement) => {
+      try {
+        closePublication(view);
+      } catch {
+        // `close()` destroys foliate's renderer and is not re-entrant: the
+        // paginator it built nulls its inner view, so a close that already
+        // reached this element makes the call throw. The book destroy it skipped
+        // is idempotent, and revoking those blob URLs is what actually matters.
+        view.book?.destroy?.();
+      }
+    };
+
     const open = async () => {
       setReady(false);
       setError(undefined);
@@ -283,7 +301,15 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
         onLoad,
         onRelocate,
       });
-      if (!activeRef.current) return;
+      // A close that arrived while the book was still parsing ran its teardown
+      // against an element that had no publication yet, and the unmount path
+      // only removes the element once it is marked closed. Without releasing the
+      // book here, the publication open() just finished would survive the reader
+      // (and the page) with its per-chapter blob URLs.
+      if (!activeRef.current) {
+        releaseClosedPublication(element);
+        return;
+      }
 
       const metadata = element.book?.metadata || {};
       const metadataTitle = typeof metadata.title === "string" ? metadata.title.trim() : "";
@@ -301,7 +327,12 @@ export function EpubReader({ file, url, onClose }: EpubReaderProps) {
             ? reason.message
             : translate("components.epubReader.openFailedFallback"),
         );
+        return;
       }
+      // A failed open that outlived the close releases what it had already built
+      // for the same reason the success path does; `element` is undefined when the
+      // failure came before the view was created.
+      if (element) releaseClosedPublication(element);
     });
 
     return () => {

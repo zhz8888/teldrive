@@ -129,8 +129,17 @@ export function BackgroundUploadDialog({
           throw new Error(t("components.backgroundUpload.sourceAbsolute", { index: index + 1 }));
         }
         if (source.type === "http") {
-          const url = new URL(location);
-          if (url.protocol !== "http:" && url.protocol !== "https:") {
+          // `new URL` throws a TypeError for a relative value such as
+          // `example.com`, and that error would reach the user as the browser's
+          // own English text; both that and a non-http protocol have to read as
+          // the localized protocol message.
+          let protocol: string;
+          try {
+            protocol = new URL(location).protocol;
+          } catch {
+            throw new Error(t("components.backgroundUpload.sourceProtocol", { index: index + 1 }));
+          }
+          if (protocol !== "http:" && protocol !== "https:") {
             throw new Error(t("components.backgroundUpload.sourceProtocol", { index: index + 1 }));
           }
         }
