@@ -140,7 +140,7 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 		t.Fatalf("first event data = %#v", firstData)
 	}
 
-	liveResponse, liveCancel := openEventStream(t, server.URL+"/v1/events?types=file.created,file.updated", map[string]string{
+	liveResponse, liveCancel := openEventStreamWhenFree(t, server.URL+"/v1/events?types=file.created,file.updated", map[string]string{
 		"Authorization": "Bearer test-token",
 	})
 	liveReader := bufio.NewReader(liveResponse.Body)
@@ -159,7 +159,7 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 		t.Fatalf("live event id = %q, first = %d, error = %v", liveFrame["id"], firstID, err)
 	}
 
-	secondResponse, secondCancel := openEventStream(t, server.URL+"/v1/events?types=file.created,file.updated", map[string]string{
+	secondResponse, secondCancel := openEventStreamWhenFree(t, server.URL+"/v1/events?types=file.created,file.updated", map[string]string{
 		"Authorization": "Bearer test-token",
 		"Last-Event-ID": strconv.FormatInt(firstID, 10),
 	})
@@ -202,7 +202,7 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 	if _, err := db.Pool.Exec(ctx, "DELETE FROM user_events WHERE user_id = 1001"); err != nil {
 		t.Fatal(err)
 	}
-	gapResponse, gapCancel := openEventStream(t, server.URL+"/v1/events", map[string]string{
+	gapResponse, gapCancel := openEventStreamWhenFree(t, server.URL+"/v1/events", map[string]string{
 		"Authorization": "Bearer test-token",
 		"Last-Event-ID": strconv.FormatInt(firstID, 10),
 	})
@@ -216,7 +216,7 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 	gapCancel()
 	_ = gapResponse.Body.Close()
 
-	shutdownResponse, shutdownCancel := openEventStream(t, server.URL+"/v1/events", map[string]string{
+	shutdownResponse, shutdownCancel := openEventStreamWhenFree(t, server.URL+"/v1/events", map[string]string{
 		"Authorization": "Bearer test-token",
 		"Last-Event-ID": strconv.FormatInt(secondID, 10),
 	})
@@ -282,11 +282,10 @@ func TestGeneratedServerEventStreamReplayTicketAndShutdown(t *testing.T) {
 	_ = shutdownResponse.Body.Close()
 }
 
-// openEventStream issues an authenticated streaming request and returns the live
-// response together with the cancel func that ends it. The request runs under a
-// three-second deadline, so a stream that never opens or stalls cannot hang the
-// test binary, and the caller owns the returned cancel.
-func openEventStream(t *testing.T, endpoint string, headers map[string]string) (*http.Response, context.CancelFunc) {
+// tryOpenEventStream issues an authenticated streaming request and returns the
+// response without judging its status, so a caller can retry an answer the
+// per-user stream cap produced.
+func tryOpenEventStream(t *testing.T, endpoint string, headers map[string]string) (*http.Response, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -302,6 +301,16 @@ func openEventStream(t *testing.T, endpoint string, headers map[string]string) (
 		cancel()
 		t.Fatalf("open event stream: %v", err)
 	}
+	return response, cancel
+}
+
+// openEventStream issues an authenticated streaming request and returns the live
+// response together with the cancel func that ends it. The request runs under a
+// three-second deadline, so a stream that never opens or stalls cannot hang the
+// test binary, and the caller owns the returned cancel.
+func openEventStream(t *testing.T, endpoint string, headers map[string]string) (*http.Response, context.CancelFunc) {
+	t.Helper()
+	response, cancel := tryOpenEventStream(t, endpoint, headers)
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(response.Body)
 		_ = response.Body.Close()
@@ -309,6 +318,35 @@ func openEventStream(t *testing.T, endpoint string, headers map[string]string) (
 		t.Fatalf("event stream status = %d, body = %s", response.StatusCode, body)
 	}
 	return response, cancel
+}
+
+// openEventStreamWhenFree opens a stream once the user's cap has room for it.
+//
+// A stream holds its slot until its handler returns, and the handler returns
+// after the client cancels and the server notices the closed connection, so the
+// release is asynchronous: opening the next stream straight after a cancel races
+// it. A loaded runner loses that race, which answered this test's third stream
+// with 429 while the previous handler was still unwinding. Only that transient
+// answer is retried, and a cap that never frees still fails the test.
+func openEventStreamWhenFree(t *testing.T, endpoint string, headers map[string]string) (*http.Response, context.CancelFunc) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		response, cancel := tryOpenEventStream(t, endpoint, headers)
+		if response.StatusCode == http.StatusOK {
+			return response, cancel
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		cancel()
+		if response.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("event stream status = %d, body = %s", response.StatusCode, body)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("event stream stayed capped: body = %s", body)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // readEventFrame reads frames until one names eventName and returns it, discarding
