@@ -10,9 +10,10 @@
   outputs = { self, nixpkgs, bun2nix, ... }@inputs:
     let
       # The published binaries are Linux, but the devShell is also how a macOS
-      # checkout gets go/bun/sqlc at the versions the justfile pins, so both
-      # Darwin systems are built here as well.
-      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
+      # checkout gets go/bun/sqlc at the versions the justfile pins, so Darwin is
+      # built here as well. It is aarch64 only: this flake tracks
+      # nixos-unstable, and nixpkgs dropped x86_64-darwin in 26.11.
+      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       version = "dev";
 
