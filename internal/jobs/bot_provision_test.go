@@ -3,11 +3,13 @@ package jobs
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
 )
@@ -42,6 +44,29 @@ func TestBotProvisionArgsIdentifyTheMaintenanceQueue(t *testing.T) {
 	// the same bot set twice while a job is still queued.
 	if !opts.UniqueOpts.ByArgs {
 		t.Fatal("InsertOpts().UniqueOpts.ByArgs = false, want true")
+	}
+	// Only the states a job can still run from may deduplicate: river's default
+	// set also counts completed jobs, which would make a finished provisioning
+	// run swallow the next request for the same user and bot set.
+	for _, state := range []rivertype.JobState{
+		rivertype.JobStateAvailable,
+		rivertype.JobStatePending,
+		rivertype.JobStateRetryable,
+		rivertype.JobStateRunning,
+		rivertype.JobStateScheduled,
+	} {
+		if !slices.Contains(opts.UniqueOpts.ByState, state) {
+			t.Fatalf("InsertOpts().UniqueOpts.ByState = %v, want it to contain %q", opts.UniqueOpts.ByState, state)
+		}
+	}
+	for _, state := range []rivertype.JobState{
+		rivertype.JobStateCancelled,
+		rivertype.JobStateCompleted,
+		rivertype.JobStateDiscarded,
+	} {
+		if slices.Contains(opts.UniqueOpts.ByState, state) {
+			t.Fatalf("InsertOpts().UniqueOpts.ByState = %v, want it to exclude the finished state %q", opts.UniqueOpts.ByState, state)
+		}
 	}
 }
 

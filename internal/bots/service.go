@@ -2,7 +2,9 @@
 // validates bot tokens, stores them encrypted, verifies them against Telegram,
 // and owns the per-user listing and deletion of bot rows. A bot inserted here
 // stays disabled until the provisioning job verifies its identity and promotes
-// it into the user's channels.
+// it into the user's channels: only a bot that is a member of every channel the
+// user owns may become an upload candidate, so verification and activation are
+// separate steps and the job performs the activation last.
 package bots
 
 import (
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -24,8 +27,8 @@ import (
 
 var (
 	// ErrInvalidInput reports a non-positive user or bot ID, a blank or
-	// malformed bot token, or a missing dependency. Callers must test it with
-	// errors.Is.
+	// malformed bot token, a blank bot username, or a missing dependency.
+	// Callers must test it with errors.Is.
 	ErrInvalidInput = errors.New("invalid bot input")
 	// ErrNotFound reports that no bot row matches the requested user and bot
 	// ID, as happens when deleting a bot that was never registered or belongs
@@ -39,8 +42,10 @@ var (
 )
 
 // Identity is the Telegram account a bot token authenticates as. It is produced
-// by Verifier and consumed by Service.VerifyPending, which rejects an identity
-// whose ID does not match the token prefix or whose Username is blank.
+// by Verifier and returned by Service.VerifyPending, which rejects an identity
+// whose ID does not match the bot row it was verified for or whose Username is
+// blank. Callers pass the returned identity back to Service.ActivateVerified once
+// the bot has been given access to the user's channels.
 type Identity struct {
 	// ID is the numeric Telegram ID of the authenticated bot account.
 	ID int64
@@ -100,7 +105,7 @@ type Service struct {
 	// cipher seals and opens bot tokens under the "bot-token" purpose, which
 	// ties every stored token to this column.
 	cipher *secureblob.Cipher
-	// verifier authenticates tokens against Telegram during activation.
+	// verifier authenticates tokens against Telegram during verification.
 	verifier Verifier
 }
 
@@ -144,12 +149,17 @@ func TokenBotID(token string) (int64, error) {
 	return botID, nil
 }
 
-// Create registers a single bot token for userID and verifies it immediately.
-// It stores the token as a pending, disabled bot row and then returns the
-// activated row. A token that is already registered has its insert skipped and
-// is re-verified instead, which lets a caller reactivate a bot that a previous
-// provisioning run disabled. It returns ErrInvalidInput for a non-positive user
-// ID or a blank or malformed token.
+// Create registers a single bot token for userID and verifies it immediately. It
+// stores the token as a pending, disabled bot row, authenticates the credential
+// against Telegram, and returns the stored row. The row stays disabled: a bot
+// only becomes an upload candidate once the provisioning job has promoted it
+// into every channel of the user, which is what ActivateVerified is for.
+//
+// A token that is already registered replaces the stored one and is verified
+// again, so a bot that a previous provisioning run disabled can be tried again by
+// the job the caller queues next. It returns ErrInvalidInput for a non-positive
+// user ID or a blank or malformed token, and the verification errors
+// VerifyPending documents for a credential Telegram refuses.
 func (s *Service) Create(ctx context.Context, userID int64, token string) (*sqlcgen.Bot, error) {
 	token = strings.TrimSpace(token)
 	if userID <= 0 || token == "" {
@@ -159,14 +169,15 @@ func (s *Service) Create(ctx context.Context, userID int64, token string) (*sqlc
 	if err != nil {
 		return nil, err
 	}
-	botID, err := TokenBotID(token)
-	if err != nil {
+	if len(rows) == 0 {
+		// InsertPendingBots returns every row it stored, so an empty result means
+		// the token never reached the table and there is nothing to verify.
+		return nil, ErrNotFound
+	}
+	if _, err := s.VerifyPending(ctx, userID, rows[0].BotID); err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return s.VerifyPending(ctx, userID, botID)
-	}
-	return s.VerifyPending(ctx, userID, rows[0].BotID)
+	return rows[0], nil
 }
 
 // InsertPending stores the given tokens as disabled bot rows for userID in one
@@ -234,34 +245,69 @@ func (s *Service) InsertPending(ctx context.Context, userID int64, tokens []stri
 }
 
 // VerifyPending decrypts the stored token of an existing bot row, authenticates
-// it against Telegram, and activates the row when the reported identity matches
-// the row's bot ID and carries a username. Activation also clears the recorded
-// failures, so a bot disabled by an earlier provisioning run becomes eligible
-// again. It returns ErrInvalidInput for non-positive IDs, ErrNotBot for an
-// identity mismatch, and the verifier's error unchanged; a failed verification
-// leaves the row disabled and is not recorded here.
-func (s *Service) VerifyPending(ctx context.Context, userID, botID int64) (*sqlcgen.Bot, error) {
+// it against Telegram, and returns the identity Telegram reported for it, with a
+// trimmed username, when it matches the row's bot ID and carries a username. It
+// deliberately leaves the row untouched: a pending or previously failed bot
+// stays disabled, so it cannot be picked as an upload target before
+// ActivateVerified has run and the provisioning job has granted it access to the
+// user's channels.
+//
+// It returns ErrInvalidInput for non-positive IDs, ErrNotFound when the user has
+// no such bot, which covers a bot deleted while its provisioning ran, ErrNotBot
+// for an identity mismatch, and the verifier's error unchanged. A failed
+// verification is not recorded here; the caller records it with
+// MarkProvisionFailure.
+func (s *Service) VerifyPending(ctx context.Context, userID, botID int64) (Identity, error) {
 	if userID <= 0 || botID <= 0 {
-		return nil, ErrInvalidInput
+		return Identity{}, ErrInvalidInput
 	}
 	row, err := s.queries.GetBot(ctx, sqlcgen.GetBotParams{UserID: userID, BotID: botID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Identity{}, ErrNotFound
+	}
 	if err != nil {
-		return nil, fmt.Errorf("load pending bot: %w", err)
+		return Identity{}, fmt.Errorf("load pending bot: %w", err)
 	}
 	token, err := s.cipher.Open("bot-token", row.TokenCiphertext)
 	if err != nil {
-		return nil, fmt.Errorf("decrypt bot token: %w", err)
+		return Identity{}, fmt.Errorf("decrypt bot token: %w", err)
 	}
 	identity, err := s.verifier.Verify(ctx, string(token))
 	if err != nil {
-		return nil, err
+		return Identity{}, err
 	}
-	if identity.ID != botID || strings.TrimSpace(identity.Username) == "" {
-		return nil, ErrNotBot
+	username := strings.TrimSpace(identity.Username)
+	if identity.ID != botID || username == "" {
+		return Identity{}, ErrNotBot
+	}
+	return Identity{ID: identity.ID, Username: username}, nil
+}
+
+// ActivateVerified enables a bot that VerifyPending authenticated and stores the
+// username Telegram reported, clearing its failure history so the allocator can
+// pick it as an upload target. It is a separate step from verification for a
+// reason: a bot that is not yet a member of every channel of the user would fail
+// every upload it is chosen for, so only the provisioning job, after all of its
+// promotions succeeded, may call this.
+//
+// It returns ErrInvalidInput for a non-positive user or bot ID or a blank
+// username, ErrNotFound when the row disappeared between verification and
+// activation, which covers a bot deleted while its provisioning ran, and a
+// wrapped query error otherwise.
+func (s *Service) ActivateVerified(ctx context.Context, userID, botID int64, username string) (*sqlcgen.Bot, error) {
+	if userID <= 0 || botID <= 0 {
+		return nil, ErrInvalidInput
+	}
+	trimmed := nonEmpty(username)
+	if trimmed == nil {
+		return nil, ErrInvalidInput
 	}
 	activated, err := s.queries.ActivateBot(ctx, sqlcgen.ActivateBotParams{
-		Username: dbtypes.OptionalText(nonEmpty(identity.Username)), UserID: userID, BotID: botID,
+		Username: dbtypes.OptionalText(trimmed), UserID: userID, BotID: botID,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("activate bot: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/zhz8888/teldrive/v2/internal/bots"
 	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
@@ -50,8 +51,26 @@ func (BotProvisionArgs) Kind() string { return BotProvisionKind }
 // InsertOpts pins provisioning jobs to the maintenance queue, gives them three
 // attempts and deduplicates them by arguments, so requesting the same user and
 // bot set twice joins the pending job instead of provisioning the bots twice.
+//
+// The unique state set deliberately covers only the states a job can still run
+// from. River's default set also counts completed jobs, which would silently
+// swallow every repeat request for the same user and bot set until the job
+// cleaner removed the finished job; callers insert a new job to recover a bot
+// that a previous run left behind, so a finished job must not block the insert.
 func (BotProvisionArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: CleanupQueue, MaxAttempts: 3, Priority: 2, UniqueOpts: river.UniqueOpts{ByArgs: true}}
+	return river.InsertOpts{
+		Queue: CleanupQueue, MaxAttempts: 3, Priority: 2,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true,
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable,
+				rivertype.JobStatePending,
+				rivertype.JobStateRetryable,
+				rivertype.JobStateRunning,
+				rivertype.JobStateScheduled,
+			},
+		},
+	}
 }
 
 // BotProvisionWorker verifies pending Telegram bots and promotes each of them to
@@ -94,7 +113,12 @@ func (w *BotProvisionWorker) Timeout(*river.Job[BotProvisionArgs]) time.Duration
 // logged, and the bot is marked as failed with all of them. Promotion is
 // idempotent, so a channel that already carries the bot is left untouched, and
 // the aggregated error the job returns makes River retry only the channels that
-// are still missing the bot as administrator. A job whose BotIDs contain no
+// are still missing the bot as administrator.
+//
+// A bot is only activated, and thereby made an upload candidate, once it was
+// promoted into every channel. A run that failed in even one channel leaves the
+// row disabled and records the failure, so the allocator never picks a bot that
+// cannot upload into the channel it would be given. A job whose BotIDs contain no
 // positive value succeeds without doing anything.
 func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisionArgs]) error {
 	if w == nil || w.queries == nil || w.bots == nil || w.inviter == nil || job.Args.UserID <= 0 {
@@ -111,16 +135,24 @@ func (w *BotProvisionWorker) Work(ctx context.Context, job *river.Job[BotProvisi
 	}
 	botErrors := make([]error, 0, len(botIDs))
 	for _, botID := range botIDs {
-		row, verifyErr := w.bots.VerifyPending(ctx, job.Args.UserID, botID)
+		identity, verifyErr := w.bots.VerifyPending(ctx, job.Args.UserID, botID)
 		if verifyErr != nil {
 			_ = w.bots.MarkProvisionFailure(ctx, job.Args.UserID, botID, verifyErr)
 			return fmt.Errorf("verify pending bot %d: %w", botID, verifyErr)
 		}
-		username := strings.TrimSpace(row.Username.String)
+		username := strings.TrimSpace(identity.Username)
 		inviteErrors := w.promoteBot(ctx, job.Args.UserID, username, channels)
 		if len(inviteErrors) > 0 {
 			slog.WarnContext(ctx, "Telegram bot was not promoted in every channel", "job_id", job.ID, "user_id", job.Args.UserID, "bot_id", botID, "channel_count", len(channels), "failed_channel_count", len(inviteErrors), "error", errors.Join(inviteErrors...))
 			botErr := fmt.Errorf("provision bot %d: %w", botID, errors.Join(inviteErrors...))
+			_ = w.bots.MarkProvisionFailure(ctx, job.Args.UserID, botID, botErr)
+			botErrors = append(botErrors, botErr)
+			continue
+		}
+		// Activation comes last and only here: enabling the bot earlier would
+		// make the upload allocator pick a bot that is not in every channel yet.
+		if _, activateErr := w.bots.ActivateVerified(ctx, job.Args.UserID, botID, username); activateErr != nil {
+			botErr := fmt.Errorf("activate bot %d: %w", botID, activateErr)
 			_ = w.bots.MarkProvisionFailure(ctx, job.Args.UserID, botID, botErr)
 			botErrors = append(botErrors, botErr)
 			continue

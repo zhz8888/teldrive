@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,18 @@ FROM generate_series(9000::bigint, 9000 + $1::bigint - 1) AS g`, int64(channelCo
 	service, verifier := newProvisionBotsService(t, db, true)
 	seedPendingBot(t, service)
 	inviter := &countingInviter{}
+	// Every promotion reads the bot row, so a worker that activated the bot before
+	// inviting it into the channels is caught by the observation and not only by
+	// the state the run ends in.
+	enabledDuringInvite := &enabledObserver{}
+	inviter.observe = func(int64) {
+		var enabled bool
+		if err := db.Pool.QueryRow(ctx, "SELECT enabled FROM bots WHERE user_id = 1001 AND bot_id = $1", provisionBotID).Scan(&enabled); err != nil {
+			t.Errorf("read bot row during promotion: %v", err)
+			return
+		}
+		enabledDuringInvite.record(enabled)
+	}
 	worker := jobs.NewBotProvisionWorker(db.Pool, service, inviter)
 
 	err := worker.Work(ctx, provisionJob(1, 1001, provisionBotID))
@@ -67,6 +80,10 @@ FROM generate_series(9000::bigint, 9000 + $1::bigint - 1) AS g`, int64(channelCo
 	if wrong := inviter.wrongUsername(); wrong != 0 {
 		t.Fatalf("promoted %d times with an unexpected username, want 0", wrong)
 	}
+	if enabledDuringInvite.any() {
+		t.Fatal("the bot was enabled while it was still being promoted, want activation only after every channel succeeded")
+	}
+	assertBotProvisioned(t, db, provisionBotID, "storage_bot")
 }
 
 // TestBotProvisionWorkerMarksTheBotWhenOneChannelFails covers the retry contract:
@@ -158,6 +175,27 @@ func TestBotProvisionWorkerRejectsANonPositiveUserID(t *testing.T) {
 	}
 }
 
+// TestBotProvisionWorkerReportsADeletedBotAsNotFound covers the permanent half of
+// the verification contract: a row that is gone, for example because the user
+// deleted the bot while its job was queued, must be reported as ErrNotFound
+// rather than as the transient Telegram failure the job would retry three times.
+func TestBotProvisionWorkerReportsADeletedBotAsNotFound(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	seedProvisionUser(t, db.Pool)
+	service, verifier := newProvisionBotsService(t, db, true)
+	inviter := &countingInviter{}
+	worker := jobs.NewBotProvisionWorker(db.Pool, service, inviter)
+
+	err := worker.Work(ctx, provisionJob(6, 1001, provisionBotID))
+	if !errors.Is(err, bots.ErrNotFound) {
+		t.Fatalf("Work() error = %v, want it to wrap bots.ErrNotFound", err)
+	}
+	if verifier.calls != 0 || inviter.total() != 0 {
+		t.Fatalf("verifier calls = %d and promotions = %d, want none for a deleted bot", verifier.calls, inviter.total())
+	}
+}
+
 // seedProvisionUser inserts the single account every provisioning test acts as.
 func seedProvisionUser(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
@@ -222,6 +260,48 @@ func assertBotMarkedFailed(t *testing.T, db *testpostgres.Database, botID int64)
 	}
 }
 
+// assertBotProvisioned checks the row a successful provisioning run has to leave
+// behind: enabled under the username Telegram reported, which is what makes the
+// bot an upload candidate.
+func assertBotProvisioned(t *testing.T, db *testpostgres.Database, botID int64, username string) {
+	t.Helper()
+	var (
+		enabled  bool
+		reported *string
+	)
+	err := db.Pool.QueryRow(context.Background(),
+		"SELECT enabled, username FROM bots WHERE user_id = 1001 AND bot_id = $1", botID).Scan(&enabled, &reported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || reported == nil || *reported != username {
+		t.Fatalf("bot row = enabled %v, username %v, want enabled under %q", enabled, reported, username)
+	}
+}
+
+// enabledObserver records whether the bot row was already enabled each time a
+// promotion ran. Promotions overlap, so the recorded flags are guarded.
+type enabledObserver struct {
+	// mu guards seen, which InviteBot appends to from several goroutines.
+	mu sync.Mutex
+	// seen holds one entry per observed promotion.
+	seen []bool
+}
+
+// record appends one observation of the bot row's enabled flag.
+func (o *enabledObserver) record(enabled bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.seen = append(o.seen, enabled)
+}
+
+// any reports whether the bot was enabled during even one promotion.
+func (o *enabledObserver) any() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Contains(o.seen, true)
+}
+
 // stubVerifier answers every token with the same identity, or fails outright
 // when err is set.
 type stubVerifier struct {
@@ -247,6 +327,9 @@ func (s *stubVerifier) Verify(context.Context, string) (bots.Identity, error) {
 type countingInviter struct {
 	// failChannel is the channel whose promotion fails; zero fails none of them.
 	failChannel int64
+	// observe, when set, runs once per promotion before it is recorded, so a test
+	// can inspect the bot row at the moment the promotion happens.
+	observe func(channelID int64)
 
 	// mu guards the counters below, which the worker writes from several
 	// goroutines.
@@ -259,6 +342,9 @@ type countingInviter struct {
 
 // InviteBot records the attempt and fails it when the channel is failChannel.
 func (c *countingInviter) InviteBot(_ context.Context, _ int64, channelID int64, username string) error {
+	if c.observe != nil {
+		c.observe(channelID)
+	}
 	c.mu.Lock()
 	c.attempts++
 	c.usernames = append(c.usernames, username)
