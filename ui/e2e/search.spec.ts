@@ -530,7 +530,9 @@ test("pagination preserves filters and selection; changing criteria starts a fre
   await page.getByRole("grid", { name: "Files and folders" }).focus();
   await page.keyboard.press("Control+a");
   expect(continuation.searchParams.get("search")).toBe("alpha");
-  expect(continuation.searchParams.getAll("category")).toEqual(["document", "image"]);
+  // The client serialises array query parameters with explode: false, which is what the
+  // contract declares, so both categories travel in one comma-joined value.
+  expect(continuation.searchParams.get("category")).toBe("document,image");
   expect(continuation.searchParams.get("updatedAfter")).toBe("2026-05-10T00:00:00.000Z");
   expect(continuation.searchParams.get("sort")).toBe("size");
   expect(continuation.searchParams.get("order")).toBe("desc");

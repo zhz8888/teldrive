@@ -47,6 +47,15 @@ async function fetchWithApiErrors(input: RequestInfo | URL, init?: RequestInit) 
 export const fetchClient = createFetchClient<paths>({
   baseUrl: API_BASE_URL,
   fetch: fetchWithApiErrors,
+  // The contract declares its array query parameters (the file listing's `category` among
+  // them) with `explode: false`, which is one comma-joined value, so this has to match: the
+  // default repeats the key (`category=a&category=b`) and the server's decoder rejects that
+  // as an invalid value. The style is the default `form` the contract leaves implicit;
+  // non-array parameters are serialized by the primitive path either way, and the contract
+  // has no object-typed query parameter for the array setting to affect.
+  querySerializer: {
+    array: { style: "form", explode: false },
+  },
 });
 
 /**
