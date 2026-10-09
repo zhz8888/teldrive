@@ -25,8 +25,9 @@ var (
 	// the single selected upload channel: Delete was asked to remove the channel
 	// currently selected, and a creation or selection that races another caller
 	// lost on the partial unique index that keeps one selection per user. Callers
-	// must test it with errors.Is.
-	ErrSelectedChannel = errors.New("selected channel cannot be deleted")
+	// must test it with errors.Is, and the API answers it with its own generic
+	// conflict message, so this text is what the server logs.
+	ErrSelectedChannel = errors.New("selected channel cannot be deleted or claimed by a concurrent request")
 	// ErrChannelInUse reports that a channel still holds referenced file or
 	// upload parts, so deleting it would orphan stored objects. Callers must
 	// test it with errors.Is.
