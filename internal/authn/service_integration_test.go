@@ -478,6 +478,178 @@ FROM telegram_login_flows WHERE id=$1`, flow.ID).Scan(&requiredAfterPolls, &stat
 	}
 }
 
+// parkSendBudget charges phone one failure short of a refusal, so the next send it
+// is charged is the one that exhausts its budget. A single charge is invisible
+// through the limiter's API, because it only starts refusing at loginCodeSends; a
+// budget parked at the edge instead turns the next credit into an observable
+// difference.
+func parkSendBudget(t *testing.T, s *Service, phone string) {
+	t.Helper()
+	for send := 1; send < loginCodeSends; send++ {
+		if _, ok := s.sendLimiter().Allow(phone); !ok {
+			t.Fatalf("send %d refused before the budget was used up", send)
+		}
+		s.sendLimiter().Fail(phone)
+	}
+}
+
+// isSendBudgetDepleted reports whether phone is out of code sends.
+func isSendBudgetDepleted(s *Service, phone string) bool {
+	_, ok := s.sendLimiter().Allow(phone)
+	return !ok
+}
+
+// sendExhaustedFlow starts a phone flow for phone, which charges the last send the
+// parked budget had, and asserts that the charge landed before the flow is used.
+func sendExhaustedFlow(t *testing.T, s *Service, phone string) *FlowResult {
+	t.Helper()
+	flow, err := s.StartLogin(context.Background(), phone)
+	if err != nil {
+		t.Fatalf("StartLogin(%s) error = %v", phone, err)
+	}
+	if !isSendBudgetDepleted(s, phone) {
+		t.Fatal("a send that produced a flow was not charged")
+	}
+	return flow
+}
+
+// newBudgetService returns a service whose flow identifiers and token secrets come
+// from a fixed buffer filled with seed, so a test that only drives the send budget
+// does not have to feed it randomness. Each caller passes its own seed: the refresh
+// token hash is derived from those bytes and is unique per session, so two services
+// sharing a seed would collide instead of minting a second session.
+func newBudgetService(t *testing.T, db *testpostgres.Database, login TelegramLogin, cfg Config, seed byte) *Service {
+	t.Helper()
+	cipher, err := secureblob.NewWithKey(bytes.Repeat([]byte{7}, 32), bytes.NewReader(bytes.Repeat([]byte{2}, 24*40)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(db.Pool, cipher, login, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.random = bytes.NewReader(bytes.Repeat([]byte{seed}, 32*40))
+	return service
+}
+
+// TestLoginCodeBudgetIsCreditedOnlyByACompletedLogin pins the accounting of the
+// per-phone send budget: a code Telegram delivered is charged when the flow is
+// stored, handed back only once a session exists for that number, and otherwise
+// stays charged. Before the credit existed the counter only ever grew, so an owner
+// was refused for ten minutes after the third login and for an hour from then on.
+//
+// Each case parks a number one send short of a refusal and then drives one
+// operation that either credits the number back (sends are available again) or
+// leaves it spent, so a credit that lands too early, on a failure, or for a QR
+// login is observable even though a single charge is not visible through the
+// limiter's API.
+func TestLoginCodeBudgetIsCreditedOnlyByACompletedLogin(t *testing.T) {
+	db := testpostgres.New(t)
+	cfg := Config{
+		SigningKey: "0123456789abcdef0123456789abcdef", Issuer: "test",
+		AllowedUsers: []string{"alloweduser", "testuser"}, AccessTokenTTL: time.Hour,
+		RefreshTokenTTL: 24 * time.Hour, LoginFlowTTL: 10 * time.Minute,
+	}
+	// This gateway completes VerifyCode for an account the allowlist refuses, so a
+	// login can reach completeLogin and still be rejected there.
+	refused := newBudgetService(t, db, &fakeTelegramLogin{
+		verifyUser: &TelegramUser{ID: 1001, DisplayName: "Refused User", Username: "refuseduser"},
+	}, cfg, 11)
+	ctx := context.Background()
+
+	// The two-step path: the send is charged when the flow is stored, and a password
+	// step refused for the wrong reason does not return it.
+	phone := "+15550101010"
+	parkSendBudget(t, refused, phone)
+	flow := sendExhaustedFlow(t, refused, phone)
+	if _, err := refused.VerifyPassword(ctx, flow.ID, "irrelevant"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("VerifyPassword(without password step) error = %v", err)
+	}
+	if !isSendBudgetDepleted(refused, phone) {
+		t.Fatal("a refused password step returned the send budget")
+	}
+	// A login the allowlist refuses is not a completed login either, even though it
+	// reached completeLogin with a real session from Telegram.
+	if _, err := refused.VerifyCode(ctx, flow.ID, "12345"); !errors.Is(err, ErrUserNotAllowed) {
+		t.Fatalf("VerifyCode(refused user) error = %v", err)
+	}
+	if !isSendBudgetDepleted(refused, phone) {
+		t.Fatal("a login the allowlist refused returned the send budget")
+	}
+
+	// The completed login: the same two-step path with the account allowed credits
+	// the number back once the session exists.
+	allowed := newBudgetService(t, db, &fakeTelegramLogin{}, cfg, 12)
+	allowedPhone := "+15550101011"
+	parkSendBudget(t, allowed, allowedPhone)
+	allowedFlow := sendExhaustedFlow(t, allowed, allowedPhone)
+	if _, err := allowed.VerifyCode(ctx, allowedFlow.ID, "12345"); err != nil {
+		t.Fatalf("VerifyCode(allowed) error = %v", err)
+	}
+	if !isSendBudgetDepleted(allowed, allowedPhone) {
+		t.Fatal("a pending password step returned the send budget")
+	}
+	if _, err := allowed.VerifyPassword(ctx, allowedFlow.ID, "correct horse battery staple"); err != nil {
+		t.Fatalf("VerifyPassword(allowed) error = %v", err)
+	}
+	if isSendBudgetDepleted(allowed, allowedPhone) {
+		t.Fatal("a completed login did not return the send budget")
+	}
+	// A flow that was already completed cannot credit anything a second time, so a
+	// number that is spent again stays spent even when its flow is presented again.
+	parkSendBudget(t, allowed, allowedPhone)
+	allowed.sendLimiter().Fail(allowedPhone)
+	if _, err := allowed.VerifyPassword(ctx, allowedFlow.ID, "correct horse battery staple"); !errors.Is(err, ErrFlowNotFound) {
+		t.Fatalf("VerifyPassword(completed flow) error = %v", err)
+	}
+	if !isSendBudgetDepleted(allowed, allowedPhone) {
+		t.Fatal("a flow that was already completed returned the send budget")
+	}
+
+	// A flow whose sealed state no longer opens must be reported as an invalid login
+	// state rather than a server error. VerifyCode reports it that way, and
+	// VerifyPassword has to agree.
+	broken := newBudgetService(t, db, &fakeTelegramLogin{}, cfg, 13)
+	brokenPhone := "+15550101012"
+	parkSendBudget(t, broken, brokenPhone)
+	brokenFlow := sendExhaustedFlow(t, broken, brokenPhone)
+	if _, err := db.Pool.Exec(ctx,
+		"UPDATE telegram_login_flows SET telegram_state_ciphertext=$2, password_required=true WHERE id=$1",
+		brokenFlow.ID, []byte("not-a-sealed-state")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broken.VerifyCode(ctx, brokenFlow.ID, "12345"); !errors.Is(err, ErrLoginStateInvalid) {
+		t.Fatalf("VerifyCode(unreadable state) error = %v", err)
+	}
+	if _, err := broken.VerifyPassword(ctx, brokenFlow.ID, "correct horse battery staple"); !errors.Is(err, ErrLoginStateInvalid) {
+		t.Fatalf("VerifyPassword(unreadable state) error = %v", err)
+	}
+	if !isSendBudgetDepleted(broken, brokenPhone) {
+		t.Fatal("a flow that could not be resumed returned the send budget")
+	}
+
+	// A QR login never asked for a code, so completing one must not credit a phone
+	// number's budget either.
+	qrPhone := "+15550101013"
+	qr := newBudgetService(t, db, &fakeQRLogin{username: "alloweduser", completeOnFirstPoll: true}, cfg, 14)
+	parkSendBudget(t, qr, qrPhone)
+	qr.sendLimiter().Fail(qrPhone)
+	if !isSendBudgetDepleted(qr, qrPhone) {
+		t.Fatal("the QR case did not start from a spent phone budget")
+	}
+	qrFlow, err := qr.StartQR(ctx)
+	if err != nil {
+		t.Fatalf("StartQR() error = %v", err)
+	}
+	qrDone, err := qr.PollQR(ctx, qrFlow.ID)
+	if err != nil || qrDone.Tokens == nil {
+		t.Fatalf("PollQR() = %#v, %v", qrDone, err)
+	}
+	if !isSendBudgetDepleted(qr, qrPhone) {
+		t.Fatal("a completed QR login returned a phone number's send budget")
+	}
+}
+
 // fakeTelegramLogin walks the phone-code plus two-step-password path without
 // contacting Telegram, and counts the gateway calls so a test can assert how often
 // the service asked for each step.
@@ -493,6 +665,10 @@ type fakeTelegramLogin struct {
 	// active counts gateway calls that have not returned yet; a non-zero value once
 	// the service is idle means it left a call running in the background.
 	active int
+	// verifyUser is the account VerifyCode reports when it completes a login
+	// instead of asking for the two-step password, so a test can drive a login the
+	// service later refuses. A nil value reports the password prompt.
+	verifyUser *TelegramUser
 }
 
 // Start records the call and reports the state VerifyCode resumes from.
@@ -517,13 +693,19 @@ func (f *fakeTelegramLogin) PollQR(context.Context, []byte) (LoginStep, error) {
 }
 
 // VerifyCode records the call and reports the password prompt, which is what makes
-// the login a two-step one.
+// the login a two-step one. When verifyUser is set it completes the login for that
+// account instead, so a test can exercise a login the service refuses after
+// Telegram accepted it.
 func (f *fakeTelegramLogin) VerifyCode(context.Context, string, []byte, string) (LoginStep, error) {
 	f.mu.Lock()
 	f.codeCalls++
 	f.active++
+	user := f.verifyUser
 	f.mu.Unlock()
 	defer func() { f.mu.Lock(); f.active--; f.mu.Unlock() }()
+	if user != nil {
+		return LoginStep{User: user, Session: []byte("authorized-session")}, nil
+	}
 	return LoginStep{State: []byte("password-state"), PasswordRequired: true}, nil
 }
 

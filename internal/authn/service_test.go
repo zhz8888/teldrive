@@ -117,6 +117,22 @@ func TestSlotLimiterCapsConcurrentLoginFlows(t *testing.T) {
 	}
 }
 
+// TestStartLoginRejectsStepWithoutResumableState checks the guard that keeps a
+// gateway step from being stored as a flow the client could never continue. The
+// gateway reports success with an empty state, which is what the gotd gateway
+// returns when gotd treats a cancelled callback as a clean shutdown, and the
+// service must reject it instead of sealing and storing the empty value.
+func TestStartLoginRejectsStepWithoutResumableState(t *testing.T) {
+	t.Parallel()
+	s := &Service{
+		config: Config{SigningKey: strings.Repeat("k", 32), Issuer: "test", AccessTokenTTL: time.Minute},
+		login:  &emptyStateLogin{}, now: time.Now,
+	}
+	if _, err := s.StartLogin(context.Background(), "+10000000001"); !errors.Is(err, ErrLoginStateInvalid) {
+		t.Fatalf("StartLogin() error = %v, want ErrLoginStateInvalid", err)
+	}
+}
+
 // TestLoginLimitsThrottleSendsAndAttempts checks that the code-send budget is
 // per phone number and that only wrong codes or passwords consume the per-flow
 // attempt budget.
@@ -136,6 +152,13 @@ func TestLoginLimitsThrottleSendsAndAttempts(t *testing.T) {
 	if _, ok := s.sendLimiter().Allow("+19999999999"); !ok {
 		t.Fatal("an unrelated phone number was throttled")
 	}
+	// Succeed is the mechanism a completed login uses to hand the budget of its
+	// phone number back: without it the refusals would only ever accumulate, and an
+	// owner who signs in repeatedly would end up refused for good.
+	s.sendLimiter().Succeed(phone)
+	if _, ok := s.sendLimiter().Allow(phone); !ok {
+		t.Fatal("Succeed did not return the send budget")
+	}
 	flowID := uuid.New()
 	for attempt := 0; attempt < loginAttemptFailures; attempt++ {
 		s.recordAttemptFailure(flowID, ErrCodeInvalid)
@@ -148,4 +171,28 @@ func TestLoginLimitsThrottleSendsAndAttempts(t *testing.T) {
 	if _, ok := s.attemptLimiter().Allow(other.String()); !ok {
 		t.Fatal("an unrelated error consumed the attempt budget")
 	}
+}
+
+// emptyStateLogin is a gateway whose Start reports success without any state to
+// resume from, which is the shape StartLogin must refuse.
+type emptyStateLogin struct{}
+
+func (emptyStateLogin) Start(context.Context, string) (LoginStep, error) {
+	return LoginStep{}, nil
+}
+
+func (emptyStateLogin) StartQR(context.Context) (LoginStep, error) {
+	return LoginStep{}, ErrLoginStateInvalid
+}
+
+func (emptyStateLogin) PollQR(context.Context, []byte) (LoginStep, error) {
+	return LoginStep{}, ErrLoginStateInvalid
+}
+
+func (emptyStateLogin) VerifyCode(context.Context, string, []byte, string) (LoginStep, error) {
+	return LoginStep{}, ErrLoginStateInvalid
+}
+
+func (emptyStateLogin) VerifyPassword(context.Context, []byte, string) (LoginStep, error) {
+	return LoginStep{}, ErrLoginStateInvalid
 }

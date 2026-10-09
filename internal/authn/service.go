@@ -117,7 +117,9 @@ const (
 	// loginCodeSends is how many codes one phone number may ask Telegram to send
 	// before further requests are refused. The endpoints are unauthenticated, so
 	// without this anyone could drive the server's application credentials to
-	// message an arbitrary number and exhaust the account's Telegram budget.
+	// message an arbitrary number and exhaust the account's Telegram budget. One
+	// budget covers the attempts that are still pending: a login that completes
+	// hands the budget back, while every abandoned attempt keeps spending it.
 	loginCodeSends = 3
 	// loginCodeBlock is the first refusal applied to a phone number that ran out
 	// of sends; it doubles with every further send up to loginCodeBlockMax.
@@ -202,7 +204,10 @@ type Service struct {
 	// constructor because tests assemble the service from a struct literal.
 	loginSlots chan struct{}
 	// codeSends throttles how often one phone number may ask Telegram for a new
-	// login code, so the server cannot be used to message a number repeatedly.
+	// login code, so the server cannot be used to message a number repeatedly. A
+	// send is charged when Telegram delivered the code and is credited back once
+	// a login for that number completes, so the refusals accumulate only for
+	// attempts that were given up on.
 	codeSends *throttle.Limiter
 	// attempts throttles wrong codes and passwords per login flow, which bounds
 	// online guessing of a code or a two-step password.
@@ -389,11 +394,16 @@ func NewService(pool *pgxpool.Pool, cipher *secureblob.Cipher, login TelegramLog
 //
 // The phone number and the gateway state are sealed before they reach the
 // database, and the flow expires after Config.LoginFlowTTL. A blank phone number
-// reports ErrInvalidInput; gateway failures are returned unchanged instead of
-// being folded into a sentinel. Because the endpoint is unauthenticated, one
-// phone number may ask for at most loginCodeSends codes before further requests
-// are refused with ErrTooManyAttempts, which stops the server's Telegram
-// credentials from being used to message a number on demand.
+// reports ErrInvalidInput; a step that carries no resumable state is rejected as
+// ErrLoginStateInvalid instead of being stored as a flow the client could never
+// continue. Gateway failures are returned unchanged instead of being folded into
+// a sentinel. Because the endpoint is unauthenticated, one phone number may ask
+// for at most loginCodeSends codes before further requests are refused with
+// ErrTooManyAttempts, which stops the server's Telegram credentials from being
+// used to message a number on demand. A code Telegram delivered is charged to
+// that budget and only a login that completed hands it back, so an attacker who
+// starts flows and abandons them still runs out, while a legitimate owner who
+// signs in never accumulates refusals.
 func (s *Service) StartLogin(ctx context.Context, phone string) (*FlowResult, error) {
 	phone = strings.TrimSpace(phone)
 	if phone == "" {
@@ -405,6 +415,9 @@ func (s *Service) StartLogin(ctx context.Context, phone string) (*FlowResult, er
 	step, err := s.login.Start(ctx, phone)
 	if err != nil {
 		return nil, err
+	}
+	if step.User != nil || len(step.State) == 0 {
+		return nil, ErrLoginStateInvalid
 	}
 	s.sendLimiter().Fail(phone)
 	phoneCiphertext, err := s.cipher.Seal("login-phone", []byte(phone))
@@ -507,7 +520,7 @@ func (s *Service) PollQR(ctx context.Context, flowID uuid.UUID) (*VerifyResult, 
 			return nil, err
 		}
 		if step.User != nil {
-			return s.completeLogin(ctx, conn, flowID, step)
+			return s.completeLogin(ctx, conn, flowID, "", step)
 		}
 		if len(step.State) == 0 || (!step.PasswordRequired && strings.TrimSpace(step.QRURL) == "") {
 			return nil, ErrLoginStateInvalid
@@ -566,7 +579,7 @@ func (s *Service) VerifyCode(ctx context.Context, flowID uuid.UUID, code string)
 		if step.PasswordRequired {
 			return s.persistPendingFlow(ctx, conn, flow, step)
 		}
-		return s.completeLogin(ctx, conn, flowID, step)
+		return s.completeLogin(ctx, conn, flowID, phone, step)
 	})
 }
 
@@ -574,12 +587,14 @@ func (s *Service) VerifyCode(ctx context.Context, flowID uuid.UUID, code string)
 // and returns the issued token pair.
 //
 // The flow must already have PasswordRequired set, otherwise ErrInvalidInput is
-// returned. The password is checked by Telegram against the account rather than
-// against anything stored here, so the only local defence is the per-flow
-// throttle: a rejected password is reported as ErrPasswordInvalid, which maps to
-// HTTP 401, and after loginAttemptFailures wrong passwords the flow is refused
-// with ErrTooManyAttempts. Success marks the flow completed in the same
-// transaction that creates the session, so a flow can never be completed twice.
+// returned, and its sealed state must still open, otherwise the login is
+// reported as ErrLoginStateInvalid and the client has to start over. The password
+// is checked by Telegram against the account rather than against anything stored
+// here, so the only local defence is the per-flow throttle: a rejected password is
+// reported as ErrPasswordInvalid, which maps to HTTP 401, and after
+// loginAttemptFailures wrong passwords the flow is refused with
+// ErrTooManyAttempts. Success marks the flow completed in the same transaction
+// that creates the session, so a flow can never be completed twice.
 func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password string) (*VerifyResult, error) {
 	if flowID == uuid.Nil || password == "" {
 		return nil, ErrInvalidInput
@@ -591,15 +606,18 @@ func (s *Service) VerifyPassword(ctx context.Context, flowID uuid.UUID, password
 		if !flow.PasswordRequired {
 			return nil, ErrInvalidInput
 		}
-		_, state, err := s.decryptFlow(flow)
+		phone, state, err := s.decryptFlow(flow)
 		if err != nil {
-			return nil, err
+			// A state that no longer opens is reported like the same condition in
+			// VerifyCode: the caller must restart the login, and the raw cipher
+			// failure must not surface as a server error.
+			return nil, ErrLoginStateInvalid
 		}
 		step, err := s.login.VerifyPassword(ctx, state, password)
 		if err != nil {
 			return nil, s.recordAttemptFailure(flowID, err)
 		}
-		return s.completeLogin(ctx, conn, flowID, step)
+		return s.completeLogin(ctx, conn, flowID, phone, step)
 	})
 }
 
@@ -674,8 +692,8 @@ func (s *Service) slotLimiter() chan struct{} {
 	return s.loginSlots
 }
 
-// sendLimiter returns the per-phone throttle that bounds how many login codes
-// one number may ask Telegram to deliver.
+// sendLimiter returns the per-phone throttle that bounds how many codes one
+// number may ask Telegram to deliver without ever completing the login.
 func (s *Service) sendLimiter() *throttle.Limiter {
 	s.initLoginLimits()
 	return s.codeSends
@@ -758,7 +776,10 @@ func (s *Service) lockFlow(ctx context.Context, lockID int64) (*pgxpool.Conn, er
 // The phone number is empty for QR flows. A nil flow or a missing phone
 // ciphertext reports ErrLoginStateInvalid, while a value that fails to decrypt is
 // returned as secureblob.ErrInvalidCiphertext, so callers can tell "this flow
-// never carried that field" from "this flow cannot be resumed".
+// never carried that field" from "this flow cannot be resumed". VerifyCode and
+// VerifyPassword fold the second case into ErrLoginStateInvalid before they return
+// it, because a ciphertext this service can no longer open means the client has to
+// start the login over rather than see a server error.
 func (s *Service) decryptFlow(flow *sqlcgen.TelegramLoginFlow) (string, []byte, error) {
 	if flow == nil {
 		return "", nil, ErrLoginStateInvalid
@@ -809,6 +830,13 @@ func (s *Service) persistPendingFlow(ctx context.Context, conn *pgxpool.Conn, fl
 // completeLogin finishes an approved login: it stores the Telegram session,
 // creates the TelDrive session, marks the flow completed and mints a token pair.
 //
+// phone is the number the flow sent its login code to, and is empty for a QR flow,
+// which never asked for one. Once the session exists and the flow is completed,
+// the code-send budget of that number is credited back: the number proved it
+// belongs to the user who is signing in, so the send was legitimate. Nothing
+// before the commit touches that budget, so a login that failed, was refused by
+// the allowlist, or rolled back still counts as a spent send.
+//
 // The user row is upserted under a transaction-scoped advisory lock, so the very
 // first account to register becomes the owner exactly once even when two logins
 // race. Every write, and the role lookup behind the access token, happens inside
@@ -818,7 +846,7 @@ func (s *Service) persistPendingFlow(ctx context.Context, conn *pgxpool.Conn, fl
 // session reports ErrLoginStateInvalid, and an account outside
 // Config.AllowedUsers reports ErrUserNotAllowed after Telegram already accepted
 // it.
-func (s *Service) completeLogin(ctx context.Context, conn *pgxpool.Conn, flowID uuid.UUID, step LoginStep) (*VerifyResult, error) {
+func (s *Service) completeLogin(ctx context.Context, conn *pgxpool.Conn, flowID uuid.UUID, phone string, step LoginStep) (*VerifyResult, error) {
 	if step.User == nil || step.User.ID <= 0 || len(step.Session) == 0 {
 		return nil, ErrLoginStateInvalid
 	}
@@ -872,6 +900,13 @@ func (s *Service) completeLogin(ctx context.Context, conn *pgxpool.Conn, flowID 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit authenticated session: %w", err)
+	}
+	// The session is durable at this point, so the code that was sent for this
+	// number turned into a login and stops counting against its budget. Crediting
+	// after the commit keeps a login that rolled back as expensive as one that was
+	// abandoned.
+	if phone != "" {
+		s.sendLimiter().Succeed(phone)
 	}
 	return &VerifyResult{Tokens: &TokenPair{AccessToken: access, RefreshToken: refreshToken, ExpiresIn: ttlSeconds(s.config.AccessTokenTTL)}}, nil
 }

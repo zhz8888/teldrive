@@ -99,6 +99,13 @@ func New(factory *telegramstore.Factory) (*GotdTelegramLogin, error) {
 // is reported as an error instead of a state: continuing would silently produce
 // a step the caller cannot complete. The client is executed for this one round
 // trip only, and its session is serialised into the returned state.
+//
+// A step without a phone code hash is rejected as authn.ErrLoginStateInvalid even
+// when the client reported success. gotd treats a cancellation of the callback
+// context as a clean shutdown and returns nil from Run without ever calling the
+// callback, so a login abandoned mid-flight would otherwise hand back a state
+// that names no code and can never be verified. The same check covers an
+// unexpected successful response that carries no hash.
 func (g *GotdTelegramLogin) Start(ctx context.Context, phone string) (authn.LoginStep, error) {
 	phone = strings.TrimSpace(phone)
 	if phone == "" {
@@ -128,6 +135,9 @@ func (g *GotdTelegramLogin) Start(ctx context.Context, phone string) (authn.Logi
 		return nil
 	}); err != nil {
 		return authn.LoginStep{}, fmt.Errorf("send Telegram login code: %w", err)
+	}
+	if codeHash == "" {
+		return authn.LoginStep{}, authn.ErrLoginStateInvalid
 	}
 	state, err := encodeLoginState(memory, codeHash)
 	if err != nil {
