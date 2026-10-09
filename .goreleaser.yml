@@ -53,7 +53,11 @@ dockers_v2:
     ids:
       - teldrive
     images:
-      - "ghcr.io/zhz8888/{{ .ProjectName }}"
+      # The image belongs to whichever repository runs the release, which is what
+      # the v2 image workflow publishes to as ghcr.io/<owner>/<repo>:v2. Actions
+      # exports GITHUB_REPOSITORY for every step, and the default keeps a local
+      # release pointed at this fork's package instead of an empty name.
+      - 'ghcr.io/{{ envOrDefault "GITHUB_REPOSITORY" "zhz8888/teldrive" }}'
     tags:
       - "{{ .Tag }}"
       - "latest"
