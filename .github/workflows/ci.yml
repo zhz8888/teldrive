@@ -100,5 +100,12 @@ jobs:
       # a contract or SQL change that was not regenerated, or a route tree the
       # UI build rewrote differently. Checking after the gate rather than
       # before it is what keeps the generators from running twice.
+      #
+      # Both kinds of drift have to be caught: `git diff` only sees tracked
+      # files, so a generator that adds one (a new *.sql.go for a new query
+      # file) would slip past it, while the porcelain check also fails on that
+      # untracked addition.
       - name: Verify the generated artifacts are up to date
-        run: git diff --exit-code
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
