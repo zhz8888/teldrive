@@ -458,6 +458,19 @@ type AttemptView = {
 };
 
 /**
+ * Worker that handled one attempt, looked up by the attempt number rather than by a
+ * position in another array: River appends to `attemptedBy` in attempt order, while the
+ * attempts list is rendered newest first. A job whose attempt counter is ahead of the
+ * workers it recorded (an attempt that has not started yet) or a row without an attempt
+ * number therefore gets no worker instead of another attempt's.
+ */
+function attemptWorker(task: TaskOut, attempt: number): string | undefined {
+  const index = attempt - 1;
+  const workers = task.attemptedBy ?? [];
+  return index >= 0 && index < workers.length ? workers[index] : undefined;
+}
+
+/**
  * Merges the recorded failures with the job's own progress into the rows the attempts
  * list shows: one row per failure, plus a row for the current attempt when it is newer
  * than the last recorded failure — or when a completed job's final attempt succeeded.
@@ -465,14 +478,19 @@ type AttemptView = {
  * empty, and the result is ordered newest attempt first.
  */
 function buildAttempts(task: TaskOut, errors: TaskAttemptError[]): AttemptView[] {
-  const attempts: AttemptView[] = errors.map((error, index) => ({
-    attempt: error.attempt ?? 0,
-    state: "failed",
-    at: error.at,
-    error: error.error,
-    trace: error.trace,
-    worker: task.attemptedBy?.[index],
-  }));
+  const attempts: AttemptView[] = errors.map((error) => {
+    // The attempt number is what identifies the row in the job's own bookkeeping, so it is
+    // also the key the worker is read by; the sorting of `errors` must not shift it.
+    const attempt = error.attempt ?? 0;
+    return {
+      attempt,
+      state: "failed",
+      at: error.at,
+      error: error.error,
+      trace: error.trace,
+      worker: attemptWorker(task, attempt),
+    };
+  });
 
   const latestErrorAttempt = errors.reduce((max, error) => Math.max(max, error.attempt ?? 0), 0);
   if ((task.attempt ?? 0) > latestErrorAttempt) {
@@ -485,14 +503,14 @@ function buildAttempts(task: TaskOut, errors: TaskAttemptError[]): AttemptView[]
             ? "running"
             : "waiting",
       at: task.completedAt ?? task.startedAt ?? task.scheduledAt,
-      worker: task.attemptedBy?.[(task.attempt ?? 0) - 1],
+      worker: attemptWorker(task, task.attempt ?? 0),
     });
   } else if (task.status === "completed" && (task.attempt ?? 0) > 0) {
     attempts.push({
       attempt: task.attempt ?? 0,
       state: "completed",
       at: task.completedAt,
-      worker: task.attemptedBy?.[(task.attempt ?? 0) - 1],
+      worker: attemptWorker(task, task.attempt ?? 0),
     });
   }
 

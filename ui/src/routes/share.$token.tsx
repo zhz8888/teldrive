@@ -1,6 +1,6 @@
 import { Button, Input, Label, Spinner, TextField } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileTrigger, type Selection } from "react-aria-components";
 import { toast } from "sonner";
 import DownloadIcon from "~icons/gravity-ui/arrow-down-to-line";
@@ -80,6 +80,13 @@ function PublicSharePage() {
   const singleSelected = selectedFiles.length === 1 ? selectedFiles[0] : undefined;
   // Target for writes: the folder being browsed, or the share root for a single-file share.
   const currentParentId = share ? (pathIds[path] ?? share.file.id) : undefined;
+  // Folder the listing on screen belongs to. It follows the committed render through an
+  // effect rather than the render itself, so `refreshItems` can tell a response for a folder
+  // the visitor has left from one for the folder they are looking at.
+  const currentPathRef = useRef(path);
+  useEffect(() => {
+    currentPathRef.current = path;
+  }, [path]);
 
   /** Loads the share and resets browsing to its root; the caller turns a 401 into the prompt. */
   const loadShare = async (signal: AbortSignal) => {
@@ -118,17 +125,22 @@ function PublicSharePage() {
   }, [token, activePassword]);
 
   /**
-   * Lists the folder being browsed, or the shared file itself when the share points at a
+   * Lists one folder of the share, or the shared file itself when the share points at a
    * single file. The path is sent relative to the share root, and one request carries the
    * whole page (200 entries) because the public browser has no pagination control.
+   *
+   * `forPath` defaults to the folder of the render that called this, which is what a write
+   * action wants: it refreshes after the server answered, by which time the visitor may
+   * have opened another folder, so the response is published only while that folder is
+   * still the one on screen (`currentPathRef`).
    */
-  const refreshItems = async (signal?: AbortSignal) => {
+  const refreshItems = async (signal?: AbortSignal, forPath = path) => {
     if (share?.file.kind !== "folder") {
       setItems(share ? [share.file] : []);
       return;
     }
     const params = new URLSearchParams({ limit: "200" });
-    if (path !== "/") params.set("path", path.slice(1));
+    if (forPath !== "/") params.set("path", forPath.slice(1));
     const response = await apiFetch(
       `/v1/public/shares/${encodeURIComponent(token)}/files?${params.toString()}`,
       {
@@ -137,7 +149,10 @@ function PublicSharePage() {
       },
     );
     const page = (await response.json()) as ShareFilePage;
-    if (!signal?.aborted) setItems(page.items ?? []);
+    // A response for a folder the visitor has left is dropped instead of overwriting the
+    // listing that replaced it; the navigation's own request is what fills that listing.
+    if (signal?.aborted || forPath !== currentPathRef.current) return;
+    setItems(page.items ?? []);
   };
 
   // Reloads the listing whenever the share, the password or the browsed path changes.

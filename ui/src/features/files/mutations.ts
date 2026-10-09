@@ -107,25 +107,29 @@ export function useFileActions() {
   /**
    * Copies several entries into one destination. The copies run as one request per file in
    * parallel, so a failure part-way leaves the already-copied entries in place and rejects
-   * with the first error.
+   * with the first error. The listings are invalidated even when one copy failed, because
+   * the ones that did land are on the server already: skipping the refresh would hide them
+   * and make the caller's retry copy them a second time.
    */
   async function copyMany(
     files: FileEntry[],
     parentId?: string,
     conflictPolicy: NameConflictPolicy = "fail",
   ) {
-    const results = await Promise.all(
-      files.map((file) =>
-        copyMutation.mutateAsync({
-          params: {
-            path: { fileId: file.id },
-          },
-          body: { parentId, conflictPolicy },
-        }),
-      ),
-    );
-    await invalidateFiles();
-    return results;
+    try {
+      return await Promise.all(
+        files.map((file) =>
+          copyMutation.mutateAsync({
+            params: {
+              path: { fileId: file.id },
+            },
+            body: { parentId, conflictPolicy },
+          }),
+        ),
+      );
+    } finally {
+      await invalidateFiles();
+    }
   }
 
   /** Moves one entry to the trash; addressed by id, so no generation is required. */
@@ -191,19 +195,24 @@ export function useFileActions() {
 
   /**
    * Restores many entries by fanning out one request per id, because the API has no bulk
-   * restore; a failure part-way leaves the already-restored entries restored.
+   * restore; a failure part-way leaves the already-restored entries restored. The listings
+   * are invalidated even when one restore failed, for the same reason as {@link copyMany}:
+   * the entries that were restored have left the trash and a retry must not repeat them.
    */
   async function bulkRestore(fileIds: string[]) {
-    await Promise.all(
-      fileIds.map((fileId) =>
-        restoreMutation.mutateAsync({
-          params: {
-            path: { fileId },
-          },
-        }),
-      ),
-    );
-    await invalidateFiles();
+    try {
+      await Promise.all(
+        fileIds.map((fileId) =>
+          restoreMutation.mutateAsync({
+            params: {
+              path: { fileId },
+            },
+          }),
+        ),
+      );
+    } finally {
+      await invalidateFiles();
+    }
   }
 
   // The mutation objects `pending` and `error` aggregate. `bulkRestore` is absent because

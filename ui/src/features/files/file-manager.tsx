@@ -100,6 +100,16 @@ export function FileManagerPage({
   const missingFolder = criteria?.scope === "recursive" && !criteria.parentId;
   const invalidDates = criteria ? invalidSearchDates(criteria) : false;
   const activeSearch = criteria ? hasSearchCriteria(criteria) : true;
+  /**
+   * Whether the listing behind a pane is the one that pane can show right now. Both pane
+   * queries stay mounted while their request is held back — the secondary one is unused in
+   * search mode, and a search without usable criteria is not sent — so a state they kept
+   * from an earlier key, an error included, must not be reported for the visible pane.
+   */
+  const paneQueryEnabled = (pane: PaneId) =>
+    pane === "secondary"
+      ? Boolean(search.split) && !searchMode
+      : activeSearch && !missingFolder && !invalidDates;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const { data: currentUser } = useQuery(currentUserQueryOptions());
   const canLocalImport = Boolean(currentUser?.capabilities.includes("system.localImport"));
@@ -166,7 +176,7 @@ export function FileManagerPage({
       ...(criteria ? driveSearchOptions(criteria) : {}),
     },
     "active",
-    activeSearch && !missingFolder && !invalidDates,
+    paneQueryEnabled("primary"),
   );
   const secondaryFileQuery = useInfiniteFilePages(
     {
@@ -178,7 +188,7 @@ export function FileManagerPage({
       view: secondaryLocation.view,
     },
     "active",
-    Boolean(search.split) && !searchMode,
+    paneQueryEnabled("secondary"),
   );
   const primaryFiles = primaryFileQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const secondaryFiles = secondaryFileQuery.data?.pages.flatMap((page) => page.items) ?? [];
@@ -244,6 +254,9 @@ export function FileManagerPage({
     pane === "secondary" && search.split ? secondaryLocation : primaryLocation;
   const paneFiles = (pane: PaneId) =>
     pane === "secondary" && search.split ? secondaryFiles : primaryFiles;
+  /** Listing behind a pane; the secondary pane is only rendered while the view is split. */
+  const paneQuery = (pane: PaneId) =>
+    pane === "secondary" && search.split ? secondaryFileQuery : primaryFileQuery;
   const paneSelectedKeys = (pane: PaneId) =>
     pane === "secondary" && search.split ? secondarySelectedKeys : primarySelectedKeys;
   const paneSelectedFiles = (pane: PaneId) =>
@@ -823,11 +836,47 @@ export function FileManagerPage({
     );
   };
 
+  /**
+   * Banner for a pane whose listing failed, rendered above the panes. Every pane shows its
+   * own failure in both modes, so a plain `/files` request that never arrived reads as an
+   * error with a retry instead of an empty folder; when only a further page failed, the
+   * pages already on screen stay in place and the retry asks for that page again.
+   */
+  const renderPaneError = (pane: PaneId) => {
+    const fileQuery = paneQuery(pane);
+    if (!paneQueryEnabled(pane) || !fileQuery.isError) return null;
+    return (
+      <div role="alert" className="mb-3 rounded-xl border border-danger/30 p-4 text-sm">
+        <p className="font-medium">
+          {searchMode
+            ? t(
+                fileQuery.isFetchNextPageError
+                  ? "routes.search.error.more"
+                  : "routes.search.error.failed",
+              )
+            : t("common.state.error")}
+        </p>
+        <p className="mt-1 text-muted">{userMessage(fileQuery.error)}</p>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="mt-2"
+          isDisabled={fileQuery.isFetching}
+          onPress={() =>
+            void (fileQuery.isFetchNextPageError ? fileQuery.fetchNextPage() : fileQuery.refetch())
+          }
+        >
+          {t("common.action.retry")}
+        </Button>
+      </div>
+    );
+  };
+
   const renderPane = (pane: PaneId) => {
     const location = paneLocation(pane);
     const files = paneFiles(pane);
     const selectedKeys = paneSelectedKeys(pane);
-    const fileQuery = pane === "secondary" ? secondaryFileQuery : primaryFileQuery;
+    const fileQuery = paneQuery(pane);
     const browser = (
       <FileBrowser
         files={files}
@@ -877,10 +926,15 @@ export function FileManagerPage({
         }
       />
     );
+    // A pane whose first page never arrived has no listing: rendering the browser anyway
+    // would present the failure as an empty folder, so the banner above the panes stands in
+    // for it until a retry succeeds. A pane that still holds earlier pages keeps them, and a
+    // held-back query is left alone because its pane is not showing that listing.
+    const hasNothingToList = paneQueryEnabled(pane) && fileQuery.isError && !fileQuery.data;
     if (searchMode)
       return (
         <div data-testid={`file-pane-${pane}`} className="flex min-h-0 min-w-0 flex-1">
-          {browser}
+          {hasNothingToList ? null : browser}
         </div>
       );
     return (
@@ -904,7 +958,7 @@ export function FileManagerPage({
                   {t("routes.files.dropzone.hint", { path: location.path })}
                 </div>
               ) : null}
-              {browser}
+              {hasNothingToList ? null : browser}
             </div>
           )}
         </DropZone>
@@ -931,29 +985,8 @@ export function FileManagerPage({
       )}
       <PageContent className="flex min-h-0 flex-1 overflow-x-hidden">
         <div {...keyboardProps} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden">
-          {searchMode && primaryFileQuery.isError && (
-            <div role="alert" className="mb-3 rounded-xl border border-danger/30 p-4 text-sm">
-              <p className="font-medium">
-                {primaryFileQuery.isFetchNextPageError
-                  ? t("routes.search.error.more")
-                  : t("routes.search.error.failed")}
-              </p>
-              <p className="mt-1 text-muted">{userMessage(primaryFileQuery.error)}</p>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="mt-2"
-                isDisabled={primaryFileQuery.isFetching}
-                onPress={() =>
-                  void (primaryFileQuery.isFetchNextPageError
-                    ? primaryFileQuery.fetchNextPage()
-                    : primaryFileQuery.refetch())
-                }
-              >
-                {t("common.action.retry")}
-              </Button>
-            </div>
-          )}
+          {renderPaneError("primary")}
+          {search.split ? renderPaneError("secondary") : null}
           {searchMode && (missingFolder || invalidDates || !activeSearch) ? (
             <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center">
               <p className="text-lg font-semibold">
@@ -976,7 +1009,7 @@ export function FileManagerPage({
                 </Button>
               )}
             </div>
-          ) : searchMode && primaryFileQuery.isError && !primaryFileQuery.data ? null : (
+          ) : (
             <div
               className={
                 search.split

@@ -2,7 +2,12 @@ import { Label, ListBox, NumberField, Select, Switch } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { SettingsPageHeader, SettingsRow, SettingsSection } from "@/components/settings-layout";
-import { MAX_PART_SIZE_MIB, normalizePartSizeMiB, useUploadStore } from "@/features/uploads/store";
+import {
+  MAX_PART_SIZE_MIB,
+  normalizeConflictPolicy,
+  normalizePartSizeMiB,
+  useUploadStore,
+} from "@/features/uploads/store";
 import { useI18n } from "@/lib/i18n";
 
 /** `/settings/uploads` — browser-local defaults for new upload batches. */
@@ -50,9 +55,12 @@ function UploadSettings() {
         >
           <Select
             aria-label={t("settings.uploads.conflicts.label")}
-            selectedKey={settings.conflictPolicy}
+            // Normalised for display as well: the stored settings are repaired when the
+            // store loads them, and a value picked here is checked the same way, so the
+            // selection always names the policy every upload request will carry.
+            selectedKey={normalizeConflictPolicy(settings.conflictPolicy)}
             onSelectionChange={(key) =>
-              setSettings({ conflictPolicy: String(key) as typeof settings.conflictPolicy })
+              setSettings({ conflictPolicy: normalizeConflictPolicy(key) })
             }
           >
             <Select.Trigger>
@@ -67,7 +75,10 @@ function UploadSettings() {
                 <ListBox.Item id="replace" textValue={t("settings.uploads.conflicts.replace")}>
                   {t("settings.uploads.conflicts.replace")}
                 </ListBox.Item>
-                <ListBox.Item id="error" textValue={t("settings.uploads.conflicts.error")}>
+                {/* The item id is the policy itself, not a UI-local name: it is persisted and
+                    sent as the upload session's `conflictPolicy`, and the contract accepts only
+                    "fail", "replace" and "rename". */}
+                <ListBox.Item id="fail" textValue={t("settings.uploads.conflicts.error")}>
                   {t("settings.uploads.conflicts.error")}
                 </ListBox.Item>
               </ListBox>

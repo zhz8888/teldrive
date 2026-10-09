@@ -27,13 +27,16 @@ type PublicationResource = {
 };
 
 /**
- * Media types and file extensions whose markup ends up as a chapter document.
- * Everything else (CSS, images, fonts) is passed through untouched.
+ * Media types whose payload is markup that has to be sanitised before it is rendered.
+ * `image/svg+xml` belongs here: foliate treats a spine item of that type like a chapter and
+ * loads it into the same sandboxed frame, where an SVG `script` element or `onload`
+ * attribute runs with the reader's session, so an SVG is not an opaque image either. CSS,
+ * fonts and raster images are still passed through untouched.
  */
-const MARKUP_MEDIA_TYPES = new Set(["application/xhtml+xml", "text/html"]);
+const MARKUP_MEDIA_TYPES = new Set(["application/xhtml+xml", "text/html", "image/svg+xml"]);
 // Path fallback for resources whose manifest omits or mislabels the media type; tested
 // against the resource path with any query string or fragment stripped.
-const MARKUP_PATH_PATTERN = /\.(?:x?html?|xhtm)$/;
+const MARKUP_PATH_PATTERN = /\.(?:x?html?|xhtm|svg)$/;
 /** Elements that can load or run another document inside the chapter frame. */
 const DANGEROUS_ELEMENTS = "script, iframe, object, embed";
 /** URL schemes that execute markup or script instead of fetching a resource. */
@@ -42,9 +45,11 @@ const DANGEROUS_URL_PREFIXES = ["javascript:", "data:text/html"];
 const URL_LIST_ATTRIBUTES = new Set(["srcset", "imagesrcset"]);
 
 /**
- * Whether a resource is chapter markup that has to be sanitised before foliate
- * renders it. Chapters are the only resources that become a document, so they
- * are the only ones where a `<script>` or an `on*` handler could run.
+ * Whether a resource is markup that has to be sanitised before foliate renders it. An SVG
+ * counts even though its media type is an image: a spine item of that type is loaded into a
+ * chapter frame, where a `<script>` or an `on*` handler would run with the reader's session.
+ * The same check therefore also covers SVG resources that are only referenced as an image,
+ * which costs one parse and saves the two cases from having to be told apart.
  */
 export function isPublicationMarkup(type: unknown, name: unknown): boolean {
   const mediaType = typeof type === "string" ? mediaTypeOf(type) : "";
@@ -58,7 +63,9 @@ export function isPublicationMarkup(type: unknown, name: unknown): boolean {
  * chapter frame: foliate renders each chapter in a same-origin iframe
  * (`sandbox="allow-same-origin allow-scripts"`), so a chapter that ships a
  * script element, an inline event handler or a `javascript:` link would run
- * with the reader's session. Pure function: markup in, sanitised markup out.
+ * with the reader's session. An SVG chapter is cleaned by the same code: it is
+ * XML, so it parses as one and its elements and attributes are treated exactly
+ * like a chapter's. Pure function: markup in, sanitised markup out.
  *
  * A chapter the XML parser rejects is handled by
  * {@link sanitizePublicationMarkupFallback} instead of being dropped, because
@@ -94,9 +101,10 @@ export function sanitizePublicationMarkupFallback(markup: string): string {
 }
 
 /**
- * Parses chapter markup as XML, returning undefined for anything the XML parser rejects
+ * Parses publication markup as XML, returning undefined for anything the XML parser rejects
  * (malformed XHTML is common in real books) so the caller can fall back to string-level
- * sanitising instead of losing the chapter.
+ * sanitising instead of losing the chapter. Both a chapter and an SVG are XML, so one parse
+ * handles either.
  */
 function parsePublicationMarkup(markup: string): Document | undefined {
   try {
@@ -202,8 +210,11 @@ export async function openPublication({
 }) {
   const { makeBook } = await import("foliate-js/view.js");
   const book = await makeBook(file);
-  // Chapters reach the reader as a chapter frame's document, so every markup
-  // resource is sanitised here, before foliate turns it into a blob URL.
+  // Chapters and SVGs reach the reader as a chapter frame's document, so every markup
+  // resource is sanitised here, before foliate turns it into a blob URL. Foliate hands
+  // markup over as a string (it re-serialises chapters, SVG and CSS after rewriting their
+  // links) while fonts and raster images arrive as bytes, which is why only a string
+  // payload is a document this module has to clean.
   book.transformTarget?.addEventListener("data", ({ detail }: CustomEvent<PublicationResource>) => {
     detail.data = Promise.resolve(detail.data)
       .then((data: unknown) =>

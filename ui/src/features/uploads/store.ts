@@ -152,11 +152,31 @@ function discardLegacyPersistedTasks() {
   }
 }
 /**
+ * The conflict policies the upload contract accepts. A stored value outside this set
+ * would be refused by the server's request validation on every upload session, so it is
+ * replaced by the contract's own default instead of being replayed.
+ */
+const CONFLICT_POLICIES: NameConflictPolicy[] = ["fail", "replace", "rename"];
+
+/**
+ * Narrows a persisted or picked value to a conflict policy the API accepts, falling back
+ * to "fail". Reading the stored settings applies it so no visitor ever uploads with a
+ * rejected policy, and `/settings/uploads` applies it to the picked value for the same
+ * reason.
+ */
+export function normalizeConflictPolicy(value: unknown): NameConflictPolicy {
+  return CONFLICT_POLICIES.includes(value as NameConflictPolicy)
+    ? (value as NameConflictPolicy)
+    : "fail";
+}
+
+/**
  * Loads the stored preferences over the defaults, so a partial or older entry can only
  * override the fields it has. The encryption flag is re-coerced to a boolean and the part
  * size re-normalised (the stored value is in bytes) because either may have been written
  * by an older UI; any unreadable or corrupt entry yields the defaults rather than throwing.
- * Concurrency and conflict policy are taken as stored.
+ * Concurrency is taken as stored, while the conflict policy is checked against the values
+ * the contract accepts, so a value written by an older build cannot make every upload fail.
  */
 function readSettings(): UploadSettings {
   try {
@@ -169,6 +189,7 @@ function readSettings(): UploadSettings {
     } as UploadSettings;
     settings.encryption = settings.encryption === true;
     settings.preferredPartSize = normalizePartSizeMiB(settings.preferredPartSize / MIB) * MIB;
+    settings.conflictPolicy = normalizeConflictPolicy(settings.conflictPolicy);
     return settings;
   } catch {
     return {

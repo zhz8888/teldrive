@@ -139,6 +139,12 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
       ? sharedWithMeQuery.isPending
       : sharedQuery.isPending
     : childrenQuery.isPending;
+  // A failed listing has to read as a failure rather than as a shared folder that happens
+  // to hold nothing, so the browser below is replaced by an error with a retry while the
+  // query behind the visible level — the root listing or the folder that was walked into —
+  // has no data at all.
+  const listingFailed = atRoot ? rootQuery.isError : childrenQuery.isError;
+  const listingFailedWithoutData = listingFailed && !(atRoot ? rootQuery.data : childrenQuery.data);
   const rootLabel =
     mode === "with-me"
       ? t("features.fileBrowser.root.sharedWithMe")
@@ -289,172 +295,194 @@ export function SharedFileBrowser({ mode, search, navigate }: SharedFileBrowserP
   return (
     <Page className="h-full min-h-0 gap-0 overflow-x-hidden">
       <PageContent className="flex min-h-0 flex-1 overflow-x-hidden">
-        <FileBrowser
-          files={files}
-          path={search.path}
-          rootLabel={rootLabel}
-          view={search.view}
-          loading={loading}
-          onNavigatePath={(path) => {
-            const target = path === "" ? "/" : path;
-            // The listing calls are addressed by folder id and a shared subtree
-            // does not expose the ids of its ancestors, so only a folder the user
-            // walked through in this session can be opened again; anything else
-            // falls back to the share root, which is what a deep link starts at.
-            const known = ancestry.current.get(target);
-            if (target !== "/" && !known) {
-              navigate({ path: "/", query: "", view: search.view }, true);
-              return;
-            }
-            navigate({ path: target, query: "", view: search.view, ...known }, true);
-          }}
-          onViewChange={(view) => navigate({ ...search, view }, true)}
-          onOpen={openFile}
-          onBack={() => window.history.back()}
-          selection={{
-            selectedKeys,
-            onSelectionChange: setSelectedKeys,
-            onClearSelection: () => setSelectedKeys(new Set()),
-          }}
-          toolbar={
-            currentFolderEditable || moreRoots ? (
-              <>
-                {currentFolderEditable ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+          {listingFailed ? (
+            <div role="alert" className="shrink-0 rounded-xl border border-danger/30 p-4 text-sm">
+              <p className="font-medium">{t("common.state.error")}</p>
+              <p className="mt-1 text-muted">
+                {userMessage(atRoot ? rootQuery.error : childrenQuery.error)}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-2"
+                isDisabled={atRoot ? rootQuery.isFetching : childrenQuery.isFetching}
+                onPress={() => void (atRoot ? rootQuery.refetch() : childrenQuery.refetch())}
+              >
+                {t("common.action.retry")}
+              </Button>
+            </div>
+          ) : null}
+          {listingFailedWithoutData ? null : (
+            <FileBrowser
+              files={files}
+              path={search.path}
+              rootLabel={rootLabel}
+              view={search.view}
+              loading={loading}
+              onNavigatePath={(path) => {
+                const target = path === "" ? "/" : path;
+                // The listing calls are addressed by folder id and a shared subtree
+                // does not expose the ids of its ancestors, so only a folder the user
+                // walked through in this session can be opened again; anything else
+                // falls back to the share root, which is what a deep link starts at.
+                const known = ancestry.current.get(target);
+                if (target !== "/" && !known) {
+                  navigate({ path: "/", query: "", view: search.view }, true);
+                  return;
+                }
+                navigate({ path: target, query: "", view: search.view, ...known }, true);
+              }}
+              onViewChange={(view) => navigate({ ...search, view }, true)}
+              onOpen={openFile}
+              onBack={() => window.history.back()}
+              selection={{
+                selectedKeys,
+                onSelectionChange: setSelectedKeys,
+                onClearSelection: () => setSelectedKeys(new Set()),
+              }}
+              toolbar={
+                currentFolderEditable || moreRoots ? (
                   <>
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="secondary"
-                      aria-label={t("features.fileBrowser.action.newFolder")}
-                      isDisabled={fileActions.pending}
-                      onPress={() => setFolderDialogOpen(true)}
-                    >
-                      <PlusIcon className="size-4" />
-                    </Button>
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="primary"
-                      aria-label={t("features.fileBrowser.action.uploadFiles")}
-                      isDisabled={fileActions.pending}
-                      onPress={() => uploadTriggerRef.current?.click()}
-                    >
-                      <UploadIcon className="size-4" />
-                    </Button>
-                    <span className="hidden" aria-hidden="true">
-                      <FileTrigger
-                        allowsMultiple
-                        onSelect={(list) => {
-                          if (list?.length) enqueue(Array.from(list), search.parentId, search.path);
-                        }}
-                      >
-                        <Button ref={uploadTriggerRef}>
-                          {t("features.fileBrowser.action.chooseFiles")}
+                    {currentFolderEditable ? (
+                      <>
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="secondary"
+                          aria-label={t("features.fileBrowser.action.newFolder")}
+                          isDisabled={fileActions.pending}
+                          onPress={() => setFolderDialogOpen(true)}
+                        >
+                          <PlusIcon className="size-4" />
                         </Button>
-                      </FileTrigger>
-                    </span>
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="primary"
+                          aria-label={t("features.fileBrowser.action.uploadFiles")}
+                          isDisabled={fileActions.pending}
+                          onPress={() => uploadTriggerRef.current?.click()}
+                        >
+                          <UploadIcon className="size-4" />
+                        </Button>
+                        <span className="hidden" aria-hidden="true">
+                          <FileTrigger
+                            allowsMultiple
+                            onSelect={(list) => {
+                              if (list?.length)
+                                enqueue(Array.from(list), search.parentId, search.path);
+                            }}
+                          >
+                            <Button ref={uploadTriggerRef}>
+                              {t("features.fileBrowser.action.chooseFiles")}
+                            </Button>
+                          </FileTrigger>
+                        </span>
+                      </>
+                    ) : null}
+                    {moreRoots ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isDisabled={loadingMoreRoots}
+                        onPress={() => void rootQuery.fetchNextPage()}
+                      >
+                        {t("features.fileBrowser.action.loadMore")}
+                      </Button>
+                    ) : null}
                   </>
-                ) : null}
-                {moreRoots ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    isDisabled={loadingMoreRoots}
-                    onPress={() => void rootQuery.fetchNextPage()}
-                  >
-                    {t("features.fileBrowser.action.loadMore")}
-                  </Button>
-                ) : null}
-              </>
-            ) : undefined
-          }
-          selectionOverlay={
-            selectedCount > 0 ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
-                <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-border bg-surface/95 p-1.5 shadow-xl backdrop-blur">
-                  <span className="shrink-0 rounded-full bg-accent/10 px-3 py-2 text-sm font-medium text-accent">
-                    {t("features.fileBrowser.selected", { count: selectedCount })}
-                  </span>
-                  {singleSelected && selectedWritable ? (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t("features.fileBrowser.action.rename")}
-                      isDisabled={fileActions.pending}
-                      onPress={() => {
-                        setRenameFile(singleSelected);
-                        setRenameName(singleSelected.name);
-                      }}
-                    >
-                      <PencilIcon className="size-4" />
-                    </Button>
-                  ) : null}
-                  {singleSelected && mode === "shared" ? (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t("features.fileBrowser.action.share")}
-                      onPress={() => setShareFile(singleSelected)}
-                    >
-                      <LinkIcon className="size-4" />
-                    </Button>
-                  ) : null}
-                  {singleSelected?.kind === "file" ? (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="ghost"
-                      aria-label={t("features.fileBrowser.action.download")}
-                      onPress={() => startFileDownload(singleSelected)}
-                    >
-                      <DownloadIcon className="size-4" />
-                    </Button>
-                  ) : null}
-                  {mode === "shared" && atRoot && selectedCount > 0 ? (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="danger"
-                      aria-label={t("features.fileBrowser.action.stopSharing")}
-                      onPress={() => void stopSharingSelected()}
-                    >
-                      <LinkIcon className="size-4" />
-                    </Button>
-                  ) : mode === "with-me" && selectedWritable ? (
-                    <Button
-                      isIconOnly
-                      size="sm"
-                      variant="danger"
-                      aria-label={t("features.fileBrowser.action.trash")}
-                      isDisabled={fileActions.pending}
-                      onPress={() => void trashSelected()}
-                    >
-                      <TrashIcon className="size-4" />
-                    </Button>
-                  ) : null}
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    aria-label={t("features.fileBrowser.action.clearSelection")}
-                    onPress={() => setSelectedKeys(new Set())}
-                  >
-                    <CloseIcon className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            ) : undefined
-          }
-          emptyHint={
-            atRoot
-              ? mode === "with-me"
-                ? t("features.fileBrowser.emptySharedWithMe")
-                : t("features.fileBrowser.emptyShared")
-              : t("features.fileBrowser.emptySharedFolder")
-          }
-        />
+                ) : undefined
+              }
+              selectionOverlay={
+                selectedCount > 0 ? (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-4">
+                    <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-border bg-surface/95 p-1.5 shadow-xl backdrop-blur">
+                      <span className="shrink-0 rounded-full bg-accent/10 px-3 py-2 text-sm font-medium text-accent">
+                        {t("features.fileBrowser.selected", { count: selectedCount })}
+                      </span>
+                      {singleSelected && selectedWritable ? (
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t("features.fileBrowser.action.rename")}
+                          isDisabled={fileActions.pending}
+                          onPress={() => {
+                            setRenameFile(singleSelected);
+                            setRenameName(singleSelected.name);
+                          }}
+                        >
+                          <PencilIcon className="size-4" />
+                        </Button>
+                      ) : null}
+                      {singleSelected && mode === "shared" ? (
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t("features.fileBrowser.action.share")}
+                          onPress={() => setShareFile(singleSelected)}
+                        >
+                          <LinkIcon className="size-4" />
+                        </Button>
+                      ) : null}
+                      {singleSelected?.kind === "file" ? (
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="ghost"
+                          aria-label={t("features.fileBrowser.action.download")}
+                          onPress={() => startFileDownload(singleSelected)}
+                        >
+                          <DownloadIcon className="size-4" />
+                        </Button>
+                      ) : null}
+                      {mode === "shared" && atRoot && selectedCount > 0 ? (
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="danger"
+                          aria-label={t("features.fileBrowser.action.stopSharing")}
+                          onPress={() => void stopSharingSelected()}
+                        >
+                          <LinkIcon className="size-4" />
+                        </Button>
+                      ) : mode === "with-me" && selectedWritable ? (
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="danger"
+                          aria-label={t("features.fileBrowser.action.trash")}
+                          isDisabled={fileActions.pending}
+                          onPress={() => void trashSelected()}
+                        >
+                          <TrashIcon className="size-4" />
+                        </Button>
+                      ) : null}
+                      <Button
+                        isIconOnly
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t("features.fileBrowser.action.clearSelection")}
+                        onPress={() => setSelectedKeys(new Set())}
+                      >
+                        <CloseIcon className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : undefined
+              }
+              emptyHint={
+                atRoot
+                  ? mode === "with-me"
+                    ? t("features.fileBrowser.emptySharedWithMe")
+                    : t("features.fileBrowser.emptyShared")
+                  : t("features.fileBrowser.emptySharedFolder")
+              }
+            />
+          )}
+        </div>
       </PageContent>
 
       <AppDialog
