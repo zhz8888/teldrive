@@ -686,6 +686,8 @@ test("split panes cut and copy items directly between folders", async ({ page, i
   await expect(primary.getByText("alpha.txt", { exact: true })).toBeHidden();
   await expect(secondary.getByText("alpha.txt", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Paste / })).toHaveCount(0);
+  // The success toast overlaps the action bar and pauses while the pointer is over it.
+  await page.getByRole("button", { name: "Close toast", exact: true }).click();
 
   await secondary.getByRole("row", { name: /alpha\.txt/ }).click();
   await secondary.getByRole("button", { name: "Copy selected items" }).click();
