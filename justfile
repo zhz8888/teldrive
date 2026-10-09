@@ -50,6 +50,16 @@ generate-api: generate-openapi
     test ! -e internal/api/gen/oas_unimplemented_gen.go
     test "$(grep -c '^\s*[A-Z][A-Za-z0-9]*(ctx context.Context' internal/api/gen/oas_server_gen.go)" -eq "$(grep -c 'operationId:' {{openapi_spec}})"
 
+# Refuse to run the generator with a sqlc other than the pinned one.
+check-sqlc-version:
+    # generate-db runs this before clean-db: a version mismatch has to fail while
+    # the tree is still intact, because deleting the generated package first
+    # leaves a workspace that cannot compile. sqlc rewrites the whole generated
+    # package, so a version other than the one the committed files were produced
+    # with would show up as a large unrelated diff and can even make patchsqlc
+    # fail to match what it patches.
+    test "$(sqlc version)" = "{{sqlc_version}}" || { echo "sqlc {{sqlc_version}} is required, found $(sqlc version)" >&2; exit 1; }
+
 # Remove the files sqlc owns in its output directory. schema_template.go and its
 # test are handwritten and are left alone; everything else there is regenerated.
 clean-db:
@@ -57,11 +67,7 @@ clean-db:
     find internal/db/sqlcgen -name '*.sql.go' -delete
 
 # Generate the typed PostgreSQL query layer.
-generate-db: clean-db
-    # sqlc rewrites the whole generated package, so a version other than the one
-    # the committed files were produced with would show up as a large unrelated
-    # diff and can even make patchsqlc fail to match what it patches.
-    test "$(sqlc version)" = "{{sqlc_version}}" || { echo "sqlc {{sqlc_version}} is required, found $(sqlc version)" >&2; exit 1; }
+generate-db: check-sqlc-version clean-db
     sqlc generate
     go run ./internal/tools/patchsqlc
 
@@ -165,10 +171,21 @@ dev:
     bun run --cwd {{ui_dir}} dev -- --host &
     ui_pid=$!
 
-    set +e
-    wait -n "$backend_pid" "$ui_pid"
-    status=$?
-    set -e
+    # `wait -n` with operands needs bash 5.1, but this recipe's shebang resolves
+    # to the bash 3.2 that macOS ships, where it fails with "wait: -n: invalid
+    # option" and would abort the recipe right after both servers start. Poll
+    # instead: the first child that is gone ends the loop, and its status is
+    # what the recipe reports, so either shell behaves the same.
+    status=0
+    while kill -0 "$backend_pid" 2>/dev/null && kill -0 "$ui_pid" 2>/dev/null; do
+        sleep 0.2
+    done
+    for child_pid in "$backend_pid" "$ui_pid"; do
+        if ! kill -0 "$child_pid" 2>/dev/null; then
+            wait "$child_pid" || status=$?
+            break
+        fi
+    done
 
     cleanup
     exit "$status"
