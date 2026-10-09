@@ -512,8 +512,10 @@ func (r *Runtime) InsertPurge(ctx context.Context) error {
 // It requires bot provisioning to be enabled and a positive user ID, and returns
 // ErrRuntimeNotConfigured otherwise. Non-positive and duplicate bot IDs are
 // dropped; when none survive the call is a successful no-op. Insertion is
-// deduplicated by job arguments, so a repeated request while a job is still
-// pending returns that pending job's ID instead of queueing a second one.
+// deduplicated by job arguments for as long as the earlier job can still run —
+// available, pending, running, retryable or scheduled — so a repeated request
+// returns that job's ID instead of queueing a second one, while a request that
+// follows a finished job is queued again.
 func (r *Runtime) InsertBotProvision(ctx context.Context, userID int64, botIDs []int64) (string, error) {
 	if r == nil || r.client == nil || !r.botProvisionEnabled || userID <= 0 {
 		return "", ErrRuntimeNotConfigured
