@@ -21,9 +21,11 @@ import (
 )
 
 var (
-	// ErrSelectedChannel reports that Delete was asked to remove the channel
-	// currently selected for uploads, which the user must deselect by selecting
-	// another one first. Callers must test it with errors.Is.
+	// ErrSelectedChannel reports that a channel could not become, or stop being,
+	// the single selected upload channel: Delete was asked to remove the channel
+	// currently selected, and a creation or selection that races another caller
+	// lost on the partial unique index that keeps one selection per user. Callers
+	// must test it with errors.Is.
 	ErrSelectedChannel = errors.New("selected channel cannot be deleted")
 	// ErrChannelInUse reports that a channel still holds referenced file or
 	// upload parts, so deleting it would orphan stored objects. Callers must
@@ -85,9 +87,11 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]*sqlcgen.Channel, e
 // name that is blank after trimming is replaced by a generated
 // "<prefix>_<utc timestamp>" one, and a name Telegram returns empty is replaced
 // by the requested name. It returns ErrInvalidOwner for a non-positive user ID
-// or a nil creator, and deletes a freshly created Telegram channel again when
-// the row cannot be written. Unlike Resolve, it never consults the part limit
-// or Config.AutoCreate.
+// or a nil creator, and deletes a freshly created Telegram channel again whenever
+// the row cannot be written. A creation that loses the race for the single
+// selected channel to a concurrent one is reported as ErrSelectedChannel and
+// deletes its own Telegram channel as well. Unlike Resolve, it never consults the
+// part limit or Config.AutoCreate.
 func (s *Service) Create(ctx context.Context, userID int64, name string, selected bool) (*sqlcgen.Channel, error) {
 	if userID <= 0 || s.creator == nil {
 		return nil, ErrInvalidOwner
@@ -128,6 +132,14 @@ func (s *Service) Create(ctx context.Context, userID int64, name string, selecte
 		row, err = q.SelectChannel(ctx, sqlcgen.SelectChannelParams{UserID: userID, ChannelID: remote.ID})
 		if err != nil {
 			s.compensateDelete(userID, remote.ID)
+			// Two concurrent creations of a selected channel for the same user can
+			// both pass the clear above and then collide on the partial unique index
+			// that keeps one selection per user, which is a conflict rather than a
+			// fault. The Telegram channel created for the losing row is deleted
+			// again, because the rollback below leaves no row pointing at it.
+			if isUniqueViolation(err) {
+				return nil, ErrSelectedChannel
+			}
 			return nil, fmt.Errorf("select created channel: %w", err)
 		}
 	}
