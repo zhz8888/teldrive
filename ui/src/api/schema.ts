@@ -5675,6 +5675,18 @@ export interface operations {
              * @description Declared error response: `statusCode` selects the status, `body` carries the error
              *     envelope.
              */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -10585,6 +10597,18 @@ export interface operations {
              * @description Declared error response: `statusCode` selects the status, `body` carries the error
              *     envelope.
              */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10618,6 +10642,18 @@ export interface operations {
              *     envelope.
              */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /**
+             * @description Declared error response: `statusCode` selects the status, `body` carries the error
+             *     envelope.
+             */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

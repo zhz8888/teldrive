@@ -2069,6 +2069,16 @@ paths:
                     description: Cursor to send as `cursor` on the next request; omitted when the
                       listing is exhausted.
                 description: One page of a keyset-paginated listing.
+        "400":
+          description: >-
+            Declared error response: `statusCode` selects the status, `body`
+            carries the error
+
+            envelope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: >-
             Declared error response: `statusCode` selects the status, `body`
@@ -7008,6 +7018,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: >-
+            Declared error response: `statusCode` selects the status, `body`
+            carries the error
+
+            envelope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: >-
             Declared error response: `statusCode` selects the status, `body`
@@ -7042,6 +7062,16 @@ paths:
         "204":
           description: Declared success response with the given status and no body.
         "401":
+          description: >-
+            Declared error response: `statusCode` selects the status, `body`
+            carries the error
+
+            envelope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
           description: >-
             Declared error response: `statusCode` selects the status, `body`
             carries the error

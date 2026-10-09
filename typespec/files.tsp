@@ -495,6 +495,7 @@ namespace Files {
   @operationId("listFiles")
   op list(...CursorQuery, ...FileListQuery):
     | JsonResponse<200, CursorPage<FileEntry>>
+    | ErrorResponse<400>
     | ErrorResponse<401>
     | ErrorResponse<404>
     | ErrorResponse<422>;

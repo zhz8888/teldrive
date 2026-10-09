@@ -366,6 +366,7 @@ namespace Jobs {
   op pauseQueue(@path queue: string):
     | EmptyResponse<204>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 
   /**
@@ -378,6 +379,7 @@ namespace Jobs {
   op resumeQueue(@path queue: string):
     | EmptyResponse<204>
     | ErrorResponse<401>
+    | ErrorResponse<403>
     | ErrorResponse<404>;
 
   /**

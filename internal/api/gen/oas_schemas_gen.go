@@ -6888,6 +6888,10 @@ type ListFileSharesUnprocessableEntity ErrorEnvelope
 
 func (*ListFileSharesUnprocessableEntity) listFileSharesRes() {}
 
+type ListFilesBadRequest ErrorEnvelope
+
+func (*ListFilesBadRequest) listFilesRes() {}
+
 type ListFilesNotFound ErrorEnvelope
 
 func (*ListFilesNotFound) listFilesRes() {}
@@ -8908,6 +8912,10 @@ func (o OptUserRole) Or(d UserRole) UserRole {
 	return d
 }
 
+type PauseJobQueueForbidden ErrorEnvelope
+
+func (*PauseJobQueueForbidden) pauseJobQueueRes() {}
+
 // PauseJobQueueNoContent is response for PauseJobQueue operation.
 type PauseJobQueueNoContent struct{}
 
@@ -9800,6 +9808,10 @@ func (*RestoreFileNotFound) restoreFileRes() {}
 type RestoreFileUnauthorized ErrorEnvelope
 
 func (*RestoreFileUnauthorized) restoreFileRes() {}
+
+type ResumeJobQueueForbidden ErrorEnvelope
+
+func (*ResumeJobQueueForbidden) resumeJobQueueRes() {}
 
 // ResumeJobQueueNoContent is response for ResumeJobQueue operation.
 type ResumeJobQueueNoContent struct{}
