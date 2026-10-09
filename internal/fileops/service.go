@@ -735,15 +735,21 @@ func (s *Service) Purge(ctx context.Context, userID int64, fileID uuid.UUID) err
 // ErrNotFound and one that is neither trashed nor deletion_pending yields ErrNotTrashed;
 // both abort before anything is marked or deleted.
 //
-// The deletion is ordered so that it can be resumed. All rows of the locked subtrees are
-// marked deletion_pending first, then the Telegram messages are removed channel by
-// channel, and finally the parts and catalog rows are deleted in one transaction,
+// The deletion is ordered so that it can be resumed. The rows of the locked subtrees
+// are moved to deletion_pending first, then the Telegram messages are removed channel
+// by channel, and finally the parts and catalog rows are deleted in one transaction,
 // deepest rows first so no child outlives its parent. A failure after the first step
-// leaves the files in deletion_pending for the periodic sweep to retry, a failure before
-// it leaves the database untouched, and a failure in the middle leaves some channels
-// already cleared, which the retry accepts because a channel that no longer resolves
-// counts as already deleted. The catalog cache is invalidated after the marking and
-// again after the commit.
+// leaves the files in deletion_pending for the periodic sweep to retry, a failure
+// before it leaves the database untouched, and a failure in the middle leaves some
+// channels already cleared, which the retry accepts because a channel that no longer
+// resolves counts as already deleted. The catalog cache is invalidated after the
+// marking and again after the commit.
+//
+// The marking is the statement that matches nothing but a trashed root, so a restore
+// that races this call either wins and makes the root active (and then this call fails
+// with ErrNotTrashed instead of deleting the subtree the user just got back) or loses
+// and finds no trashed root to reactivate. Only the roots are validated before the
+// marking; the ids to delete are the ones the marking itself reports.
 func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UUID) error {
 	if userID <= 0 || len(rootIDs) == 0 {
 		return ErrInvalidInput
@@ -796,58 +802,73 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 		return nil
 	}
 
-	nodesByID := make(map[uuid.UUID]treeNode)
-	rows, err := s.queries.LoadFileSubtrees(ctx, sqlcgen.LoadFileSubtreesParams{
-		RootIds: pgUUIDs(lockedRoots), UserID: userID,
-	})
-	if err != nil {
-		return fmt.Errorf("load file subtrees: %w", err)
-	}
-	foundRoots := make(map[uuid.UUID]sqlcgen.FileStatus, len(lockedRoots))
-	rootSet := make(map[uuid.UUID]struct{}, len(lockedRoots))
+	// Every root is checked before anything is marked, because a root that no longer
+	// exists or is no longer trashed has to abort the whole call without side effects.
+	// The status is only used to pick the error and to choose how the root is marked;
+	// the marking itself decides atomically which rows the purge may touch.
+	trashedRoots := make([]uuid.UUID, 0, len(lockedRoots))
+	pendingRoots := make([]uuid.UUID, 0, len(lockedRoots))
 	for _, rootID := range lockedRoots {
-		rootSet[rootID] = struct{}{}
-	}
-	for _, row := range rows {
-		id, ok := dbtypes.GoogleUUID(row.ID)
-		if !ok {
+		root, err := s.queries.GetFileForUser(ctx, sqlcgen.GetFileForUserParams{
+			FileID: dbtypes.UUID(rootID), UserID: userID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
-		node := treeNode{File: sqlcgen.File{
-			ID: row.ID, UserID: row.UserID, ParentID: row.ParentID, Name: row.Name,
-			Kind: row.Kind, MimeType: row.MimeType,
-			Size: row.Size, HashAlgorithm: row.HashAlgorithm, HashValue: row.HashValue,
-			Encryption: row.Encryption, EncryptionKeyVersion: row.EncryptionKeyVersion,
-			Status: row.Status, ModTime: row.ModTime, Generation: row.Generation,
-			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, DeletedAt: row.DeletedAt,
-		}, Depth: row.Depth}
-		if _, isRoot := rootSet[id]; isRoot {
-			foundRoots[id] = row.Status
+		if err != nil {
+			return fmt.Errorf("load purge root: %w", err)
 		}
-		if existing, exists := nodesByID[id]; !exists || node.Depth > existing.Depth {
-			nodesByID[id] = node
-		}
-	}
-	for _, rootID := range lockedRoots {
-		status, ok := foundRoots[rootID]
-		if !ok {
-			return ErrNotFound
-		}
-		if status != sqlcgen.FileStatusTrashed && status != sqlcgen.FileStatusDeletionPending {
+		switch root.Status {
+		case sqlcgen.FileStatusTrashed:
+			trashedRoots = append(trashedRoots, rootID)
+		case sqlcgen.FileStatusDeletionPending:
+			pendingRoots = append(pendingRoots, rootID)
+		default:
 			return ErrNotTrashed
 		}
 	}
-	nodes := make([]treeNode, 0, len(nodesByID))
-	ids := make([]uuid.UUID, 0, len(nodesByID))
-	for id, node := range nodesByID {
-		nodes = append(nodes, node)
-		ids = append(ids, id)
+
+	// The rows this purge may delete are the ones a conditional statement reports, not
+	// the ones a snapshot read listed. A trashed root is marked with the statement that
+	// only matches trashed roots, which is what keeps the marking from racing a restore:
+	// a restore that commits before the statement leaves the root active, so the
+	// statement changes nothing and the call fails instead of destroying a subtree the
+	// user just got back, and a restore that commits after it finds no trashed root to
+	// reactivate. A root that is already deletion_pending is a retry of an earlier purge
+	// of that root, which a restore can no longer touch because it only reactivates
+	// trashed rows, so its pending rows are listed again and only those stay in the set.
+	ids := make([]uuid.UUID, 0)
+	marked := make(map[uuid.UUID]*sqlcgen.File)
+	for _, rootID := range trashedRoots {
+		files, err := s.queries.QueueFileSubtreePurge(ctx, sqlcgen.QueueFileSubtreePurgeParams{
+			UserID: userID, FileID: dbtypes.UUID(rootID),
+		})
+		if err != nil {
+			return fmt.Errorf("mark subtree deletion pending: %w", err)
+		}
+		// The root was read as trashed a moment ago, so an empty result means a
+		// concurrent restore or purge changed it in between.
+		if len(files) == 0 {
+			return ErrNotTrashed
+		}
+		if err := addMarkedRows(files, marked, &ids); err != nil {
+			return err
+		}
+	}
+	for _, rootID := range pendingRoots {
+		if err := listPendingSubtree(ctx, s.queries, userID, rootID, marked, &ids); err != nil {
+			return err
+		}
 	}
 	fileIDs := pgUUIDs(ids)
-	if err := s.queries.MarkFileIDsDeletionPending(ctx, sqlcgen.MarkFileIDsDeletionPendingParams{
-		UserID: userID, FileIds: fileIDs,
-	}); err != nil {
-		return fmt.Errorf("mark subtree deletion pending: %w", err)
+	// The statement returns the changed rows so their ids are known, but not their
+	// distance from the root, which the deletion below needs to remove children
+	// before their parents. The tree is in hand, so the distance is derived from the
+	// parent links rather than read from a second query that could see a different
+	// tree than the one that was just marked.
+	byDepth, err := depthByFileID(ids, marked)
+	if err != nil {
+		return err
 	}
 	s.catalog.InvalidateFiles(ctx, userID, ids...)
 
@@ -880,14 +901,9 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	}); err != nil {
 		return fmt.Errorf("clear purge upload session parents: %w", err)
 	}
-	byDepth := make(map[int32][]uuid.UUID)
-	depths := make([]int32, 0)
-	for _, node := range nodes {
-		id, _ := dbtypes.GoogleUUID(node.File.ID)
-		if _, ok := byDepth[node.Depth]; !ok {
-			depths = append(depths, node.Depth)
-		}
-		byDepth[node.Depth] = append(byDepth[node.Depth], id)
+	depths := make([]int32, 0, len(byDepth))
+	for depth := range byDepth {
+		depths = append(depths, depth)
 	}
 	slices.SortFunc(depths, func(a, b int32) int { return cmp.Compare(b, a) })
 	for _, depth := range depths {
@@ -909,11 +925,172 @@ func (s *Service) PurgeMany(ctx context.Context, userID int64, rootIDs []uuid.UU
 	return nil
 }
 
+// depthByFileID groups the given ids by their distance from the top of the marked
+// subtree they belong to, so the caller can delete the deepest ids first and no child
+// outlives its parent. The distance comes from the parent links of the marked rows
+// themselves, which keeps the grouping on the tree that was just marked instead of on
+// a tree a second query might read after it changed. A parent that is not part of the
+// marked set ends the walk, so a row whose ancestor was removed in the meantime counts
+// as a root of its own, and a parent chain that is not a tree is rejected with
+// ErrNotFound rather than walked forever.
+func depthByFileID(ids []uuid.UUID, marked map[uuid.UUID]*sqlcgen.File) (map[int32][]uuid.UUID, error) {
+	byDepth := make(map[int32][]uuid.UUID)
+	depthOf := make(map[uuid.UUID]int32, len(ids))
+	for _, id := range ids {
+		if _, err := markedDepth(id, marked, depthOf); err != nil {
+			return nil, err
+		}
+		depth := depthOf[id]
+		byDepth[depth] = append(byDepth[depth], id)
+	}
+	return byDepth, nil
+}
+
+// addMarkedRows records the rows a purge marking statement reports, in the order they
+// arrived and without duplicates, so a root that overlaps another root of the same call
+// appears once. An id the database cannot represent is a broken row, reported as
+// ErrNotFound like the other id conversions of this package.
+func addMarkedRows(files []*sqlcgen.File, marked map[uuid.UUID]*sqlcgen.File, ids *[]uuid.UUID) error {
+	for _, file := range files {
+		id, ok := dbtypes.GoogleUUID(file.ID)
+		if !ok {
+			return ErrNotFound
+		}
+		if _, seen := marked[id]; seen {
+			continue
+		}
+		marked[id] = file
+		*ids = append(*ids, id)
+	}
+	return nil
+}
+
+// listPendingSubtree records the rows of rootID that are still deletion_pending, which
+// is the set a retried purge may finish deleting. The subtree is walked one folder level
+// at a time, so a level of a wide folder costs one page of rows rather than one query
+// per row, and a row that is not itself deletion_pending is not descended into: a
+// descendant that became active again in the meantime must not be marked and deleted
+// along with the rest. The root itself has to be pending, which the read that precedes
+// this call already established; losing it to a concurrent purge is reported as
+// ErrNotFound like the other conversions of this package.
+func listPendingSubtree(ctx context.Context, queries *sqlcgen.Queries, userID int64, rootID uuid.UUID, marked map[uuid.UUID]*sqlcgen.File, ids *[]uuid.UUID) error {
+	// pendingPageSize is the page size the catalog listing uses as its own ceiling, so a
+	// full page cannot be mistaken for the end of a folder.
+	const pendingPageSize = 500
+	type queuedFolder struct {
+		id   uuid.UUID
+		page uuid.UUID
+		name string
+	}
+	root, err := queries.GetFileForUser(ctx, sqlcgen.GetFileForUserParams{
+		FileID: dbtypes.UUID(rootID), UserID: userID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load pending purge root: %w", err)
+	}
+	if root.Status != sqlcgen.FileStatusDeletionPending {
+		return ErrNotFound
+	}
+	pending := []*sqlcgen.File{root}
+	visited := map[uuid.UUID]struct{}{rootID: {}}
+	queue := []queuedFolder{{id: rootID}}
+	for len(queue) > 0 {
+		folder := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		afterName := pgtype.Text{}
+		afterID := pgtype.UUID{}
+		if folder.page != uuid.Nil {
+			afterName = pgtype.Text{String: folder.name, Valid: true}
+			afterID = dbtypes.UUID(folder.page)
+		}
+		children, err := queries.ListFiles(ctx, sqlcgen.ListFilesParams{
+			UserID:    userID,
+			ParentID:  dbtypes.UUID(folder.id),
+			Status:    sqlcgen.FileStatusDeletionPending,
+			PageSize:  pendingPageSize,
+			AfterName: afterName,
+			AfterID:   afterID,
+		})
+		if err != nil {
+			return fmt.Errorf("list pending purge folder: %w", err)
+		}
+		if len(children) == pendingPageSize {
+			last := children[len(children)-1]
+			lastID, ok := dbtypes.GoogleUUID(last.ID)
+			if !ok {
+				return ErrNotFound
+			}
+			queue = append(queue, queuedFolder{id: folder.id, page: lastID, name: last.Name})
+		}
+		for _, child := range children {
+			childID, ok := dbtypes.GoogleUUID(child.ID)
+			if !ok || child.UserID != userID {
+				return ErrNotFound
+			}
+			if _, seen := visited[childID]; seen {
+				continue
+			}
+			visited[childID] = struct{}{}
+			pending = append(pending, child)
+			if child.Kind == sqlcgen.FileKindFolder {
+				queue = append(queue, queuedFolder{id: childID})
+			}
+		}
+	}
+	return addMarkedRows(pending, marked, ids)
+}
+
+// markedDepth returns the distance of id from the top of the marked subtree it belongs
+// to and memoizes every distance it walks through into depthOf, so a whole subtree is
+// walked once. A parent that is not marked ends the walk, which makes the child a root
+// of its own. An id reached twice during one walk means the parent links form a cycle,
+// which no tree in this schema should have: that is reported as ErrNotFound so the
+// caller stops instead of looping, and the rejected distances are not memoized.
+func markedDepth(id uuid.UUID, marked map[uuid.UUID]*sqlcgen.File, depthOf map[uuid.UUID]int32) (int32, error) {
+	type ancestor struct {
+		id    uuid.UUID
+		depth int32
+	}
+	walk := make([]ancestor, 0, 4)
+	walked := make(map[uuid.UUID]struct{}, 4)
+	current := id
+	var depth int32
+	for {
+		if known, ok := depthOf[current]; ok {
+			depth += known
+			break
+		}
+		if _, ok := walked[current]; ok {
+			return 0, ErrNotFound
+		}
+		// A row that hangs below a parent outside the marked set is as deep as a root
+		// of this purge, which is depth 0, and the walk cannot go any higher.
+		row, ok := marked[current]
+		if !ok {
+			break
+		}
+		walked[current] = struct{}{}
+		walk = append(walk, ancestor{id: current, depth: depth})
+		parentID, ok := dbtypes.GoogleUUID(row.ParentID)
+		if !ok {
+			break
+		}
+		current = parentID
+		depth++
+	}
+	for _, entry := range walk {
+		depthOf[entry.id] = entry.depth + depth
+	}
+	return depthOf[id], nil
+}
+
 // loadTree reads the whole subtree under rootID for userID with one recursive query,
 // ordered by depth, and returns ErrNotFound when the root does not exist or belongs to
-// another user, so a foreign file is indistinguishable from a missing one. Unlike the
-// multi-root variant PurgeMany uses, it neither filters nor deduplicates rows; Copy
-// validates the returned statuses itself.
+// another user, so a foreign file is indistinguishable from a missing one. It neither
+// filters nor deduplicates rows; Copy validates the returned statuses itself.
 func (s *Service) loadTree(ctx context.Context, userID int64, rootID uuid.UUID) ([]treeNode, error) {
 	rows, err := s.queries.LoadFileSubtree(ctx, sqlcgen.LoadFileSubtreeParams{
 		RootID: dbtypes.UUID(rootID), UserID: userID,

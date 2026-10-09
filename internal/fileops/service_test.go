@@ -49,6 +49,77 @@ func TestServiceValidationAndUUIDConversion(t *testing.T) {
 	}
 }
 
+// TestDepthByFileIDGroupsPurgeRowsByDistance pins the deletion order PurgeMany derives
+// from the rows its marking statement returned. A parent that is not part of the marked
+// set ends the walk, so a row below it counts as a root of the purge, and a parent chain
+// that loops is refused instead of walked forever.
+func TestDepthByFileIDGroupsPurgeRowsByDistance(t *testing.T) {
+	t.Parallel()
+	root, child, grandchild := uuid.New(), uuid.New(), uuid.New()
+	depth2, depth3 := uuid.New(), uuid.New()
+	detached := uuid.New()
+	file := func(id uuid.UUID, parent *uuid.UUID, status sqlcgen.FileStatus) *sqlcgen.File {
+		row := &sqlcgen.File{ID: dbtypes.UUID(id), Status: status}
+		if parent != nil {
+			row.ParentID = dbtypes.UUID(*parent)
+		}
+		return row
+	}
+	// The parent of detached is not marked, so the walk stops there and the row counts
+	// as a root of this purge.
+	unmarkedParent := uuid.New()
+	marked := map[uuid.UUID]*sqlcgen.File{
+		root:       file(root, nil, sqlcgen.FileStatusDeletionPending),
+		child:      file(child, &root, sqlcgen.FileStatusDeletionPending),
+		grandchild: file(grandchild, &child, sqlcgen.FileStatusDeletionPending),
+		depth2:     file(depth2, &child, sqlcgen.FileStatusDeletionPending),
+		depth3:     file(depth3, &depth2, sqlcgen.FileStatusDeletionPending),
+		detached:   file(detached, &unmarkedParent, sqlcgen.FileStatusDeletionPending),
+	}
+	ids := []uuid.UUID{root, child, grandchild, depth2, depth3, detached}
+	byDepth, err := depthByFileID(ids, marked)
+	if err != nil {
+		t.Fatalf("depthByFileID() error = %v", err)
+	}
+	// Only the grouping matters to the caller, which deletes one depth at a time, so
+	// the ids of each depth are compared as a set.
+	got := make(map[int32]map[uuid.UUID]struct{}, len(byDepth))
+	for depth, depthIDs := range byDepth {
+		got[depth] = make(map[uuid.UUID]struct{}, len(depthIDs))
+		for _, id := range depthIDs {
+			got[depth][id] = struct{}{}
+		}
+	}
+	want := map[int32][]uuid.UUID{
+		0: {root},
+		1: {child, detached},
+		2: {grandchild, depth2},
+		3: {depth3},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("depthByFileID() depths = %v, want %v", byDepth, want)
+	}
+	for depth, expected := range want {
+		if len(got[depth]) != len(expected) {
+			t.Fatalf("depthByFileID() depth %d = %v, want %v", depth, byDepth[depth], expected)
+		}
+		for _, id := range expected {
+			if _, ok := got[depth][id]; !ok {
+				t.Fatalf("depthByFileID() depth %d = %v, want %v", depth, byDepth[depth], expected)
+			}
+		}
+	}
+
+	cyclicA, cyclicB := uuid.New(), uuid.New()
+	cyclic := map[uuid.UUID]*sqlcgen.File{
+		cyclicA: file(cyclicA, &cyclicB, sqlcgen.FileStatusDeletionPending),
+		cyclicB: file(cyclicB, &cyclicA, sqlcgen.FileStatusDeletionPending),
+	}
+	if _, err := depthByFileID([]uuid.UUID{cyclicA, cyclicB}, cyclic); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("depthByFileID(cycle) error = %v, want ErrNotFound", err)
+	}
+}
+
 // copyPartResponse is one scripted storage answer: the part CopyPart reports, which
 // stays zero when the storage cannot identify the message it published, and the error
 // it reports with it.

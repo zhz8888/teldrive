@@ -300,6 +300,68 @@ VALUES ($1,1,9001,30,4,4,repeat('c',64),decode(repeat('cd',32),'hex'))`, childID
 	}
 }
 
+// TestRestoreDuringPurgeDoesNotResurrectTheSubtree pins the interleaving that used to
+// lose data: a purge marks the rows of a trashed subtree, a user restores that subtree
+// while the purge is deleting its Telegram messages, and the purge then removes the
+// rows anyway. The marking is conditional on the root still being trashed, so the
+// restore either runs first, in which case the purge refuses to mark anything, or it
+// finds no trashed root to reactivate; the test does not care which side wins, only
+// that the file is never active below a purge that deletes it.
+func TestRestoreDuringPurgeDoesNotResurrectTheSubtree(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	if _, err := db.Pool.Exec(ctx, "INSERT INTO users (user_id) VALUES (1001)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, "INSERT INTO channels (channel_id,user_id,name,selected) VALUES (9001,1001,'storage',true)"); err != nil {
+		t.Fatal(err)
+	}
+	rootID, childID := uuid.New(), uuid.New()
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO files (id,user_id,parent_id,name,kind,size,encryption,status,mod_time,deleted_at)
+VALUES
+($1,1001,NULL,'folder','folder',NULL,false,'trashed',now(),now()),
+($2,1001,$1,'child','file',1,false,'trashed',now(),now())`, rootID, childID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO file_parts (file_id,part_no,channel_id,message_id,plain_size,stored_size,checksum,block_hashes)
+VALUES ($1,1,9001,10,1,1,repeat('a',64),decode(repeat('ab',32),'hex'))`, childID); err != nil {
+		t.Fatal(err)
+	}
+
+	catalogService := catalog.NewService(db.Pool, nil)
+	storage := &fileStorage{messages: map[int64][]byte{10: []byte("data")}}
+	service, err := NewService(db.Pool, catalogService, channels.NewService(db.Pool, nil, channels.Config{PartLimit: 100}), storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restoreErr error
+	var restoreOnce sync.Once
+	storage.deleteHook = func() {
+		// The mark has already been applied at this point, so the restore runs against
+		// a subtree the purge has claimed.
+		restoreOnce.Do(func() {
+			_, restoreErr = catalogService.Restore(ctx, 1001, rootID)
+		})
+	}
+	if err := service.Purge(ctx, 1001, rootID); err != nil {
+		t.Fatalf("Purge() error = %v", err)
+	}
+	storage.deleteHook = nil
+	if restoreErr != nil && !errors.Is(restoreErr, catalog.ErrNotFound) {
+		t.Fatalf("Restore() during purge error = %v, want nil or ErrNotFound", restoreErr)
+	}
+	var active int
+	if err := db.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM files WHERE user_id = 1001 AND status = 'active'").Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 0 {
+		t.Fatalf("active files after the raced purge = %d, want 0", active)
+	}
+}
+
 func TestPurgeManyGroupsTelegramMessagesByChannel(t *testing.T) {
 	db := testpostgres.New(t)
 	ctx := context.Background()
@@ -410,8 +472,8 @@ FROM children`, rootID); err != nil {
 	if got := tracer.count("TryAdvisoryLocks"); got != 1 {
 		t.Fatalf("TryAdvisoryLocks queries = %d, want 1", got)
 	}
-	if got := tracer.count("LoadFileSubtrees"); got != 1 {
-		t.Fatalf("LoadFileSubtrees queries = %d, want 1", got)
+	if got := tracer.count("QueueFileSubtreePurge"); got != 1 {
+		t.Fatalf("QueueFileSubtreePurge queries = %d, want 1", got)
 	}
 	if got := tracer.count("DeleteFileCatalogRowsByIDs"); got != 2 {
 		t.Fatalf("DeleteFileCatalogRowsByIDs queries = %d, want 2", got)
@@ -550,6 +612,10 @@ type fileStorage struct {
 	failCopyAt int
 	// deleteCalls records the message IDs of each successful DeleteMessages call.
 	deleteCalls [][]int64
+	// deleteHook, when set, runs inside DeleteMessages after the storage lock is
+	// released and before the messages are touched. A test uses it to let another
+	// operation interleave with a purge that is already past its marking step.
+	deleteHook func()
 }
 
 // Upload reports an error: these tests seed their parts instead of uploading.
@@ -570,8 +636,15 @@ func (s *fileStorage) OpenRange(_ context.Context, request telegramstore.RangeRe
 }
 
 // DeleteMessages records the call and removes the messages, unless deleteErr is set,
-// in which case it fails without recording or deleting anything.
+// in which case it fails without recording or deleting anything. deleteHook runs after
+// the storage lock is released, so whatever it does cannot deadlock with this call.
 func (s *fileStorage) DeleteMessages(_ context.Context, _ int64, _ int64, ids []int64) error {
+	s.mu.Lock()
+	hook := s.deleteHook
+	s.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.deleteErr != nil {
@@ -643,8 +716,8 @@ func sliceLengths(values [][]int64) []int {
 
 // purgeQueryTracer counts the catalog queries a purge issues by looking for the sqlc
 // "-- name:" marker at the head of each statement. It pins the purge down to one
-// advisory-lock pass, one subtree load and one delete per tree depth, so a fallback
-// to per-file statements on the 1000-child fixture is caught.
+// advisory-lock pass, one conditional marking per root and one delete per tree depth,
+// so a fallback to per-file statements on the 1000-child fixture is caught.
 type purgeQueryTracer struct {
 	// mu guards counts, which may be incremented while the query runs.
 	mu sync.Mutex
@@ -655,7 +728,7 @@ type purgeQueryTracer struct {
 // TraceQueryStart counts the statements of the watched queries and returns ctx
 // unchanged.
 func (t *purgeQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	for _, name := range []string{"TryAdvisoryLocks", "LoadFileSubtrees", "DeleteFileCatalogRowsByIDs"} {
+	for _, name := range []string{"TryAdvisoryLocks", "QueueFileSubtreePurge", "DeleteFileCatalogRowsByIDs"} {
 		if strings.Contains(data.SQL, "-- name: "+name) {
 			t.mu.Lock()
 			if t.counts == nil {
