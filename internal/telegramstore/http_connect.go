@@ -27,8 +27,8 @@ type httpConnectDialer struct {
 	forward proxy.ContextDialer
 	// timeout bounds tunnel setup as a whole: connecting to the proxy, the TLS
 	// handshake for an https proxy, and the CONNECT exchange. Zero leaves the
-	// caller's context deadline as the only limit. It does not constrain the
-	// established tunnel.
+	// caller's context deadline and cancellation as the only limits. It does
+	// not constrain the established tunnel.
 	timeout time.Duration
 }
 
@@ -55,7 +55,11 @@ func (d *httpConnectDialer) Dial(network, address string) (net.Conn, error) {
 // CONNECT request is sent with basic proxy credentials, and an https proxy is
 // contacted over TLS with a minimum version of TLS 1.2. The returned connection
 // is the raw tunnel and belongs to the caller, who must close it. The CONNECT
-// response body is deliberately neither closed nor drained: some proxies add
+// exchange itself carries a connection deadline, the earlier of the dialer
+// timeout and any context deadline, and a context cancellation interrupts it, so
+// a proxy that accepts TCP and then never answers cannot block the dial forever;
+// that deadline is cleared before the tunnel is returned. The CONNECT response
+// body is deliberately neither closed nor drained: some proxies add
 // Transfer-Encoding or Content-Length to a 2xx response, and draining those
 // bytes would block forever on framing that never arrives. A failed exchange
 // closes the underlying connection before returning.
@@ -101,14 +105,51 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 		Host:   address,
 		Header: header,
 	}
+
+	// The CONNECT exchange needs its own deadline: the dialer that opened the
+	// connection to the proxy drops its deadline once the TCP connection is
+	// established, so a proxy that accepts the connection and then never answers
+	// would otherwise block the write or the response read forever. Take the
+	// earlier of the dialer timeout and any caller context deadline.
+	deadline := time.Time{}
+	if d.timeout > 0 {
+		deadline = time.Now().Add(d.timeout)
+	}
+	if ctxDeadline, hasDeadline := ctx.Deadline(); hasDeadline && (deadline.IsZero() || ctxDeadline.Before(deadline)) {
+		deadline = ctxDeadline
+	}
+	if !deadline.IsZero() {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return nil, fmt.Errorf("set HTTP CONNECT exchange deadline: %w", err)
+		}
+	}
+
+	// Cancelling the context also has to interrupt a blocked write or read,
+	// including when neither the dialer timeout nor the caller set a deadline.
+	// Expiring the connection deadline is enough to do that. The interrupt is
+	// stopped and awaited below, before the deadline is cleared, so it cannot
+	// leave an expired deadline on the established tunnel.
+	interrupted := make(chan struct{})
+	stopInterrupt := context.AfterFunc(ctx, func() {
+		defer close(interrupted)
+		_ = conn.SetDeadline(time.Now())
+	})
+	defer stopInterrupt()
+	// A context that is already done when the interrupt is registered must not
+	// race the deadline set above, which would replace the immediate expiry with
+	// a future one; fail here instead.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("start HTTP CONNECT exchange: %w", err)
+	}
+
 	if err := request.Write(conn); err != nil {
-		return nil, fmt.Errorf("write HTTP CONNECT request: %w", err)
+		return nil, fmt.Errorf("write HTTP CONNECT request: %w", connectExchangeError(ctx, err))
 	}
 
 	reader := bufio.NewReader(conn)
 	response, err := http.ReadResponse(reader, request)
 	if err != nil {
-		return nil, fmt.Errorf("read HTTP CONNECT response: %w", err)
+		return nil, fmt.Errorf("read HTTP CONNECT response: %w", connectExchangeError(ctx, err))
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("HTTP CONNECT proxy returned %s", response.Status)
@@ -119,8 +160,28 @@ func (d *httpConnectDialer) DialContext(ctx context.Context, network, address st
 	// the 2xx response. Do not close/drain response.Body here: those bytes are
 	// the raw tunneled stream, and draining them can block forever waiting for
 	// HTTP framing that does not exist.
+	//
+	// The exchange is over, so retire the cancel interrupt, wait out one that
+	// already started, and clear the deadline: the tunnel that follows is
+	// forwarded by the caller and must not inherit either.
+	if !stopInterrupt() {
+		<-interrupted
+	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		return nil, fmt.Errorf("clear HTTP CONNECT exchange deadline: %w", err)
+	}
 	ok = true
 	return &bufferedConn{Conn: conn, reader: reader}, nil
+}
+
+// connectExchangeError returns the context error when ctx ended, so a CONNECT
+// step that cancellation interrupted is not reported as the i/o timeout that
+// expiring the connection deadline produces; otherwise it returns err unchanged.
+func connectExchangeError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
 }
 
 // bufferedConn is the tunnel connection returned by DialContext. It exists to

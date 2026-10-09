@@ -2,6 +2,7 @@ package telegramstore
 
 import (
 	"context"
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -128,6 +129,13 @@ func TestTelegramRangeReaderBoundsReadAheadBehindSlowChunk(t *testing.T) {
 	go func() {
 		errCh <- reader.fill(ctx, api, &tg.InputDocumentFileLocation{}, 0, 3*telegramReadChunk, nil)
 	}()
+	// The chunk budget covers the prefetched chunks as well, so fill can only
+	// reach the end of the range while a consumer drains it.
+	drained := make(chan error, 1)
+	go func() {
+		_, err := io.CopyN(io.Discard, reader, 3*telegramReadChunk)
+		drained <- err
+	}()
 
 	started := map[int64]bool{}
 	for len(started) < 2 {
@@ -163,6 +171,14 @@ func TestTelegramRangeReaderBoundsReadAheadBehindSlowChunk(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("fill() did not complete")
+	}
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Fatalf("drain error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the range was not delivered completely")
 	}
 }
 
@@ -312,5 +328,113 @@ func (i *rpcTimeoutThenSuccessDownloadInvoker) Invoke(_ context.Context, input b
 	}
 	box := output.(*tg.UploadFileBox)
 	box.File = &tg.UploadFile{Bytes: make([]byte, request.Limit)}
+	return nil
+}
+
+func TestTelegramRangeReaderCloseWaitsForFill(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	reader := newTelegramRangeReader(ctx, cancel, 2, 1)
+	closed := make(chan struct{})
+	go func() {
+		_ = reader.Close()
+		close(closed)
+	}()
+
+	// Close cancels the stream, but that cancellation is not a substitute for the
+	// fill goroutine ending: until finish reports the outcome, the fetches and
+	// their payloads are still alive.
+	select {
+	case <-closed:
+		t.Fatal("Close() returned before the fill goroutine finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	reader.finish(nil)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close() did not return after the fill goroutine finished")
+	}
+}
+
+func TestTelegramRangeReaderKeepsChunkBudgetAcrossPrefetchAndFetches(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		buffers  int
+		parallel int
+		want     int
+	}{
+		{name: "defaults", buffers: 0, parallel: 0, want: defaultTelegramReadBuffers},
+		{name: "budget above parallelism", buffers: 32, parallel: 4, want: 32},
+		{name: "budget equals parallelism", buffers: 4, parallel: 4, want: 4},
+		{name: "budget below parallelism", buffers: 2, parallel: 8, want: 2},
+		{name: "single chunk budget", buffers: 1, parallel: 4, want: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			reader := newTelegramRangeReader(ctx, cancel, test.buffers, test.parallel)
+			// The chunks waiting in the prefetch channel and the fetches that hold
+			// a payload before it reaches that channel both count against the
+			// budget, which is what callers read as the per stream memory bound.
+			if held := cap(reader.buffers) + reader.parallel; held != test.want {
+				t.Fatalf("chunks held = %d (%d prefetched + %d in flight), want %d",
+					held, cap(reader.buffers), reader.parallel, test.want)
+			}
+		})
+	}
+}
+
+func TestTelegramRangeReaderDeliversRangeWithSingleChunkBudget(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// One chunk of budget with more fetches configured is the tightest
+	// configuration: the reader narrows the fetch window to the budget and leaves
+	// the prefetch channel unbuffered, so the range must still arrive complete and
+	// in order instead of stalling.
+	api := tg.NewClient(&offsetPatternDownloadInvoker{})
+	reader := newTelegramRangeReader(ctx, cancel, 1, 4)
+	length := int64(3*telegramReadChunk + 777)
+	go func() {
+		reader.finish(reader.fill(ctx, api, &tg.InputDocumentFileLocation{}, 0, length, nil))
+	}()
+
+	got := make([]byte, 0, length)
+	buf := make([]byte, 64*1024)
+	for int64(len(got)) < length {
+		n, err := reader.Read(buf)
+		if err != nil {
+			t.Fatalf("Read() error = %v after %d bytes", err, len(got))
+		}
+		got = append(got, buf[:n]...)
+	}
+	for index, value := range got {
+		if value != byte(index) {
+			t.Fatalf("byte at %d = %d, want %d", index, value, byte(index))
+		}
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+// offsetPatternDownloadInvoker serves every request with a payload whose bytes
+// encode the absolute offset they belong to, so a test can verify that a reader
+// reassembles a range in order and without gaps.
+type offsetPatternDownloadInvoker struct{}
+
+// Invoke fills the response with the absolute offset of each byte.
+func (i *offsetPatternDownloadInvoker) Invoke(_ context.Context, input bin.Encoder, output bin.Decoder) error {
+	request := input.(*tg.UploadGetFileRequest)
+	payload := make([]byte, request.Limit)
+	for index := range payload {
+		payload[index] = byte(request.Offset + int64(index))
+	}
+	box := output.(*tg.UploadFileBox)
+	box.File = &tg.UploadFile{Bytes: payload}
 	return nil
 }

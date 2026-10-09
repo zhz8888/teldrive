@@ -33,12 +33,13 @@ const (
 	// telegramReadAlign is the 4 KiB granularity Telegram requires for the
 	// offset and limit of an upload.getFile request.
 	telegramReadAlign = 4 * 1024
-	// defaultTelegramReadBuffers is the number of prefetched chunks a range
-	// reader buffers when no option or pool setting overrides it.
+	// defaultTelegramReadBuffers is the number of chunk payloads a range reader
+	// holds at once when no option or pool setting overrides it.
 	defaultTelegramReadBuffers = 32
 	// defaultTelegramReadParallel is the number of concurrent chunk fetches per
 	// stream, and the number of connections requested for a download session,
-	// when no option or pool setting overrides it.
+	// when no option or pool setting overrides it. A range reader narrows the
+	// fetches to its chunk budget, so fewer may run at once.
 	defaultTelegramReadParallel = 4
 	// defaultTelegramReadTimeout bounds one upload.getFile attempt; an attempt
 	// that times out is retried while attempts remain.
@@ -89,12 +90,14 @@ type GotdStorage struct {
 	// downloadPool, when set, makes OpenDownloadSession lease a shared client;
 	// nil gives every session its own private client.
 	downloadPool *DownloadClientPool
-	// downloadReadBuffers is the number of prefetched chunks per download
-	// stream; it starts at defaultTelegramReadBuffers.
+	// downloadReadBuffers is the number of chunk payloads a download stream holds
+	// at once, shared between the prefetched chunks and the fetches in flight; it
+	// starts at defaultTelegramReadBuffers.
 	downloadReadBuffers int
 	// downloadReadParallel is the number of concurrent chunk fetches per stream
 	// and the number of connections requested per download session; it starts at
-	// defaultTelegramReadParallel.
+	// defaultTelegramReadParallel. A range reader narrows the fetches to its chunk
+	// budget, so fewer may run at once.
 	downloadReadParallel int
 	// globalCache caches document locations so repeated reads of one message do
 	// not resolve it again; nil disables caching.
@@ -120,8 +123,9 @@ func WithDownloadClientPool(pool *DownloadClientPool) GotdStorageOption {
 	return func(storage *GotdStorage) { storage.downloadPool = pool }
 }
 
-// WithDownloadReadBuffers sets the number of prefetched chunks per download
-// stream. Values below one are ignored, so the default stays in place.
+// WithDownloadReadBuffers sets the number of chunk payloads a download stream
+// holds at once, covering both the prefetched chunks and the fetches in flight.
+// Values below one are ignored, so the default stays in place.
 func WithDownloadReadBuffers(buffers int) GotdStorageOption {
 	return func(storage *GotdStorage) {
 		if buffers > 0 {
@@ -131,8 +135,9 @@ func WithDownloadReadBuffers(buffers int) GotdStorageOption {
 }
 
 // WithDownloadReadParallel sets the number of concurrent chunk fetches per
-// stream, which is also the connection count requested for a download session.
-// Values below one are ignored, so the default stays in place.
+// stream, which is also the connection count requested for a download session;
+// a range reader runs no more fetches than its chunk budget allows. Values below
+// one are ignored, so the default stays in place.
 func WithDownloadReadParallel(parallel int) GotdStorageOption {
 	return func(storage *GotdStorage) {
 		if parallel > 0 {
@@ -349,11 +354,13 @@ type gotdDownloadSession struct {
 	closed bool
 	// mu guards api, err, closed, and clientID.
 	mu sync.Mutex
-	// downloadReadBuffers is the number of prefetched chunks per range reader
-	// opened by this session.
+	// downloadReadBuffers is the number of chunk payloads a range reader opened
+	// by this session holds at once, covering prefetched chunks and fetches in
+	// flight.
 	downloadReadBuffers int
-	// downloadReadParallel is the number of concurrent chunk fetches per range
-	// reader, and the connection count requested for a private session.
+	// downloadReadParallel is the requested number of concurrent chunk fetches
+	// per range reader, and the connection count requested for a private session;
+	// a reader narrows the fetches to its chunk budget.
 	downloadReadParallel int
 	// clientID is the Telegram account ID that scopes the document location
 	// cache. It is zero until a private client is running; a pooled session is
@@ -580,9 +587,11 @@ func (s *gotdDownloadSession) Close() error {
 
 // telegramRangeReader is a sequential io.ReadCloser over one byte range of a
 // Telegram document. A fill goroutine fetches aligned chunks ahead of the
-// consumer into a bounded channel, keeping at most parallel fetches in flight,
-// and closes the channel when the range ends or fails. Read must be called from
-// a single goroutine; Close is idempotent and cancels the fetch.
+// consumer into a bounded channel, keeping at most parallel fetches in flight
+// and at most buffers chunk payloads in the stream as a whole, and closes the
+// channel when the range ends or fails. Read must be called from a single
+// goroutine; Close is idempotent, cancels the fetch, and waits for the fill
+// goroutine to finish.
 type telegramRangeReader struct {
 	// ctx is the stream lifetime; it is cancelled by Close and by the caller of
 	// newTelegramRangeReader.
@@ -590,7 +599,9 @@ type telegramRangeReader struct {
 	// cancel cancels ctx, which aborts in-flight fetches.
 	cancel context.CancelFunc
 	// buffers carries prefetched chunks in range order; fill closes it when the
-	// range ends, which makes Read report the terminal error or io.EOF.
+	// range ends, which makes Read report the terminal error or io.EOF. Its
+	// capacity is the chunk budget minus the in-flight window, so the payloads it
+	// holds and the ones still in flight together stay within the budget.
 	buffers chan *telegramRangeBuffer
 	// done is closed by finish after buffers, so Close can wait for the fill
 	// goroutine to stop.
@@ -606,7 +617,9 @@ type telegramRangeReader struct {
 	closeOnce sync.Once
 	// mu guards readErr.
 	mu sync.Mutex
-	// parallel is the maximum number of chunk fetches in flight.
+	// parallel is the maximum number of chunk fetches in flight. It is the
+	// configured parallelism narrowed to the chunk budget, so the payloads of
+	// those fetches and the ones in buffers never exceed that budget together.
 	parallel int
 	// timeout bounds one upload.getFile attempt; a timed-out attempt is retried.
 	timeout time.Duration
@@ -638,12 +651,15 @@ type telegramReadPlan struct {
 	length int
 }
 
-// newTelegramRangeReader returns a reader over the range served on ctx, using a
-// buffer channel of the given size and at most parallel fetches in flight.
-// Non-positive buffer or parallel counts select the package defaults, and the
-// retry policy starts at defaultTelegramReadTimeout and
-// defaultTelegramReadAttempts. The caller keeps ownership of cancel and must
-// invoke it, directly or through Close, to release the fetches.
+// newTelegramRangeReader returns a reader over the range served on ctx that
+// holds at most buffers chunk payloads of the stream in memory, fetching them on
+// at most parallel fetches in flight. The budget covers both the chunks waiting
+// in the buffer channel and the chunks already fetched but not yet handed to the
+// consumer, because each of those still holds its payload. Non-positive buffer
+// or parallel counts select the package defaults, and the retry policy starts at
+// defaultTelegramReadTimeout and defaultTelegramReadAttempts. The caller keeps
+// ownership of cancel and must invoke it, directly or through Close, to release
+// the fetches.
 func newTelegramRangeReader(ctx context.Context, cancel context.CancelFunc, buffers, parallel int) *telegramRangeReader {
 	if buffers <= 0 {
 		buffers = defaultTelegramReadBuffers
@@ -651,10 +667,20 @@ func newTelegramRangeReader(ctx context.Context, cancel context.CancelFunc, buff
 	if parallel <= 0 {
 		parallel = defaultTelegramReadParallel
 	}
+	// Clamp the fetch window to the chunk budget: a fetch that has not been
+	// handed over yet still holds its payload, so allowing more fetches in flight
+	// than the whole budget would exceed the ceiling, which is what callers of
+	// the configuration read as the per stream memory bound. The window keeps at
+	// least one fetch, which is what makes the range advance, and when the
+	// configured parallelism meets or exceeds the budget the channel ends up
+	// unbuffered, so every chunk moves straight from a fetch to the consumer.
+	if parallel > buffers {
+		parallel = buffers
+	}
 	return &telegramRangeReader{
 		ctx: ctx, cancel: cancel, parallel: parallel,
 		timeout: defaultTelegramReadTimeout, attempts: defaultTelegramReadAttempts,
-		buffers: make(chan *telegramRangeBuffer, buffers), done: make(chan struct{}),
+		buffers: make(chan *telegramRangeBuffer, buffers-parallel), done: make(chan struct{}),
 	}
 }
 
@@ -690,15 +716,15 @@ func (r *telegramRangeReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// Close cancels the stream and waits until the fill goroutine finished or the
-// stream context is done, whichever comes first. It is idempotent and always
-// returns nil, so a reader can be closed on every error path.
+// Close cancels the stream and waits until the fill goroutine finished. It is
+// idempotent and always returns nil, so a reader can be closed on every error
+// path. Cancelling first is what bounds the wait: it aborts the in-flight
+// fetches, and the fill goroutine always reports its outcome through finish,
+// which closes done, so the reader does not release the resources of a download
+// that is still running.
 func (r *telegramRangeReader) Close() error {
 	r.closeOnce.Do(func() { r.cancel() })
-	select {
-	case <-r.done:
-	case <-r.ctx.Done():
-	}
+	<-r.done
 	return nil
 }
 
@@ -717,12 +743,14 @@ func (r *telegramRangeReader) finish(err error) {
 
 // fill fetches the requested range in aligned chunks on up to parallel
 // goroutines and pushes them into the reader's buffer channel in range order,
-// so a slow consumer waits instead of accumulating unbounded read-ahead. Each
-// chunk is attempted up to attempts times with a per-attempt timeout, and a
-// download rejected with FILE_REFERENCE_EXPIRED triggers one shared refresh
-// before that chunk is retried. It returns the first terminal error, from the
-// stream context or from a chunk that ran out of attempts, and reports the
-// outcome through finish rather than closing the reader itself.
+// so a slow consumer waits instead of accumulating unbounded read-ahead; the
+// chunks in flight and the ones already queued share the reader's chunk budget,
+// which is what bounds the read-ahead in bytes. Each chunk is attempted up to
+// attempts times with a per-attempt timeout, and a download rejected with
+// FILE_REFERENCE_EXPIRED triggers one shared refresh before that chunk is
+// retried. It returns the first terminal error, from the stream context or from
+// a chunk that ran out of attempts, and reports the outcome through finish
+// rather than closing the reader itself.
 func (r *telegramRangeReader) fill(ctx context.Context, api *tg.Client, location *tg.InputDocumentFileLocation, offset, remaining int64, refresh func(context.Context) (*tg.InputDocumentFileLocation, error)) error {
 	type readResult struct {
 		seq     int64
