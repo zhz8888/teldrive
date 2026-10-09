@@ -1,6 +1,7 @@
 .git
 bin
 coverage.out
+ui/dist
 node_modules
 *.local
 .env
