@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
-import { defaultLocale, prefixPath, type LocaleCode } from '../lib/i18n';
+import { defaultLocale, isUnlocalizedPath, prefixPath, type LocaleCode } from '../lib/i18n';
 
 /**
  * withPrefix resolves a documentation href for one locale. Site-rooted hrefs
@@ -11,9 +11,8 @@ import { defaultLocale, prefixPath, type LocaleCode } from '../lib/i18n';
 function withPrefix(locale: LocaleCode, href: string | undefined) {
   if (!href || locale === defaultLocale) return href;
   if (!href.startsWith('/') || href.startsWith('//')) return href;
-  // The Scalar API reference and OG images are single, language-neutral routes
-  // served from the site root, not documentation pages.
-  if (href === '/api' || href.startsWith('/api/') || href.startsWith('/og/')) return href;
+  // Routes published in one language only keep their site-rooted path.
+  if (isUnlocalizedPath(href)) return href;
   // Asset paths such as /og/docs/x/image.webp are served by the site root.
   if (/\.[a-zA-Z0-9]+$/.test(href)) return href;
 

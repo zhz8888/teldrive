@@ -4,7 +4,7 @@ import { type CollectionEntry, getCollection } from 'astro:content';
 import * as path from 'node:path';
 import { structure, type StructuredData } from 'fumadocs-core/mdx-plugins';
 import type { Node, Root } from 'fumadocs-core/page-tree';
-import { defaultLocale, type LocaleCode, prefixPath } from './i18n';
+import { defaultLocale, isUnlocalizedPath, type LocaleCode, prefixPath } from './i18n';
 
 /** One locale's fumadocs loader together with the page tree built from it. */
 export interface LocaleSource {
@@ -133,10 +133,14 @@ function prefixBase(url: string) {
  * Chinese page to the English page of the same slug.
  */
 export function localizedURL(locale: LocaleCode, url: string): string {
-  if (locale === defaultLocale) return url;
-
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const path = url.startsWith(base) ? url.slice(base.length) : url;
+  // The API reference and the OG images live at the site root in one language
+  // only, so they keep the path the tree already carries: the Chinese sidebar's
+  // API entry links to /api/, and a locale prefix would send it to /zh/api/,
+  // which is never built.
+  if (locale === defaultLocale || isUnlocalizedPath(path)) return url;
+
   return prefixBase(prefixPath(locale, path === '/' ? '' : path));
 }
 

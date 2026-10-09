@@ -12,6 +12,21 @@ export type LocaleCode = keyof typeof locales;
 /** The locale published without a URL prefix, which is also the fallback. */
 export const defaultLocale: LocaleCode = 'en';
 
+/**
+ * isUnlocalizedPath reports whether a site-rooted path belongs to a route that
+ * is published in one language only: the Scalar API reference and the generated
+ * OG images. Neither has a localized counterpart, so a locale prefix must never
+ * be added to it — the Chinese sidebar entry points at /api/, and rewriting that
+ * into /zh/api/ is a 404 because no Chinese API page is ever built.
+ *
+ * A hash or query is dropped before the check: those identify a place inside the
+ * route, not another route.
+ */
+export function isUnlocalizedPath(path: string): boolean {
+  const [route] = path.split(/[?#]/);
+  return route === '/api' || route.startsWith('/api/') || route.startsWith('/og/');
+}
+
 /** Locale codes in declaration order; switchers and path builders iterate this. */
 export const localeCodes = Object.keys(locales) as LocaleCode[];
 
