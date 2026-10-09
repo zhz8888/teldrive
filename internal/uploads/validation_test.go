@@ -31,6 +31,14 @@ func TestServiceRejectsInvalidInputsBeforeDatabaseAccess(t *testing.T) {
 			_, err := svc.Create(ctx, CreateInput{UserID: 1, Name: "x", ExpectedSize: -2})
 			return err
 		}, want: ErrInvalidInput},
+		{name: "create size above the part limits", call: func() error {
+			_, err := svc.Create(ctx, CreateInput{UserID: 1, Name: "x", ExpectedSize: math.MaxInt64})
+			return err
+		}, want: ErrInvalidInput},
+		{name: "create size just above what the default part size addresses", call: func() error {
+			_, err := svc.Create(ctx, CreateInput{UserID: 1, Name: "x", ExpectedSize: defaultPartSize*maxUploadParts + 1})
+			return err
+		}, want: ErrInvalidInput},
 		{name: "create blank name", call: func() error {
 			_, err := svc.Create(ctx, CreateInput{UserID: 1, Name: " \t "})
 			return err

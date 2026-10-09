@@ -2,6 +2,7 @@ package uploads
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,6 +21,13 @@ func TestExpectedPartCount(t *testing.T) {
 		{4, 4, 1},
 		{5, 4, 2},
 		{10, 4, 3},
+		// A size near MaxInt64 used to overflow size+partSize-1 and report one part,
+		// which no session could ever satisfy: validating such a session is a mismatch
+		// and never an accidental hit.
+		{math.MaxInt64, 4, (math.MaxInt64-3)/4 + 1},
+		// The largest size Create accepts is exactly maxUploadParts parts of the
+		// maximum part size, which pins the ceiling to the part limits.
+		{maxPartSize * maxUploadParts, maxPartSize, maxUploadParts},
 	}
 	for _, tt := range cases {
 		if got := expectedPartCount(tt.size, tt.partSize); got != tt.want {

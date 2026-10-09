@@ -248,8 +248,9 @@ type CreateInput struct {
 
 // Create validates in and inserts a new upload session in the open state, expiring
 // sessionTTL after creation. It returns ErrInvalidInput for a malformed request
-// (non-positive user, size below -1, a name that is blank after trimming, only one
-// half of the expected hash, an encryption flag that disagrees with the key version),
+// (non-positive user, size below -1 or above what the part limits can address, a name
+// that is blank after trimming, only one half of the expected hash, an encryption flag
+// that disagrees with the key version, or a part size above the configured ceiling),
 // ErrUnsupportedConflictPolicy for a policy outside fail, replace and rename,
 // ErrInvalidParent when ParentID is not an active folder of the user, and otherwise
 // the raw error of CreateUploadSession, with no wrapping added.
@@ -303,6 +304,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*sqlcgen.UploadSe
 		in.PartSize = s.defaultPartSize
 	}
 	if in.PartSize > s.maxPartSize {
+		return nil, ErrInvalidInput
+	}
+	// The ceiling is the largest size the part limits can address: every part below
+	// the last holds at most the effective part size here, and a session cannot hold
+	// more parts than maxUploadParts. Accepting more would let the part count exceed
+	// what a part number can address, so the session could never be completed. The
+	// product is bounded by maxPartSize*maxUploadParts, far below MaxInt64, which is
+	// what keeps the part arithmetic on ExpectedSize exact.
+	if in.ExpectedSize > in.PartSize*maxUploadParts {
 		return nil, ErrInvalidInput
 	}
 	modTime := in.ModTime
@@ -646,21 +656,24 @@ func (s *Service) FailPart(ctx context.Context, in FailPartInput) (*sqlcgen.Uplo
 }
 
 // Complete publishes a session as a catalog file inside a single transaction. It
-// locks the session row, verifies that every part is stored and contiguous,
-// recomputes the file's tree hash from the stored block hashes and compares it
-// with the expected hash, resolves the destination name through the session's
-// conflict policy, and finally inserts the file and its parts before committing.
+// locks the session row, checks that the destination folder is still an active folder
+// of the user, verifies that every part is stored and contiguous, recomputes the
+// file's tree hash from the stored block hashes and compares it with the expected
+// hash, resolves the destination name through the session's conflict policy, and
+// finally inserts the file and its parts before committing.
 //
 // Completing an already completed session is idempotent and returns the file it
 // published. An open session whose deadline has passed fails with ErrExpired, a
 // session in the completing, aborted or expired state with ErrInvalidState, and an
-// unknown id with ErrNotFound. Every error rolls the transaction back, so the
-// session stays open and the uploader can repair it and retry. ErrIncomplete,
-// ErrHashMismatch, ErrNameConflict and ErrNotFound reach the caller as those
-// sentinels, directly or, for the parts-count mismatch, wrapped with %w, so
-// errors.Is matches all of them. A replace-policy completion marks the previous
-// file deletion_pending, revokes its shares inside the transaction, and invalidates
-// its catalog cache entry after the commit.
+// unknown id with ErrNotFound. A destination folder that was trashed, purged or
+// turned into a file since the session was created fails with ErrInvalidParent, so
+// no active file is ever published below a non-active ancestor. Every error rolls the
+// transaction back, so the session stays open and the uploader can repair it and
+// retry. ErrIncomplete, ErrHashMismatch, ErrNameConflict, ErrInvalidParent and
+// ErrNotFound reach the caller as those sentinels, directly or, for the parts-count
+// mismatch, wrapped with %w, so errors.Is matches all of them. A replace-policy
+// completion marks the previous file deletion_pending, revokes its shares inside the
+// transaction, and invalidates its catalog cache entry after the commit.
 func (s *Service) Complete(ctx context.Context, userID int64, uploadID uuid.UUID) (*sqlcgen.File, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidInput
@@ -698,6 +711,24 @@ func (s *Service) Complete(ctx context.Context, userID int64, uploadID uuid.UUID
 	}
 	if !session.ExpiresAt.Time.After(s.now()) {
 		return nil, ErrExpired
+	}
+	// The parent was checked when the session was created, which can be long before
+	// this point, so it is checked once more before anything is published: completing
+	// into a folder that has since been trashed or purged would insert an active file
+	// below a non-active ancestor. Such a row is invisible to every listing and is
+	// deleted for good together with the folder it hangs below. The check runs before
+	// the session is moved to 'completing' and before any row is marked, so a failure
+	// leaves the session open for a retry, exactly like the other completion errors.
+	if parentID, ok := dbtypes.GoogleUUID(session.ParentID); ok {
+		if _, err := q.GetActiveFolderForUser(ctx, sqlcgen.GetActiveFolderForUserParams{
+			FolderID: dbtypes.UUID(parentID),
+			UserID:   userID,
+		}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrInvalidParent
+			}
+			return nil, fmt.Errorf("get upload parent: %w", err)
+		}
 	}
 
 	completedSize, err := validateStoredParts(ctx, tx, session)
@@ -1053,12 +1084,17 @@ func validateStoredParts(ctx context.Context, tx pgx.Tx, session *sqlcgen.Upload
 
 // expectedPartCount returns how many partSize parts cover size bytes, rounding up.
 // A zero-byte upload needs no parts at all. size must be non-negative and partSize
-// positive; callers finalize an open-ended session's size before using it.
+// positive; callers finalize an open-ended session's size before using it. The count
+// is computed from the quotient and the remainder rather than from size+partSize-1,
+// which would overflow for a size close to MaxInt64; Create holds ExpectedSize far
+// below that, but this helper is also called on rows written before that limit
+// existed.
 func expectedPartCount(size, partSize int64) int64 {
-	if size == 0 {
-		return 0
+	parts := size / partSize
+	if size%partSize != 0 {
+		parts++
 	}
-	return (size + partSize - 1) / partSize
+	return parts
 }
 
 // normalizeExpectedHash lowercases the algorithm, requires it to be the only

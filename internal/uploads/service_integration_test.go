@@ -253,6 +253,52 @@ func TestUploadAbortZeroByteAndNameConflict(t *testing.T) {
 	}
 }
 
+// TestCompleteRejectsAParentTrashedWhileUploading pins that a session created in a
+// folder that is trashed while its parts are being uploaded cannot publish an active
+// file below that folder. The parent was active when the session was created, so
+// without the recheck at completion the published file would hang below a trashed
+// ancestor, invisible to every listing and deleted for good with that ancestor's purge.
+// The rejected completion leaves the session open and writes no file, so the uploader
+// can repair the folder and retry.
+func TestCompleteRejectsAParentTrashedWhileUploading(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	seedUploadOwner(t, db.Pool, 1001, 9001)
+	svc := uploads.NewService(db.Pool)
+
+	folderID := uuid.New()
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO files (id,user_id,name,kind,mime_type,encryption,status,mod_time)
+VALUES ($1,1001,'inbox','folder','inode/directory',false,'active',now())`, folderID); err != nil {
+		t.Fatal(err)
+	}
+	session, err := svc.Create(ctx, uploads.CreateInput{
+		UserID: 1001, Name: "report.txt", ExpectedSize: 0, ParentID: &folderID,
+	})
+	if err != nil {
+		t.Fatalf("create upload in the folder: %v", err)
+	}
+	uploadID := mustUploadUUID(t, session.ID)
+	if _, err := db.Pool.Exec(ctx, "UPDATE files SET status = 'trashed', deleted_at = now() WHERE id = $1", folderID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Complete(ctx, 1001, uploadID); !errors.Is(err, uploads.ErrInvalidParent) {
+		t.Fatalf("Complete() into a trashed folder error = %v, want ErrInvalidParent", err)
+	}
+	stillOpen, err := svc.Get(ctx, 1001, uploadID)
+	if err != nil || stillOpen.State != sqlcgen.UploadStateOpen {
+		t.Fatalf("session after the rejected completion = %#v, %v", stillOpen, err)
+	}
+	var published int
+	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM files WHERE parent_id = $1", folderID).Scan(&published); err != nil {
+		t.Fatal(err)
+	}
+	if published != 0 {
+		t.Fatalf("files published below the trashed folder = %d, want 0", published)
+	}
+}
+
 func TestUploadConflictPoliciesAgainstRealPostgres(t *testing.T) {
 	db := testpostgres.New(t)
 	ctx := context.Background()
