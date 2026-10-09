@@ -57,7 +57,7 @@ jobs:
           bun install --frozen-lockfile --cwd docs
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: extractions/setup-just@v4
 
       - name: Install sqlc
         run: |
@@ -86,7 +86,7 @@ jobs:
       # comparison leaves no way to see the image that was actually rendered.
       - name: Upload the Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
