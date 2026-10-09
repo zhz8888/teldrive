@@ -51,8 +51,10 @@ func TestFindBrokenFiles(t *testing.T) {
 		{MessageID: 12, FileID: mustTestFileUUID("22222222-2222-2222-2222-222222222222"), FileName: "a.bin", FileSize: pgtype.Int8{Int64: 10, Valid: true}},
 		{MessageID: 13, FileID: mustTestFileUUID("22222222-2222-2222-2222-222222222222"), FileName: "a.bin", FileSize: pgtype.Int8{Int64: 10, Valid: true}},
 	}
-	seen := map[int64]struct{}{10: {}, 12: {}}
-	broken := findBrokenFiles(seen, rows, 9001)
+	// The sweep removes every message the channel returned from its referenced
+	// set, so the messages the listing never showed are the ones left over.
+	missing := map[int64]struct{}{11: {}, 13: {}}
+	broken := findBrokenFiles(missing, rows, 9001)
 	if len(broken) != 2 {
 		t.Fatalf("findBrokenFiles() len = %d, want 2", len(broken))
 	}
@@ -65,7 +67,7 @@ func TestFindBrokenFiles(t *testing.T) {
 	if broken[0].FileID != "22222222-2222-2222-2222-222222222222" || broken[0].Size != 10 || broken[0].ChannelID != 9001 {
 		t.Fatalf("a.bin entry = %+v", broken[0])
 	}
-	if got := findBrokenFiles(map[int64]struct{}{10: {}, 11: {}, 12: {}, 13: {}}, rows, 9001); len(got) != 0 {
+	if got := findBrokenFiles(map[int64]struct{}{}, rows, 9001); len(got) != 0 {
 		t.Fatalf("len = %d, want 0", len(got))
 	}
 }

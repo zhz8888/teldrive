@@ -90,8 +90,11 @@ type BrokenFile struct {
 }
 
 // findBrokenFiles returns files with referenced messages absent from the
-// Telegram listing, grouped by file and sorted by name.
-func findBrokenFiles(seen map[int64]struct{}, rows []*sqlcgen.ListChannelReferencedPartsRow, channelID int64) []BrokenFile {
+// Telegram listing, grouped by file and sorted by name. missing holds the
+// referenced message IDs the channel listing never returned, so a channel whose
+// history was fully walked can be checked without keeping that history in
+// memory.
+func findBrokenFiles(missing map[int64]struct{}, rows []*sqlcgen.ListChannelReferencedPartsRow, channelID int64) []BrokenFile {
 	type pending struct {
 		name string
 		size int64
@@ -100,7 +103,7 @@ func findBrokenFiles(seen map[int64]struct{}, rows []*sqlcgen.ListChannelReferen
 	byFile := make(map[string]*pending)
 	order := make([]string, 0)
 	for _, row := range rows {
-		if _, ok := seen[row.MessageID]; ok {
+		if _, ok := missing[row.MessageID]; !ok {
 			continue
 		}
 		fileID, ok := dbtypes.GoogleUUID(row.FileID)
@@ -194,8 +197,14 @@ func (w *OrphanedTelegramPartsCleanupWorker) Timeout(*river.Job[OrphanCleanupArg
 // the database still references, and a page whose cursor does not advance aborts
 // the run instead of looping forever. Messages are deleted page by page, so a run
 // that fails halfway leaves the earlier pages deleted; the retry lists whatever is
-// still there and converges. Once a channel has been fully listed, the referenced
-// parts that never appeared in it are reported as broken files.
+// still there and converges.
+//
+// The referenced parts of a channel are read once, before its history is walked,
+// and every message the listing returns is removed from that set. What is left
+// afterwards is the referenced parts the channel no longer holds, which are
+// reported as broken files; the sweep never has to remember a channel's whole
+// history, so its memory is bounded by the parts the database references rather
+// than by the size of the channel.
 //
 // It returns ErrOrphanCleanupNotConfigured when the worker is missing its pool,
 // lister or Telegram storage, so a misconfigured runtime fails with a sentinel
@@ -213,7 +222,22 @@ func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *rive
 	brokenFiles := make([]BrokenFile, 0)
 	for _, channel := range channels {
 		channelScanned, channelDeleted, channelBroken := 0, 0, 0
-		seen := make(map[int64]struct{})
+		// The referenced parts are the only message IDs the sweep has to
+		// remember, and every message the channel returns removes its ID from that
+		// set, so what is left after the walk is exactly what the channel no
+		// longer holds. Accumulating the listed IDs instead would keep one entry
+		// per message of a channel that may have served as storage for years,
+		// which is hundreds of megabytes for a channel with millions of messages.
+		referencedParts, err := w.queries.ListChannelReferencedParts(ctx, sqlcgen.ListChannelReferencedPartsParams{
+			TargetChannelID: channel.ChannelID, TargetUserID: channel.UserID,
+		})
+		if err != nil {
+			return fmt.Errorf("list referenced parts for channel %d: %w", channel.ChannelID, err)
+		}
+		missing := make(map[int64]struct{}, len(referencedParts))
+		for _, part := range referencedParts {
+			missing[part.MessageID] = struct{}{}
+		}
 		beforeID := int64(0)
 		for {
 			page, err := w.lister.ListDocumentMessages(ctx, telegramstore.ListDocumentMessagesRequest{
@@ -225,7 +249,7 @@ func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *rive
 			scanned += len(page.Messages)
 			channelScanned += len(page.Messages)
 			for _, message := range page.Messages {
-				seen[message.ID] = struct{}{}
+				delete(missing, message.ID)
 			}
 			candidateIDs := make([]int64, 0, len(page.Messages))
 			for _, message := range page.Messages {
@@ -234,14 +258,14 @@ func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *rive
 				}
 			}
 			if len(candidateIDs) > 0 {
-				referenced, err := w.queries.ListReferencedMessageIDs(ctx, sqlcgen.ListReferencedMessageIDsParams{
+				referencedIDs, err := w.queries.ListReferencedMessageIDs(ctx, sqlcgen.ListReferencedMessageIDsParams{
 					TargetChannelID: channel.ChannelID, MessageIds: candidateIDs,
 				})
 				if err != nil {
 					return fmt.Errorf("list referenced messages for channel %d: %w", channel.ChannelID, err)
 				}
-				refs := make(map[int64]struct{}, len(referenced))
-				for _, id := range referenced {
+				refs := make(map[int64]struct{}, len(referencedIDs))
+				for _, id := range referencedIDs {
 					refs[id] = struct{}{}
 				}
 				orphans := candidateIDs[:0]
@@ -266,13 +290,7 @@ func (w *OrphanedTelegramPartsCleanupWorker) Work(ctx context.Context, job *rive
 			}
 			beforeID = page.BeforeID
 		}
-		referenced, err := w.queries.ListChannelReferencedParts(ctx, sqlcgen.ListChannelReferencedPartsParams{
-			TargetChannelID: channel.ChannelID, TargetUserID: channel.UserID,
-		})
-		if err != nil {
-			return fmt.Errorf("list referenced parts for channel %d: %w", channel.ChannelID, err)
-		}
-		channelBrokenFiles := findBrokenFiles(seen, referenced, channel.ChannelID)
+		channelBrokenFiles := findBrokenFiles(missing, referencedParts, channel.ChannelID)
 		brokenFiles = append(brokenFiles, channelBrokenFiles...)
 		brokenTotal += len(channelBrokenFiles)
 		channelBroken = len(channelBrokenFiles)
