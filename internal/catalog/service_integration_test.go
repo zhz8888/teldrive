@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,6 +96,68 @@ FROM generate_series(1, 500) AS value`); err != nil {
 	}
 	if got := tracer.Count("MoveFileWithName"); got != 0 {
 		t.Fatalf("MoveFileWithName queries = %d, want 0", got)
+	}
+}
+
+// TestBulkMoveSwapDoesNotDeadlock pins that two moves can swap two folders without
+// taking the same two rows in opposite orders. The move locks the destination folder
+// and the moving rows in one ORDER BY id statement, so whichever move gets the
+// destination advisory lock first also takes both rows first and the other one waits;
+// taking the destination folder row in a statement of its own, before the moved rows,
+// left PostgreSQL free to find one transaction holding A and asking for B while the
+// other held B and asked for A, and a PostgreSQL deadlock is a 40P01 the caller cannot
+// recover from. Whichever move loses still reports a cycle, because by then the folder
+// it wants to move into sits under the folder it is moving.
+func TestBulkMoveSwapDoesNotDeadlock(t *testing.T) {
+	db := testpostgres.New(t)
+	ctx := context.Background()
+	seedUser(t, db.Pool, 1001)
+	firstID, secondID := uuid.New(), uuid.New()
+	if _, err := db.Pool.Exec(ctx, `
+INSERT INTO files (id,user_id,name,kind,mime_type,encryption,status,mod_time)
+VALUES
+    ($1,1001,'first','folder','inode/directory',false,'active',now()),
+    ($2,1001,'second','folder','inode/directory',false,'active',now())`, firstID, secondID); err != nil {
+		t.Fatal(err)
+	}
+	svc := catalog.NewService(db.Pool, nil)
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, move := range []struct{ from, into uuid.UUID }{{firstID, secondID}, {secondID, firstID}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := svc.Move(ctx, 1001, move.from, &move.into, nil)
+			results <- err
+		}()
+	}
+	close(start)
+	moved := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(moved)
+	}()
+	select {
+	case <-moved:
+	case <-time.After(30 * time.Second):
+		t.Fatal("concurrent folder swap did not finish, which means the moves deadlocked")
+	}
+	close(results)
+	succeeded := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, catalog.ErrCycle), errors.Is(err, catalog.ErrInvalidParent):
+		default:
+			t.Fatalf("concurrent folder swap error = %v", err)
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("neither move of the concurrent swap succeeded")
 	}
 }
 

@@ -23,13 +23,6 @@ func TestBulkCatalogHelpers(t *testing.T) {
 		}
 	}
 
-	parent := uuid.New()
-	rootLock := catalogDestinationLockID(1001, nil)
-	parentLock := catalogDestinationLockID(1001, &parent)
-	if rootLock == parentLock || rootLock != catalogDestinationLockID(1001, nil) || parentLock != catalogDestinationLockID(1001, &parent) {
-		t.Fatalf("lock IDs are not stable/distinct: root=%d parent=%d", rootLock, parentLock)
-	}
-
 	ids := []uuid.UUID{uuid.New(), uuid.New()}
 	converted := pgUUIDs(ids)
 	if len(converted) != len(ids) {
@@ -61,6 +54,39 @@ func TestBulkCatalogHelpers(t *testing.T) {
 	})
 	if len(stable) != 2 || stable[0] != second || stable[1] != first {
 		t.Fatalf("StableIDs() = %v", stable)
+	}
+}
+
+// TestRowIDsLocksOneDeterministicOrder pins the row-lock list bulkMove hands to its
+// single FOR UPDATE statement. Every move has to present the same ids in the same
+// order, whatever order the caller listed them in, because a statement locks its rows
+// in the order it reads them and moves that acquire rows in different orders deadlock.
+func TestRowIDsLocksOneDeterministicOrder(t *testing.T) {
+	t.Parallel()
+	first := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	second := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	third := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+	for _, tc := range []struct {
+		name     string
+		parentID *uuid.UUID
+		ids      []uuid.UUID
+		want     []uuid.UUID
+	}{
+		{name: "root destination", ids: []uuid.UUID{third, first}, want: []uuid.UUID{first, third}},
+		{name: "folder destination", parentID: &second, ids: []uuid.UUID{third}, want: []uuid.UUID{second, third}},
+		{name: "folder destination after its child", parentID: &third, ids: []uuid.UUID{first}, want: []uuid.UUID{first, third}},
+		{name: "destination is also moved", parentID: &second, ids: []uuid.UUID{second, first}, want: []uuid.UUID{first, second}},
+	} {
+		got := rowIDs(tc.parentID, tc.ids)
+		if len(got) != len(tc.want) {
+			t.Fatalf("rowIDs(%s) = %v, want %v", tc.name, got, tc.want)
+		}
+		for index := range tc.want {
+			if got[index] != tc.want[index] {
+				t.Fatalf("rowIDs(%s) = %v, want %v", tc.name, got, tc.want)
+			}
+		}
 	}
 }
 

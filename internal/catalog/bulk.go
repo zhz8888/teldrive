@@ -2,18 +2,15 @@ package catalog
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/zhz8888/teldrive/v2/internal/db/sqlcgen"
+	"github.com/zhz8888/teldrive/v2/internal/dblock"
 	"github.com/zhz8888/teldrive/v2/internal/dbtypes"
 )
 
@@ -110,14 +107,14 @@ func (s *Service) BulkMove(ctx context.Context, userID int64, ids []uuid.UUID, p
 }
 
 // bulkMove is the shared implementation of MoveWithPolicy and BulkMove. The whole
-// move runs in one transaction: it locks the destination folder and the
-// destination namespace, locks the moving rows, rejects cycles, resolves name
-// conflicts against the entries already there, marks replaced subtrees for
-// deletion and revokes their shares, and finally updates the rows. Any error rolls
-// the transaction back untouched; the cache is invalidated only after the commit,
-// for both the replaced and the moved entries. A nil parentID means the drive
-// root, and expectedGeneration is checked for every moved row, so only the
-// single-entry path passes a non-nil value.
+// move runs in one transaction: it takes the destination namespace advisory lock,
+// locks the destination folder and the moving rows together in a deterministic
+// order, rejects cycles, resolves name conflicts against the entries already
+// there, marks replaced subtrees for deletion and revokes their shares, and
+// finally updates the rows. Any error rolls the transaction back untouched; the
+// cache is invalidated only after the commit, for both the replaced and the moved
+// entries. A nil parentID means the drive root, and expectedGeneration is checked
+// for every moved row, so only the single-entry path passes a non-nil value.
 func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID, parentID *uuid.UUID, expectedGeneration *int64, policy string) ([]*sqlcgen.File, error) {
 	if userID <= 0 {
 		return nil, ErrInvalidOwner
@@ -139,26 +136,26 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 	defer tx.Rollback(ctx)
 	queries := s.queries.WithTx(tx)
 
-	if parentID != nil {
-		if _, err := queries.LockActiveFolder(ctx, sqlcgen.LockActiveFolderParams{
-			FolderID: dbtypes.UUID(*parentID), UserID: userID,
-		}); errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrInvalidParent
-		} else if err != nil {
-			return nil, fmt.Errorf("lock bulk move destination: %w", err)
-		}
-	}
-	if err := queries.AcquireAdvisoryTransactionLock(ctx, catalogDestinationLockID(userID, parentID)); err != nil {
+	// The destination folder is locked as one more row in the single lock statement
+	// below instead of a statement of its own, because that statement takes its row
+	// locks in a deterministic order. Two moves that swap two folders, one moving A
+	// into B while the other moves B into A, would otherwise take the row locks in
+	// opposite orders and deadlock; a deadlock is reported by PostgreSQL as 40P01,
+	// which no caller of this path recovers from. The advisory lock is taken first:
+	// it is the only lock in this transaction that does not come from that sorted
+	// statement, so every transaction here acquires its locks in the same order.
+	if err := queries.AcquireAdvisoryTransactionLock(ctx, dblock.Destination(userID, parentID)); err != nil {
 		return nil, fmt.Errorf("lock bulk move namespace: %w", err)
 	}
 
+	lockIDs := rowIDs(parentID, ids)
 	lockedRows, err := queries.LockActiveFiles(ctx, sqlcgen.LockActiveFilesParams{
-		UserID: userID, FileIds: pgUUIDs(ids),
+		UserID: userID, FileIds: pgUUIDs(lockIDs),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("lock bulk move files: %w", err)
 	}
-	locked := make(map[uuid.UUID]*sqlcgen.File, len(ids))
+	locked := make(map[uuid.UUID]*sqlcgen.File, len(lockIDs))
 	for _, file := range lockedRows {
 		id, ok := fileUUID(file)
 		if !ok {
@@ -166,7 +163,12 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 		}
 		locked[id] = file
 	}
-	if len(locked) != len(ids) {
+	// A folder that is missing, foreign, trashed or not a folder is absent from the
+	// result, exactly as the destination-folder query on its own reported it.
+	if parentID != nil && locked[*parentID] == nil {
+		return nil, ErrInvalidParent
+	}
+	if len(locked) != len(lockIDs) {
 		return nil, ErrNotFound
 	}
 
@@ -186,7 +188,15 @@ func (s *Service) bulkMove(ctx context.Context, userID int64, rawIDs []uuid.UUID
 		}
 		for _, ancestorID := range ancestorIDs {
 			id, ok := dbtypes.GoogleUUID(ancestorID)
-			if ok && locked[id] != nil && locked[id].Kind == sqlcgen.FileKindFolder {
+			if !ok {
+				continue
+			}
+			// The walk starts at the destination itself, which the lock statement above
+			// put into locked as a folder; seeing it there says nothing about a cycle.
+			if id == *parentID {
+				continue
+			}
+			if file := locked[id]; file != nil && file.Kind == sqlcgen.FileKindFolder {
 				return nil, ErrCycle
 			}
 		}
@@ -362,23 +372,28 @@ func splitCatalogName(name string) (string, string) {
 	return name[:index], name[index:]
 }
 
-// catalogDestinationLockID derives the advisory-lock key that serialises moves
-// into one destination namespace, so two concurrent moves cannot both decide that
-// a name is free. The key is a hash of a fixed prefix, the user ID and the parent
-// ID, with 16 zero bytes standing in for the drive root, which makes it stable per
-// user and destination and distinct for every other pair.
-func catalogDestinationLockID(userID int64, parentID *uuid.UUID) int64 {
-	input := []byte("teldrive/catalog-destination/")
-	var user [8]byte
-	binary.BigEndian.PutUint64(user[:], uint64(userID))
-	input = append(input, user[:]...)
+// rowIDs returns the ids that one bulk move row-locks in a single statement: the
+// destination folder, when there is one, followed by the moved entries in ascending
+// UUID order. The sort is what keeps concurrent moves from deadlocking, because
+// PostgreSQL locks the rows of a FOR UPDATE statement in the order the statement
+// reads them, so every move in this package asks for its row locks in the same
+// order and no two of them can hold what the other one waits for. The destination
+// folder is part of the same sorted list for the same reason: locking it in a
+// statement of its own, before the moved entries, is exactly how a move of A into B
+// and a move of B into A used to take the same two rows in opposite orders.
+//
+// A nil parent means the drive root, which is not a row and contributes no id, and
+// a parent that is also one of the moved ids appears once: moving a folder into
+// itself is rejected as a cycle after the lock, so the duplicate must not be
+// counted twice here.
+func rowIDs(parentID *uuid.UUID, ids []uuid.UUID) []uuid.UUID {
+	result := make([]uuid.UUID, 0, len(ids)+1)
 	if parentID != nil {
-		input = append(input, parentID[:]...)
-	} else {
-		input = append(input, make([]byte, 16)...)
+		result = append(result, *parentID)
 	}
-	digest := sha256.Sum256(input)
-	return int64(binary.BigEndian.Uint64(digest[:8]))
+	result = append(result, ids...)
+	slices.SortFunc(result, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	return slices.Compact(result)
 }
 
 // pgUUIDs converts a batch of Google UUIDs into the pgtype form the array
